@@ -1,0 +1,21 @@
+{
+  "name": "CDP Season X Command Center",
+  "short_name": "CDP App",
+  "description": "Live scores, trading block, and FPL intelligence for the Dellarverse.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "https://via.placeholder.com/192/f59e0b/000000?text=CDP",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://via.placeholder.com/512/f59e0b/000000?text=CDP",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
