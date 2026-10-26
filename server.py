@@ -1,7 +1,9 @@
+import os
+import requests
+import json
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from pywebpush import webpush
-import json
 from pathlib import Path
 import engine  # 👈 We are importing your new brain here
 
@@ -10,8 +12,6 @@ base_dir = Path(__file__).resolve().parent
 
 VAPID_PRIVATE_KEY = "SPXvvzkxVdsxWXj-8RfQXdBCxrcQdrgO3NNZXGvNP7Q"
 VAPID_CLAIMS = {"sub": "mailto:commissar@cdp.com"}
-
-latest_subscription = None
 
 @app.get("/")
 def serve_index():
@@ -106,7 +106,6 @@ def get_live_scores(league_id: int = 63):
             "is_fin": is_fin
         }
 
-    # Parallel processing runs all 16 matches concurrently
     with ThreadPoolExecutor(max_workers=10) as executor:
         results = list(executor.map(process_match, gw_matches))
 
@@ -114,37 +113,52 @@ def get_live_scores(league_id: int = 63):
 
 @app.post("/api/save_subscription")
 async def save_subscription(request: Request):
-    global latest_subscription
-    latest_subscription = await request.json()
-    print("\n✅ New device registered for push alerts!")
-    return {"status": "registered"}
+    sub_data = await request.json()
+    
+    upstash_url = os.getenv("UPSTASH_URL")
+    upstash_token = os.getenv("UPSTASH_TOKEN")
+    
+    if upstash_url and upstash_token:
+        headers = {"Authorization": f"Bearer {upstash_token}"}
+        # Save the phone's token to the cloud database permanently
+        requests.post(f"{upstash_url}/set/latest_sub", data=json.dumps(sub_data), headers=headers)
+        
+    return {"status": "saved to cloud database"}
 
 @app.post("/api/trigger_push")
 def trigger_push():
-    global latest_subscription
-    if not latest_subscription:
-        return {"status": "no devices registered yet"}
-
+    upstash_url = os.getenv("UPSTASH_URL")
+    upstash_token = os.getenv("UPSTASH_TOKEN")
+    
+    if not (upstash_url and upstash_token):
+        return {"error": "Database not configured"}
+        
+    # Retrieve the saved token from the database
+    headers = {"Authorization": f"Bearer {upstash_token}"}
+    response = requests.get(f"{upstash_url}/get/latest_sub", headers=headers)
+    data = response.json()
+    
+    if not data.get("result"):
+        return {"error": "No device registered"}
+        
+    sub_data = json.loads(data["result"])
+    
     payload = json.dumps({
-        "title": "🚨 TEAM SHEETS CONFIRMED",
-        "body": "Sunderland vs Leeds lineups dropped! 2 managers have starters benched."
+        "title": "🚨 LIVE FROM THE CLOUD",
+        "body": "Your permanent database is working!"
     })
-
+    
     try:
         webpush(
-            subscription_info = latest_subscription,
-            data = payload,
-            vapid_private_key = VAPID_PRIVATE_KEY,
-            vapid_claims = VAPID_CLAIMS,
-            ttl = 60
+            subscription_info=sub_data,
+            data=payload,
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims=VAPID_CLAIMS
         )
-        print("⚡ Notification delivered to device push service.")
-        return {"status": "sent"}
+        return {"status": "Push sent!"}
     except Exception as e:
-        err_body = e.response.text if hasattr(e, "response") and e.response is not None else str(e)
-        print(f"❌ Delivery error details: {err_body}")
-        return {"status": "error", "message": err_body}
+        return {"error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server:app", host = "127.0.0.1", port = 8000, reload = True)
+    uvicorn.run("server:app", host
