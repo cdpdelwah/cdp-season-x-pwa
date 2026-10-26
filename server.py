@@ -159,6 +159,3 @@ def trigger_push():
     except Exception as e:
         return {"error": str(e)}
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("server:app", host
