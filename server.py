@@ -5,12 +5,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from pywebpush import webpush
 from pathlib import Path
-import engine  # 👈 Your brain engine
+import engine
 
 app = FastAPI()
 base_dir = Path(__file__).resolve().parent
 
-# 👈 THE COMMISSAR'S MASTER KEYRING (32 Managers)
 MANAGER_PINS = {
     "Andy": "1234", "Phil": "1235", "James": "1236", "Jimmy": "1237",
     "Greg": "1238", "Nick": "1239", "Foy": "1240", "Hugh": "1241",
@@ -22,7 +21,6 @@ MANAGER_PINS = {
     "Ben": "1262", "Will": "1263", "Niall": "1264", "Pete": "1265"
 }
 
-# 👈 MANAGER DEFAULT LEAGUE ROUTING
 MANAGER_LEAGUES = {
     "Andy": 63, "James": 63, "Jimmy": 63, "Greg": 63, "Nick": 63, "Foy": 63, "Hugh": 63,
     "Phil": 63, 
@@ -63,11 +61,7 @@ def serve_icon():
 @app.get("/api/league_data")
 def get_league_data():
     teams = engine.get_all_32_teams_registry()
-    return {
-        "status": "success",
-        "manager_count": len(teams) if teams else 0,
-        "data": teams
-    }
+    return {"status": "success", "manager_count": len(teams) if teams else 0, "data": teams}
 
 @app.get("/api/live_scores")
 def get_live_scores(league_id: int = 63, gw: str = "0"):
@@ -155,7 +149,6 @@ async def save_subscription(request: Request):
     sub_data = await request.json()
     upstash_url = os.getenv("UPSTASH_URL")
     upstash_token = os.getenv("UPSTASH_TOKEN")
-    
     if upstash_url and upstash_token:
         headers = {"Authorization": f"Bearer {upstash_token}"}
         requests.post(f"{upstash_url}/set/latest_sub", data=json.dumps(sub_data), headers=headers)
@@ -225,7 +218,7 @@ def get_match_spotlight(m1: str, m2: str, gw: str = "1"):
             events = []
             if int(r.get("G", 0)) > 0: events.append("⚽" * int(r["G"]))
             if int(r.get("A", 0)) > 0: events.append("🎯" * int(r["A"]))
-            if int(r.get("CS", 0)) > 0 and r.get("Pos") in ["GKP", "DEF"]: events.append("🛡️")
+            if int(r.get("CS", 0)) > 0 and str(r.get("Pos", "")) in ["GKP", "DEF"]: events.append("🛡️")
             if int(r.get("Bonus", 0)) > 0: events.append(f"{int(r['Bonus'])}⭐")
             
             p_dict = {
@@ -268,7 +261,7 @@ def get_match_spotlight(m1: str, m2: str, gw: str = "1"):
                 "mins": int(r.get("Mins", 0)),
                 "g": int(r.get("G", 0)),
                 "a": int(r.get("A", 0)),
-                "cs": int(r.get("CS", 0)) if r.get("Pos") in ["GKP", "DEF", "MID"] else "-",
+                "cs": int(r.get("CS", 0)) if str(r.get("Pos", "")) in ["GKP", "DEF", "MID"] else "-",
                 "bonus": int(r.get("Bonus", 0)),
                 "pts": int(r.get("Pts", 0))
             }
@@ -281,7 +274,7 @@ def get_match_spotlight(m1: str, m2: str, gw: str = "1"):
     
     t1_active = engine.get_active_players_from_dfs(t1_start, t1_bench)
     t2_active = engine.get_active_players_from_dfs(t2_start, t2_bench)
-    curr1, curr2 = 0, 0
+    curr1, curr2 = 0
     
     for f in gw_fixtures:
         h_id, a_id = f.get("team_h"), f.get("team_a")

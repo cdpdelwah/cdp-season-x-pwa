@@ -62,6 +62,7 @@
         .pitch-layout { display: flex; gap: 15px; width: 100%; flex-direction: column; }
         .manager-pitch { flex: 1; display: flex; flex-direction: column; }
         .pitch-header { display: flex; justify-content: space-between; font-weight: bold; padding: 5px 0; font-size: 0.9rem; }
+        
         .football-pitch { background: #0d2e1b; border: 2px solid #ffffff33; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; gap: 15px; min-height: 350px; position: relative; }
         .football-pitch::before { content: ''; position: absolute; top: 50%; left: 0; right: 0; border-top: 2px solid #ffffff22; z-index: 0; }
         .pitch-row { display: flex; justify-content: center; gap: 10px; z-index: 1; }
@@ -72,6 +73,7 @@
         .player-points { font-size: 10px; font-weight: bold; color: #f59e0b; background: #182030; padding: 2px 5px; border-radius: 4px; margin-top: 2px; border: 1px solid #333; white-space: nowrap;}
         .subs-tray { background: #060911; border: 1px solid #182030; border-radius: 8px; padding: 10px; display: flex; justify-content: space-around; }
         .subs-header { font-size: 0.75rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin: 10px 0 6px 0; }
+        
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
     </style>
 </head>
@@ -184,7 +186,6 @@
     <script>
         let activeLeagueId = 63;
         
-        // 0. ROUTING & AUTH
         window.onload = () => {
             const savedAlias = localStorage.getItem("cdp_alias");
             if (savedAlias) {
@@ -193,7 +194,8 @@
                 navigate('home');
                 
                 if ("Notification" in window && Notification.permission !== "granted") {
-                    document.getElementById("enable-btn").style.display = "block";
+                    const btn = document.getElementById("enable-btn");
+                    if (btn) btn.style.display = "block";
                 }
             }
         };
@@ -250,7 +252,7 @@
             activeLeagueId = leagueId;
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             document.getElementById(`tab-${leagueId}`).classList.add('active');
-            // Reset dropdown to 0 so when we switch leagues we start on current GW
+            
             const gwSelect = document.getElementById("gw-select");
             if (gwSelect) gwSelect.value = "0";
             fetchLiveScores(leagueId, "0");
@@ -266,7 +268,6 @@
                 
                 document.getElementById("gw-title").innerText = `🔴 LIVE SCORES (GW ${json.gw})`;
                 
-                // Populate GW Dropdown
                 const gwSelect = document.getElementById("gw-select");
                 if (gwSelect.options.length <= 1 && json.all_gws) {
                     gwSelect.innerHTML = `<option value="0">Current GW (${json.gw})</option>`;
@@ -317,7 +318,6 @@
             }
         }
 
-        // PUSH NOTIFICATIONS
         const VAPID_PUBLIC_KEY = "BCVBFGP0PNXvzRz9JuVB2wTj57YL8Mv_v_aSV1R6EyaswT00lPF8eQ7sDGoeI3VBcf_aAQaJXNTUkToaB7gGnNY";
 
         function urlBase64ToUint8Array(base64String) {
