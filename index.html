@@ -618,6 +618,8 @@
             document.getElementById(elementId).innerHTML = html;
         }
 
+        window.pitchPlayersRegistry = {};
+
         function renderPitch(elementId, data, accentColor) {
             const container = document.getElementById(elementId);
             container.innerHTML = '';
@@ -637,21 +639,30 @@
                 </svg>`;
 
             function makeCardHtml(p, pillColor) {
+                const pKey = `${elementId}_${p.name.replace(/[^a-zA-Z0-9]/g, '')}`;
+                window.pitchPlayersRegistry[pKey] = p;
+
                 let flagHtml = '';
                 if (p.flag === 's') flagHtml = '<div class="flag-susp"></div>';
                 else if (p.flag === 'red') flagHtml = '<div class="flag-badge flag-red">+</div>';
                 else if (p.flag === 'orange') flagHtml = '<div class="flag-badge flag-orange">+</div>';
                 else if (p.flag === 'yellow') flagHtml = '<div class="flag-badge flag-yellow">+</div>';
 
+                let subTag = '';
+                if (p.sub_action === 'Subbed On') subTag = '<span style="position:absolute; top:-3px; left:-3px; background:#22c55e; color:#000; font-size:0.55rem; font-weight:800; padding:1px 3px; border-radius:3px;">ON</span>';
+                else if (p.sub_action === 'Subbed Off') subTag = '<span style="position:absolute; top:-3px; left:-3px; background:#ef4444; color:#fff; font-size:0.55rem; font-weight:800; padding:1px 3px; border-radius:3px;">OFF</span>';
+
                 const ev = p.events ? ` <span style="margin-left:2px;">${p.events}</span>` : '';
+                const pillText = p.state === 'YTP' ? '⏳ YTP' : `${p.pts} pts`;
+
                 return `
-                    <div class="player-card">
+                    <div class="player-card" onclick="showPlayerStatsModal('${pKey}', '${accentColor}')" style="cursor:pointer;">
                         <div class="club-token" style="background:${p.bg}; color:${p.text}; border-color:${p.border};">
-                            ${p.club}${flagHtml}
+                            ${p.club}${flagHtml}${subTag}
                         </div>
                         <div class="player-name-pill">${p.name}</div>
                         <div class="player-opp-pill">${p.fixture}</div>
-                        <div class="player-pts-pill" style="border-color:${pillColor}; color:${pillColor};">${p.pts} pts${ev}</div>
+                        <div class="player-pts-pill" style="border-color:${pillColor}; color:${pillColor};">${pillText}${ev}</div>
                     </div>`;
             }
             
@@ -672,6 +683,85 @@
                 subTray.innerHTML = subsHtml;
                 container.appendChild(subTray);
             }
+        }
+
+        function showPlayerStatsModal(pKey, accentColor) {
+            const p = window.pitchPlayersRegistry[pKey];
+            if (!p) return;
+
+            let modalEl = document.getElementById('player-stat-popup');
+            if (!modalEl) {
+                modalEl = document.createElement('div');
+                modalEl.id = 'player-stat-popup';
+                modalEl.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.82); backdrop-filter:blur(5px); z-index:2000; display:flex; justify-content:center; align-items:center; padding:16px;';
+                modalEl.onclick = (e) => { if (e.target.id === 'player-stat-popup') modalEl.style.display = 'none'; };
+                document.body.appendChild(modalEl);
+            }
+
+            let gridHtml = `
+                <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Minutes:</span><span style="color:#fff; font-weight:800;">${p.mins}'</span></div>
+                <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Goals ⚽:</span><span style="color:#fff; font-weight:800;">${p.g}</span></div>
+                <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Assists 🎯:</span><span style="color:#fff; font-weight:800;">${p.a}</span></div>
+                <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Bonus ⭐:</span><span style="color:#fff; font-weight:800;">${p.bonus}</span></div>
+            `;
+
+            if (p.yc > 0 || p.rc > 0) {
+                let cList = [];
+                if (p.yc > 0) cList.push(`${p.yc} 🟨 (-${p.yc} pt)`);
+                if (p.rc > 0) cList.push(`${p.rc} 🟥 (-${p.rc * 3} pts)`);
+                gridHtml += `<div style="grid-column:span 2; background:#270606; border:1px solid #ef4444; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#ef4444; font-weight:700;">Cards:</span><span style="color:#ef4444; font-weight:800;">${cList.join(', ')}</span></div>`;
+            } else {
+                gridHtml += `
+                    <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Yellow Cards 🟨:</span><span style="color:#fff; font-weight:800;">0</span></div>
+                    <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Red Cards 🟥:</span><span style="color:#fff; font-weight:800;">0</span></div>
+                `;
+            }
+
+            if (['GKP', 'DEF', 'MID'].includes(p.pos)) {
+                gridHtml += `
+                    <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Clean Sheet 🛡️:</span><span style="color:#fff; font-weight:800;">${p.cs}</span></div>
+                    <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Conceded 🛑:</span><span style="color:#fff; font-weight:800;">${p.gc}</span></div>
+                `;
+            }
+            if (p.pos === 'GKP') {
+                gridHtml += `<div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Saves 🧤:</span><span style="color:#fff; font-weight:800;">${p.saves}</span></div>`;
+                if (p.p_saved > 0) {
+                    gridHtml += `<div style="background:#052210; border:1px solid #22c55e; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#22c55e; font-weight:700;">Pens Saved 🧤:</span><span style="color:#22c55e; font-weight:800;">${p.p_saved} (+5 pts)</span></div>`;
+                }
+            }
+            if (p.defcon_hit) {
+                gridHtml += `<div style="grid-column:span 2; background:#052210; border:1px solid #22c55e; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#22c55e; font-weight:700;">DEFCON Threshold:</span><span style="color:#22c55e; font-weight:800;">ACHIEVED (+2 pts)</span></div>`;
+            }
+            if (p.p_missed > 0) {
+                gridHtml += `<div style="grid-column:span 2; background:#270606; border:1px solid #ef4444; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#ef4444; font-weight:700;">Penalty Missed ❌:</span><span style="color:#ef4444; font-weight:800;">${p.p_missed} (-2 pts)</span></div>`;
+            }
+
+            let subStatus = 'Starting XI';
+            if (p.sub_action === 'Subbed On') subStatus = '<span style="color:#22c55e;">▲ Active: Auto Subbed On into Lineup</span>';
+            else if (p.sub_action === 'Subbed Off') subStatus = '<span style="color:#ef4444;">▼ Replaced: Subbed Off (DNP)</span>';
+            else if (p.is_bench) subStatus = 'Subs';
+
+            const oppText = p.fixture ? ` • vs ${p.fixture}` : '';
+            modalEl.innerHTML = `
+                <div style="background:#090c13; border:2px solid ${accentColor}; border-radius:12px; width:92%; max-width:340px; padding:16px 18px; box-shadow:0 10px 30px rgba(0,0,0,0.95); position:relative;">
+                    <span onclick="document.getElementById('player-stat-popup').style.display='none'" style="position:absolute; top:10px; right:14px; color:#94a3b8; font-size:1.3rem; font-weight:bold; cursor:pointer;">✕</span>
+                    <div style="font-size:1.25rem; font-weight:800; color:#fff; margin-right:24px;">${p.name}</div>
+                    <div style="font-size:0.85rem; color:#94a3b8; margin-bottom:12px; font-weight:600;">${p.pos} • ${p.club}${oppText} (${p.state})</div>
+                    <div style="display:flex; justify-content:space-between; align-items:baseline; background:#0f1523; border-radius:8px; padding:8px 12px; margin-bottom:12px; border-left:4px solid ${accentColor};">
+                        <div>
+                            <span style="font-size:0.72rem; color:#94a3b8; font-weight:700; text-transform:uppercase;">Match Total</span>
+                            <div style="font-size:1.75rem; font-weight:900; color:${accentColor};">${p.pts} PTS</div>
+                        </div>
+                        <div style="text-align:right;">
+                            <span style="font-size:0.72rem; color:#94a3b8; font-weight:700;">GW PROJECTION</span>
+                            <div style="font-size:1.15rem; font-weight:800; color:#cbd5e1;">${p.proj} pts</div>
+                        </div>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">${gridHtml}</div>
+                    <div style="font-size:0.78rem; color:#94a3b8; text-align:center; font-weight:600; margin-top:6px;">${subStatus}</div>
+                </div>
+            `;
+            modalEl.style.display = 'flex';
         }
 
         function closeModal() {

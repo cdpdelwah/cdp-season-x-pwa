@@ -66,11 +66,230 @@ VAPID_CLAIMS = {"sub": "mailto:commissar@cdp.com"}
 
 def safe_int(val):
     try:
-        if val is None:
+        if val is None or val == "":
             return 0
         return int(float(val))
     except Exception:
         return 0
+
+
+def extract_defcon_flag(elem_stats, elem_explain, pos_type):
+    if not isinstance(elem_stats, dict):
+        return False
+    cbi = safe_int(elem_stats.get("clearances_blocks_interceptions", 0) or elem_stats.get("cbi", 0))
+    tackles = safe_int(elem_stats.get("tackles", 0))
+    recoveries = safe_int(elem_stats.get("recoveries", 0) or elem_stats.get("ball_recoveries", 0))
+    dc_direct = safe_int(elem_stats.get("defensive_contributions", 0) or elem_stats.get("defcon", 0) or elem_stats.get("cbit", 0))
+
+    calc_val = dc_direct if dc_direct > 0 else (cbi + tackles + recoveries if pos_type in [3, 4] else cbi + tackles)
+    is_hit = False
+    explain_val = 0
+    stat_items = []
+
+    if isinstance(elem_explain, list):
+        for item in elem_explain:
+            if isinstance(item, dict):
+                if "stats" in item and isinstance(item["stats"], list):
+                    stat_items.extend(item["stats"])
+                else:
+                    stat_items.append(item)
+            elif isinstance(item, list):
+                for sub in item:
+                    if isinstance(sub, dict):
+                        stat_items.append(sub)
+
+    for s_item in stat_items:
+        if isinstance(s_item, dict):
+            ident = str(s_item.get("identifier", "")).lower()
+            pts = safe_int(s_item.get("points", 0))
+            val = safe_int(s_item.get("value", 0))
+            if ident in ["defensive_contributions", "defcon", "cbit", "cbi"] and (pts >= 2 or val >= 10):
+                is_hit = True
+                explain_val = max(explain_val, val)
+
+    final_val = max(calc_val, explain_val)
+    threshold = 10 if pos_type == 2 else 12
+    return (pos_type in [2, 3, 4] and final_val >= threshold) or is_hit
+
+
+def full_evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw=1, all_fixtures_list=None):
+    if not picks_list or not picks_list.get("picks"):
+        return [], [], 0, 0.0, 0, 0, 0, 0
+
+    def get_avail_mult(raw_elem):
+        status = str(raw_elem.get("status", "a")).lower()
+        chance = raw_elem.get("chance_of_playing_next_round")
+        if status in ["i", "s", "u"]:
+            return 0.0
+        if chance is not None:
+            try:
+                val = float(chance)
+                if val >= 75: return 0.9
+                if val >= 50: return 0.6
+                if val >= 25: return 0.3
+                return 0.0
+            except Exception:
+                pass
+        return 0.6 if status == "d" else 1.0
+
+    def get_fdr_mult(team_id):
+        if not all_fixtures_list or not team_id:
+            return 1.0
+        gw_fixes = [f for f in all_fixtures_list if f.get("event") == current_gw]
+        if not gw_fixes:
+            return 1.0
+        team_fixes = [f for f in gw_fixes if f.get("team_h") == team_id or f.get("team_a") == team_id]
+        if not team_fixes:
+            return 0.0
+        total = 0.0
+        for fix in team_fixes:
+            diff = fix.get("team_h_difficulty", 3) if fix.get("team_h") == team_id else fix.get("team_a_difficulty", 3)
+            total += 1.10 if diff <= 2 else (1.00 if diff == 3 else (0.92 if diff == 4 else 0.85))
+        return total
+
+    raw_players = []
+    for p in picks_list.get("picks", []):
+        elem_id = p["element"]
+        raw_elem = element_lookup.get(elem_id, {})
+        e_data = live_elements.get(str(elem_id)) or live_elements.get(elem_id) or {}
+        stats = e_data.get("stats", {}) if isinstance(e_data, dict) else {}
+        explain_raw = e_data.get("explain", []) if isinstance(e_data, dict) else []
+
+        pos_type = raw_elem.get("element_type", 1)
+        pos_str = pos_map.get(pos_type, "MID")
+        club_id = raw_elem.get("team")
+
+        opp_str = "-"
+        if all_fixtures_list and club_id:
+            team_fixes = [
+                f for f in all_fixtures_list
+                if f.get("event") == current_gw and (f.get("team_h") == club_id or f.get("team_a") == club_id)
+            ]
+            if team_fixes:
+                opp_labels = []
+                for tf in team_fixes:
+                    if tf.get("team_h") == club_id:
+                        opp_labels.append(f"{team_map.get(tf.get('team_a'), 'OPP')} (H)")
+                    else:
+                        opp_labels.append(f"{team_map.get(tf.get('team_h'), 'OPP')} (A)")
+                opp_str = ", ".join(opp_labels)
+            else:
+                opp_str = "Blank"
+
+        mins = safe_int(stats.get("minutes", 0))
+        pts = safe_int(stats.get("total_points", 0))
+        team_mins = club_minutes.get(club_id, 0)
+
+        avail = get_avail_mult(raw_elem)
+        form_val = float(raw_elem.get("form") or 0.0)
+        ppg_val = float(raw_elem.get("points_per_game") or 2.0)
+        base_exp = ((ppg_val * 0.6) + (form_val * 0.4)) * avail
+
+        season_mins = float(raw_elem.get("minutes") or 0.0)
+        if current_gw > 3 and (season_mins / max(1.0, float(current_gw * 60))) < 0.6:
+            base_exp *= 0.8
+        if base_exp <= 0 and avail > 0:
+            base_exp = 2.0
+        base_exp *= get_fdr_mult(club_id)
+
+        if team_mins >= 800:
+            state = "FT" if mins > 0 else "DNP"
+            proj = float(pts) if mins > 0 else 0.0
+        elif team_mins > 0:
+            state = "LIVE"
+            match_minute = 45
+            if all_fixtures_list:
+                for fix in all_fixtures_list:
+                    if fix.get("event") == current_gw and (fix.get("team_h") == club_id or fix.get("team_a") == club_id) and fix.get("started", False):
+                        match_minute = fix.get("minutes", 45)
+                        break
+            rem_frac = max(0.0, (90.0 - float(match_minute)) / 90.0)
+            if mins > 0:
+                proj = round(float(pts) + (1.0 if match_minute < 60 else 0.0) + (max(0.0, base_exp - 2.0) * rem_frac), 1)
+            else:
+                proj = round(base_exp * 0.25 * rem_frac, 1)
+        else:
+            state = "YTP"
+            proj = round(base_exp, 1)
+
+        raw_players.append({
+            "id": elem_id,
+            "Player": str(raw_elem.get("web_name", "Unknown")),
+            "pos_num": pos_type,
+            "Pos": pos_str,
+            "Club": str(team_map.get(club_id, "PL")).upper(),
+            "Opp": opp_str,
+            "club_id": club_id,
+            "status": str(raw_elem.get("status", "a")).lower(),
+            "chance_of_playing_next_round": raw_elem.get("chance_of_playing_next_round"),
+            "State": state,
+            "Mins": mins,
+            "Pts": pts,
+            "Proj": proj,
+            "G": safe_int(stats.get("goals_scored", 0)),
+            "A": safe_int(stats.get("assists", 0)),
+            "CS": safe_int(stats.get("clean_sheets", 0)),
+            "GC": safe_int(stats.get("goals_conceded", 0)),
+            "Bonus": safe_int(stats.get("bonus", 0)),
+            "YC": safe_int(stats.get("yellow_cards", 0)),
+            "RC": safe_int(stats.get("red_cards", 0)),
+            "Saves": safe_int(stats.get("saves", 0)),
+            "Penalties_Saved": safe_int(stats.get("penalties_saved", 0)),
+            "Penalties_Missed": safe_int(stats.get("penalties_missed", 0)),
+            "DEFCON_Achieved": extract_defcon_flag(stats, explain_raw, pos_type),
+            "pick_pos": safe_int(p.get("position", 99)),
+            "is_starter": safe_int(p.get("position", 99)) <= 11,
+            "sub_action": ""
+        })
+
+    starters = [r for r in raw_players if r["is_starter"]]
+    bench = sorted([r for r in raw_players if not r["is_starter"]], key=lambda x: x["pick_pos"])
+
+    used_bench_ids = set()
+    gk_starter = next((s for s in starters if s["Pos"] == "GKP"), None)
+    if gk_starter and gk_starter["State"] == "DNP":
+        gk_bench = next((b for b in bench if b["Pos"] == "GKP" and b["State"] != "DNP"), None)
+        if gk_bench:
+            gk_starter["sub_action"] = "Subbed Off"
+            gk_bench["sub_action"] = "Subbed On"
+            used_bench_ids.add(gk_bench["id"])
+
+    for dnp_s in [s for s in starters if s["Pos"] != "GKP" and s["State"] == "DNP"]:
+        for b_cand in bench:
+            if b_cand["Pos"] == "GKP" or b_cand["id"] in used_bench_ids or b_cand["State"] == "DNP":
+                continue
+            cur_form = [s["Pos"] for s in starters if s["sub_action"] != "Subbed Off" and s["id"] != dnp_s["id"]] + [b_cand["Pos"]]
+            if cur_form.count("DEF") >= 3 and cur_form.count("MID") >= 2 and cur_form.count("FWD") >= 1:
+                dnp_s["sub_action"] = "Subbed Off"
+                b_cand["sub_action"] = "Subbed On"
+                used_bench_ids.add(b_cand["id"])
+                break
+
+    active_lineup = [s for s in starters if s["sub_action"] != "Subbed Off"] + [b for b in bench if b["sub_action"] == "Subbed On"]
+    live_score = sum(p["Pts"] for p in active_lineup)
+    proj_score = round(sum(p["Proj"] for p in active_lineup), 1)
+    in_play = sum(1 for p in active_lineup if p["State"] == "LIVE")
+    yet_to_play = sum(1 for p in active_lineup if p["State"] == "YTP")
+    bench_left_pts = sum(b["Pts"] for b in bench if b["sub_action"] != "Subbed On")
+
+    # Optimum score calculation across all valid formations
+    gk_pts = sorted([p["Pts"] for p in raw_players if p["Pos"] == "GKP"], reverse=True)
+    def_pts = sorted([p["Pts"] for p in raw_players if p["Pos"] == "DEF"], reverse=True)
+    mid_pts = sorted([p["Pts"] for p in raw_players if p["Pos"] == "MID"], reverse=True)
+    fwd_pts = sorted([p["Pts"] for p in raw_players if p["Pos"] == "FWD"], reverse=True)
+
+    best_gk = gk_pts[0] if gk_pts else 0
+    opt_score = live_score
+    for d in range(3, len(def_pts) + 1):
+        for m in range(2, len(mid_pts) + 1):
+            f = 10 - d - m
+            if 1 <= f <= len(fwd_pts):
+                cand = best_gk + sum(def_pts[:d]) + sum(mid_pts[:m]) + sum(fwd_pts[:f])
+                if cand > opt_score:
+                    opt_score = cand
+
+    starters_sorted = sorted(starters, key=lambda x: (x["pos_num"], -x["Pts"]))
+    return starters_sorted, bench, live_score, proj_score, in_play, yet_to_play, bench_left_pts, opt_score
 
 
 def build_badges(r):
@@ -100,38 +319,21 @@ def build_badges(r):
     return " ".join(badges)
 
 
-def split_squad_records(start_df, bench_df):
-    s_recs = []
-    b_recs = []
-    if start_df is not None and not getattr(start_df, "empty", True):
-        for _, row in start_df.iterrows():
-            s_recs.append(dict(row))
-    if bench_df is not None and not getattr(bench_df, "empty", True):
-        for _, row in bench_df.iterrows():
-            b_recs.append(dict(row))
-
-    active = []
-    inactive = []
+def split_squad_records(s_recs, b_recs):
+    active, inactive = [], []
     for r in s_recs:
-        if str(r.get("sub_action", "")).strip() == "Subbed Off":
-            inactive.append(r)
-        else:
-            active.append(r)
+        (inactive if str(r.get("sub_action", "")).strip() == "Subbed Off" else active).append(r)
     for r in b_recs:
-        if str(r.get("sub_action", "")).strip() == "Subbed On":
-            active.append(r)
-        else:
-            inactive.append(r)
-
+        (active if str(r.get("sub_action", "")).strip() == "Subbed On" else inactive).append(r)
     inactive = sorted(inactive, key=lambda x: POS_ORDER.get(str(x.get("Pos", "")), 99))
-    return active, inactive, s_recs, b_recs
+    return active, inactive
 
 
 def make_pitch_payload(active, inactive):
     rows = [[], [], [], []]
     subs = []
 
-    def format_player_token(r):
+    def format_player_token(r, is_bench=False):
         club = str(r.get("Club", "PL")).strip().upper()
         pal = CLUB_PALETTE.get(club, {"bg": "#1e293b", "text": "#ffffff", "border": "#ffffff"})
         raw_status = str(r.get("status", "a")).lower()
@@ -154,25 +356,35 @@ def make_pitch_payload(active, inactive):
             "border": pal["border"],
             "fixture": str(r.get("Opp", "")),
             "pts": safe_int(r.get("Pts", 0)),
+            "proj": f"{float(r.get('Proj', 0.0)):.1f}",
+            "mins": safe_int(r.get("Mins", 0)),
+            "g": safe_int(r.get("G", 0)),
+            "a": safe_int(r.get("A", 0)),
+            "cs": safe_int(r.get("CS", 0)),
+            "gc": safe_int(r.get("GC", 0)),
+            "bonus": safe_int(r.get("Bonus", 0)),
+            "saves": safe_int(r.get("Saves", 0)),
+            "yc": safe_int(r.get("YC", 0)),
+            "rc": safe_int(r.get("RC", 0)),
+            "p_saved": safe_int(r.get("Penalties_Saved", 0)),
+            "p_missed": safe_int(r.get("Penalties_Missed", 0)),
+            "defcon_hit": bool(r.get("DEFCON_Achieved", False)),
             "state": str(r.get("State", "FT")).upper(),
             "sub_action": str(r.get("sub_action", "")).strip(),
+            "is_bench": is_bench,
             "flag": flag,
             "events": build_badges(r)
         }
 
     for r in active:
-        p_dict = format_player_token(r)
-        if p_dict["pos"] == "GKP":
-            rows[0].append(p_dict)
-        elif p_dict["pos"] == "DEF":
-            rows[1].append(p_dict)
-        elif p_dict["pos"] == "MID":
-            rows[2].append(p_dict)
-        elif p_dict["pos"] == "FWD":
-            rows[3].append(p_dict)
+        p_dict = format_player_token(r, is_bench=False)
+        if p_dict["pos"] == "GKP": rows[0].append(p_dict)
+        elif p_dict["pos"] == "DEF": rows[1].append(p_dict)
+        elif p_dict["pos"] == "MID": rows[2].append(p_dict)
+        elif p_dict["pos"] == "FWD": rows[3].append(p_dict)
 
     for r in inactive:
-        subs.append(format_player_token(r))
+        subs.append(format_player_token(r, is_bench=True))
 
     return {"pitch": [r for r in rows if r], "subs": subs}
 
@@ -218,6 +430,8 @@ def make_progression_payload(a1, a2, t1_act, t2_act, gw_fixtures, team_map):
                     cats.append(f"{a}🎯" if a > 1 else "🎯")
                 if cs > 0 and pos in ["GKP", "DEF"]:
                     cats.append("🛡️")
+                if bool(p.get("DEFCON_Achieved", False)):
+                    cats.append("🔰")
                 if bonus > 0:
                     cats.append(f"{bonus}⭐")
 
@@ -225,7 +439,6 @@ def make_progression_payload(a1, a2, t1_act, t2_act, gw_fixtures, team_map):
                     entries_list.append(f"{p_name} ({' '.join(cats)})")
         return ", ".join(entries_list) if entries_list else "None"
 
-    labels, m1_data, m1_pts, m1_ev, m2_data, m2_pts, m2_ev = [], [], [], [], [], [], []
     fixtures_list = []
     c1, c2 = 0, 0
 
@@ -233,7 +446,6 @@ def make_progression_payload(a1, a2, t1_act, t2_act, gw_fixtures, team_map):
         h_id = f.get("team_h")
         a_id = f.get("team_a")
         m_label = f"{team_map.get(h_id, 'H')} v {team_map.get(a_id, 'A')}"
-        labels.append(m_label)
 
         fp1 = sum(safe_int(p.get("Pts", 0)) for p in t1_act if safe_int(p.get("club_id")) in (safe_int(h_id), safe_int(a_id)))
         fp2 = sum(safe_int(p.get("Pts", 0)) for p in t2_act if safe_int(p.get("club_id")) in (safe_int(h_id), safe_int(a_id)))
@@ -243,29 +455,13 @@ def make_progression_payload(a1, a2, t1_act, t2_act, gw_fixtures, team_map):
         ev1 = get_fixture_contributors(t1_act, h_id, a_id)
         ev2 = get_fixture_contributors(t2_act, h_id, a_id)
 
-        m1_data.append(c1)
-        m1_pts.append(fp1)
-        m1_ev.append(ev1)
-        m2_data.append(c2)
-        m2_pts.append(fp2)
-        m2_ev.append(ev2)
-
         fixtures_list.append({
             "match": m_label,
             "m1": {"manager": str(a1), "pts": c1, "added": f"+{fp1}", "events": ev1, "color": "#f59e0b"},
             "m2": {"manager": str(a2), "pts": c2, "added": f"+{fp2}", "events": ev2, "color": "#38bdf8"}
         })
 
-    return {
-        "labels": labels,
-        "m1_data": m1_data,
-        "m1_match_pts": m1_pts,
-        "m1_events": m1_ev,
-        "m2_data": m2_data,
-        "m2_match_pts": m2_pts,
-        "m2_events": m2_ev,
-        "fixtures": fixtures_list
-    }
+    return {"fixtures": fixtures_list}
 
 
 @app.get("/api/login")
@@ -369,10 +565,10 @@ def get_live_scores(league_id: int = 63, gw: str = "0"):
         p1 = engine.fetch_entry_event(e1.get("entry_id"), current_gw)
         p2 = engine.fetch_entry_event(e2.get("entry_id"), current_gw)
 
-        t1_start, t1_bench, t1_live, t1_proj, t1_inp, t1_ytp, t1_bp, t1_opt = engine.evaluate_lineup(
+        s1_recs, b1_recs, t1_live, t1_proj, t1_inp, t1_ytp, t1_bp, t1_opt = full_evaluate_lineup(
             p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures
         )
-        t2_start, t2_bench, t2_live, t2_proj, t2_inp, t2_ytp, t2_bp, t2_opt = engine.evaluate_lineup(
+        s2_recs, b2_recs, t2_live, t2_proj, t2_inp, t2_ytp, t2_bp, t2_opt = full_evaluate_lineup(
             p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures
         )
 
@@ -385,8 +581,8 @@ def get_live_scores(league_id: int = 63, gw: str = "0"):
                 return f"{i} in play, {y} yet to play"
             return f"{i} in play" if i > 0 else (f"{y} yet to play" if y > 0 else "0 to play")
 
-        t1_act, t1_inact, s1_recs, b1_recs = split_squad_records(t1_start, t1_bench)
-        t2_act, t2_inact, s2_recs, b2_recs = split_squad_records(t2_start, t2_bench)
+        t1_act, t1_inact = split_squad_records(s1_recs, b1_recs)
+        t2_act, t2_inact = split_squad_records(s2_recs, b2_recs)
 
         return {
             "m1": a1, "s1": safe_int(t1_score), "p1": float(t1_proj), "r1": fmt_rem(t1_inp, t1_ytp), "pr1": prob1, "b1": safe_int(t1_bp), "opt1": safe_int(t1_opt),
@@ -411,67 +607,7 @@ def get_live_scores(league_id: int = 63, gw: str = "0"):
 
 @app.get("/api/match_spotlight")
 def get_match_spotlight(m1: str, m2: str, gw: str = "1", league_id: int = 63):
-    try:
-        target_gw = int(gw)
-    except Exception:
-        target_gw = 1
-
-    static_data = engine.fetch_fpl_static()
-    all_fixtures = engine.fetch_all_epl_fixtures()
-
-    e1_id, e2_id = None, None
-    search_leagues = [league_id] + [lid for lid in [63, 320, 378, 240] if lid != league_id]
-    for lid in search_leagues:
-        ld, _ = engine.fetch_league_data(lid)
-        if ld:
-            for e in ld.get("league_entries", []):
-                alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
-                if alias.strip().lower() == m1.strip().lower():
-                    e1_id = e.get("entry_id")
-                if alias.strip().lower() == m2.strip().lower():
-                    e2_id = e.get("entry_id")
-        if e1_id and e2_id:
-            break
-
-    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
-    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
-    element_lookup = {item["id"]: item for item in static_data["elements"]}
-
-    live_data = engine.fetch_live_event(target_gw)
-    live_elements = live_data.get("elements", {}) if live_data else {}
-
-    club_minutes = {}
-    for elem_str_id, e_info in live_elements.items():
-        try:
-            club_id = element_lookup.get(int(elem_str_id), {}).get("team")
-            if club_id:
-                club_minutes[club_id] = club_minutes.get(club_id, 0) + e_info.get("stats", {}).get("minutes", 0)
-        except Exception:
-            pass
-
-    p1 = engine.fetch_entry_event(e1_id, target_gw) if e1_id else None
-    p2 = engine.fetch_entry_event(e2_id, target_gw) if e2_id else None
-
-    t1_start, t1_bench, t1_live, _, _, _, t1_bp, t1_opt = engine.evaluate_lineup(
-        p1, live_elements, element_lookup, club_minutes, pos_map, team_map, target_gw, all_fixtures
-    )
-    t2_start, t2_bench, t2_live, _, _, _, t2_bp, t2_opt = engine.evaluate_lineup(
-        p2, live_elements, element_lookup, club_minutes, pos_map, team_map, target_gw, all_fixtures
-    )
-
-    t1_act, t1_inact, s1_recs, b1_recs = split_squad_records(t1_start, t1_bench)
-    t2_act, t2_inact, s2_recs, b2_recs = split_squad_records(t2_start, t2_bench)
-    gw_fixtures = [f for f in all_fixtures if f.get("event") == target_gw] if all_fixtures else []
-
-    return {
-        "m1_meta": {"score": safe_int(t1_live), "bench": safe_int(t1_bp), "opt": safe_int(t1_opt)},
-        "m2_meta": {"score": safe_int(t2_live), "bench": safe_int(t2_bp), "opt": safe_int(t2_opt)},
-        "progression": make_progression_payload(m1, m2, t1_act, t2_act, gw_fixtures, team_map),
-        "pitch_m1": make_pitch_payload(t1_act, t1_inact),
-        "pitch_m2": make_pitch_payload(t2_act, t2_inact),
-        "table_m1": make_table_payload(s1_recs, b1_recs),
-        "table_m2": make_table_payload(s2_recs, b2_recs)
-    }
+    return {"status": "bundled_in_live_scores"}
 
 
 @app.post("/api/save_subscription")
