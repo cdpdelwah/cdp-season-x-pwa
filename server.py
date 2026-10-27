@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from pywebpush import webpush
 from pathlib import Path
-import engine  # 👈 We are importing your new brain here
+import engine  # 👈 Your brain engine
 
 app = FastAPI()
 base_dir = Path(__file__).resolve().parent
@@ -25,14 +25,17 @@ MANAGER_PINS = {
 # 👈 MANAGER DEFAULT LEAGUE ROUTING
 MANAGER_LEAGUES = {
     "Andy": 63, "James": 63, "Jimmy": 63, "Greg": 63, "Nick": 63, "Foy": 63, "Hugh": 63,
-    "Phil": 63, # CDP
+    "Phil": 63, 
     "Sam": 320, "Garth": 320, "Bungle": 320, "Dave": 320, "Crouch": 320, "Ali": 320,
-    "Stew": 320, "Josh": 320, # SDM
+    "Stew": 320, "Josh": 320, 
     "Duncan": 378, "Rackett": 378, "Barney": 378, "Rob": 378, "Wilson": 378, "Culley": 378,
-    "Bobby": 378, "Tudor": 378, # BDR
+    "Bobby": 378, "Tudor": 378, 
     "Adi": 240, "Lee": 240, "Jamie": 240, "Tom": 240, "Ben": 240, "Will": 240, "Niall": 240,
-    "Pete": 240 # LDE
+    "Pete": 240 
 }
+
+VAPID_PRIVATE_KEY = "SPXvvzkxVdsxWXj-8RfQXdBCxrcQdrgO3NNZXGvNP7Q"
+VAPID_CLAIMS = {"sub": "mailto:commissar@cdp.com"}
 
 @app.get("/api/login")
 def verify_login(alias: str, pin: str):
@@ -41,16 +44,13 @@ def verify_login(alias: str, pin: str):
         return {"status": "success", "default_league": default_league}
     return {"status": "error", "message": "Incorrect PIN. The Commissar is watching."}
 
-VAPID_PRIVATE_KEY = "SPXvvzkxVdsxWXj-8RfQXdBCxrcQdrgO3NNZXGvNP7Q"
-VAPID_CLAIMS = {"sub": "mailto:commissar@cdp.com"}
-
 @app.get("/")
 def serve_index():
     return FileResponse(base_dir / "index.html")
 
 @app.get("/sw.js")
 def serve_sw():
-    return FileResponse(base_dir / "sw.js", media_type = "application/javascript")
+    return FileResponse(base_dir / "sw.js", media_type="application/javascript")
 
 @app.get("/manifest.json")
 def serve_manifest():
@@ -60,10 +60,8 @@ def serve_manifest():
 def serve_icon():
     return FileResponse(base_dir / "icon.png", media_type="image/png")
 
-# 👈 NEW ENDPOINT: This routes web traffic into your Python engine
 @app.get("/api/league_data")
 def get_league_data():
-    print("Fetching the 32-manager registry from the FPL servers...")
     teams = engine.get_all_32_teams_registry()
     return {
         "status": "success",
@@ -71,11 +69,15 @@ def get_league_data():
         "data": teams
     }
 
-# 👈 NEW ENDPOINT: Live Scores Matchday Dashboard
 @app.get("/api/live_scores")
-def get_live_scores(league_id: int = 63, gw: int = 0):
+def get_live_scores(league_id: int = 63, gw: str = "0"):
     from concurrent.futures import ThreadPoolExecutor
     import math
+
+    try:
+        target_gw = int(gw)
+    except:
+        target_gw = 0
 
     def calc_win_prob(live1, proj1, to_play1, live2, proj2, to_play2, is_finished):
         if is_finished: return (100, 0) if live1 > live2 else ((0, 100) if live2 > live1 else (50, 50))
@@ -94,8 +96,8 @@ def get_live_scores(league_id: int = 63, gw: int = 0):
     matches = league_details.get("matches", [])
     unplayed = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
     all_gws = sorted(list({m["event"] for m in matches}))
-
-    current_gw = gw if gw > 0 else (unplayed[0] if unplayed else 1)
+    
+    current_gw = target_gw if target_gw > 0 else (unplayed[0] if unplayed else 1)
     gw_matches = [m for m in matches if m["event"] == current_gw]
     
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
@@ -151,58 +153,45 @@ def get_live_scores(league_id: int = 63, gw: int = 0):
 @app.post("/api/save_subscription")
 async def save_subscription(request: Request):
     sub_data = await request.json()
-    
     upstash_url = os.getenv("UPSTASH_URL")
     upstash_token = os.getenv("UPSTASH_TOKEN")
     
     if upstash_url and upstash_token:
         headers = {"Authorization": f"Bearer {upstash_token}"}
-        # Save the phone's token to the cloud database permanently
         requests.post(f"{upstash_url}/set/latest_sub", data=json.dumps(sub_data), headers=headers)
-        
     return {"status": "saved to cloud database"}
 
 @app.post("/api/trigger_push")
 def trigger_push():
     upstash_url = os.getenv("UPSTASH_URL")
     upstash_token = os.getenv("UPSTASH_TOKEN")
-    
-    if not (upstash_url and upstash_token):
-        return {"error": "Database not configured"}
+    if not (upstash_url and upstash_token): return {"error": "Database not configured"}
         
-    # Retrieve the saved token from the database
     headers = {"Authorization": f"Bearer {upstash_token}"}
     response = requests.get(f"{upstash_url}/get/latest_sub", headers=headers)
     data = response.json()
-    
-    if not data.get("result"):
-        return {"error": "No device registered"}
+    if not data.get("result"): return {"error": "No device registered"}
         
     sub_data = json.loads(data["result"])
-    
-    payload = json.dumps({
-        "title": "🚨 LIVE FROM THE CLOUD",
-        "body": "Your permanent database is working!"
-    })
+    payload = json.dumps({"title": "🚨 LIVE FROM THE CLOUD", "body": "Your permanent database is working!"})
     
     try:
-        webpush(
-            subscription_info=sub_data,
-            data=payload,
-            vapid_private_key=VAPID_PRIVATE_KEY,
-            vapid_claims=VAPID_CLAIMS
-        )
+        webpush(subscription_info=sub_data, data=payload, vapid_private_key=VAPID_PRIVATE_KEY, vapid_claims=VAPID_CLAIMS)
         return {"status": "Push sent!"}
     except Exception as e:
         return {"error": str(e)}
 
 @app.get("/api/match_spotlight")
-def get_match_spotlight(m1: str, m2: str, gw: int):
+def get_match_spotlight(m1: str, m2: str, gw: str = "1"):
+    try:
+        target_gw = int(gw)
+    except:
+        target_gw = 1
+        
     static_data = engine.fetch_fpl_static()
     all_fixtures = engine.fetch_all_epl_fixtures()
     teams_reg = engine.get_all_32_teams_registry()
     
-    # Identify the managers
     e1_id = teams_reg.get(m1.lower(), {}).get("entry_id")
     e2_id = teams_reg.get(m2.lower(), {}).get("entry_id")
     
@@ -210,7 +199,7 @@ def get_match_spotlight(m1: str, m2: str, gw: int):
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
     element_lookup = {item["id"]: item for item in static_data["elements"]}
     
-    live_data = engine.fetch_live_event(gw)
+    live_data = engine.fetch_live_event(target_gw)
     live_elements = live_data.get("elements", {}) if live_data else {}
     
     club_minutes = {}
@@ -221,14 +210,12 @@ def get_match_spotlight(m1: str, m2: str, gw: int):
                 club_minutes[club_id] = club_minutes.get(club_id, 0) + e_info.get("stats", {}).get("minutes", 0)
         except: pass
 
-    # Fetch and evaluate lineups
-    p1 = engine.fetch_entry_event(e1_id, gw) if e1_id else None
-    p2 = engine.fetch_entry_event(e2_id, gw) if e2_id else None
+    p1 = engine.fetch_entry_event(e1_id, target_gw) if e1_id else None
+    p2 = engine.fetch_entry_event(e2_id, target_gw) if e2_id else None
     
-    t1_start, t1_bench, _, _, _, _, _, _ = engine.evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, gw, all_fixtures)
-    t2_start, t2_bench, _, _, _, _, _, _ = engine.evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, gw, all_fixtures)
+    t1_start, t1_bench, _, _, _, _, _, _ = engine.evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, target_gw, all_fixtures)
+    t2_start, t2_bench, _, _, _, _, _, _ = engine.evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, target_gw, all_fixtures)
     
-    # Helper to parse players into the pitch/table format
     def format_pitch(start_df, bench_df):
         rows = [[], [], [], []]
         active = engine.get_active_players_from_dfs(start_df, bench_df)
@@ -240,9 +227,9 @@ def get_match_spotlight(m1: str, m2: str, gw: int):
             if int(r.get("Bonus", 0)) > 0: events.append(f"{int(r['Bonus'])}⭐")
             
             p_dict = {
-                "name": r.get("Player", "Unknown"),
-                "pos": r.get("Pos", ""),
-                "fixture": r.get("Opp", ""),
+                "name": str(r.get("Player", "Unknown")),
+                "pos": str(r.get("Pos", "")),
+                "fixture": str(r.get("Opp", "")),
                 "pts": int(r.get("Pts", 0)),
                 "events": " ".join(events)
             }
@@ -252,8 +239,7 @@ def get_match_spotlight(m1: str, m2: str, gw: int):
             elif p_dict["pos"] == "FWD": rows[3].append(p_dict)
         return [r for r in rows if r]
 
-    # Process Points Progression Chart
-    gw_fixtures = [f for f in all_fixtures if f.get("event") == gw]
+    gw_fixtures = [f for f in all_fixtures if f.get("event") == target_gw] if all_fixtures else []
     labels, m1_data, m1_pts, m1_events, m2_data, m2_pts, m2_events = [], [], [], [], [], [], []
     
     t1_active = engine.get_active_players_from_dfs(t1_start, t1_bench)
@@ -264,19 +250,19 @@ def get_match_spotlight(m1: str, m2: str, gw: int):
         h_id, a_id = f.get("team_h"), f.get("team_a")
         labels.append(f"{team_map.get(h_id, 'H')} v {team_map.get(a_id, 'A')}")
         
-        # M1 logic
         f_pts1 = sum(int(p["Pts"]) for p in t1_active if p.get("club_id") in (h_id, a_id))
         curr1 += f_pts1
         m1_data.append(curr1)
         m1_pts.append(f_pts1)
-        m1_events.append(", ".join([p.get("Player") for p in t1_active if p.get("club_id") in (h_id, a_id) and int(p.get("Pts", 0)) >= 4]))
+        ev1 = [str(p.get("Player")) for p in t1_active if p.get("club_id") in (h_id, a_id) and int(p.get("Pts", 0)) >= 4]
+        m1_events.append(", ".join(ev1))
         
-        # M2 logic
         f_pts2 = sum(int(p["Pts"]) for p in t2_active if p.get("club_id") in (h_id, a_id))
         curr2 += f_pts2
         m2_data.append(curr2)
         m2_pts.append(f_pts2)
-        m2_events.append(", ".join([p.get("Player") for p in t2_active if p.get("club_id") in (h_id, a_id) and int(p.get("Pts", 0)) >= 4]))
+        ev2 = [str(p.get("Player")) for p in t2_active if p.get("club_id") in (h_id, a_id) and int(p.get("Pts", 0)) >= 4]
+        m2_events.append(", ".join(ev2))
 
     return {
         "progression": {

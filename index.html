@@ -6,30 +6,30 @@
     <title>CDP App | Season X</title>
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#000000">
-    
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         body { background-color: #000000; color: #f1f5f9; display: flex; flex-direction: column; align-items: center; padding: 16px; }
         
+        /* App Screens & Navigation */
+        .app-screen { display: none; width: 100%; max-width: 600px; flex-direction: column; align-items: center; }
+        .app-screen.active { display: flex; }
+        .league-tabs { display: flex; width: 100%; gap: 5px; margin-bottom: 15px; background: #090c13; padding: 5px; border-radius: 8px; border: 1px solid #182030; }
+        .tab-btn { flex: 1; padding: 10px 5px; background: transparent; color: #64748b; border: none; border-radius: 6px; font-size: 0.85rem; font-weight: 800; cursor: pointer; transition: all 0.2s; }
+        .tab-btn.active { background: #1e293b; color: #fff; }
+        .home-menu { width: 100%; display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
+        .menu-btn { width: 100%; padding: 16px; background: #090c13; border: 1px solid #182030; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 1.1rem; font-weight: 700; cursor: pointer; }
+        .menu-btn:active { background: #1e293b; }
+
         .header { text-align: center; margin-bottom: 20px; width: 100%; max-width: 600px; }
         .header h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.5px; }
         .header p { color: #94a3b8; font-size: 0.85rem; margin-top: 4px; }
         
-        .action-buttons { display: flex; gap: 10px; margin-bottom: 16px; width: 100%; max-width: 600px; }
-        button { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 0.95rem; font-weight: 700; cursor: pointer; color: #000000; }
-        .btn-push { background-color: #22c55e; }
-        .btn-load { background-color: #ef4444; color: #ffffff;}
-        
-        #status-msg { color: #22c55e; font-size: 0.85rem; text-align: center; margin-bottom: 16px; font-weight: 600; width: 100%; max-width: 600px; }
-
         .list-container { width: 100%; max-width: 600px; display: flex; flex-direction: column; gap: 12px; padding-bottom: 40px; }
         
         /* The Match Card Styling */
-        .match-card {
-            background-color: #090c13; border: 1px solid #182030; border-radius: 8px; padding: 14px;
-        }
+        .match-card { background-color: #090c13; border: 1px solid #182030; border-radius: 8px; padding: 14px; }
         .m-header { display: flex; justify-content: space-between; margin-bottom: 6px; }
         .m1-name { color: #f59e0b; font-size: 0.95rem; font-weight: 800; text-transform: uppercase; }
         .m2-name { color: #38bdf8; font-size: 0.95rem; font-weight: 800; text-transform: uppercase; text-align: right; }
@@ -50,10 +50,11 @@
         .c1 { color: #f59e0b; }
         .c2 { color: #38bdf8; }
         .c-tie { color: #94a3b8; }
-/* Modal & Pitch Styles */
+
+        /* Modal & Pitch Styles */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: flex-end; z-index: 1000; transition: opacity 0.3s; }
-        .modal-overlay.hidden { display: none; opacity: 0; }
-        .modal-content { background: #121212; width: 100%; max-height: 90vh; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 20px; animation: slideUp 0.3s ease-out; border-top: 1px solid #333; }<head>
+        .modal-overlay.hidden { display: none; opacity: 0; pointer-events: none; }
+        .modal-content { background: #121212; width: 100%; max-height: 90vh; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 20px; animation: slideUp 0.3s ease-out; border-top: 1px solid #333; }
         .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 15px; }
         .close-btn { background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; }
         .section-subtitle { font-size: 14px; font-weight: bold; color: #fff; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 5px; }
@@ -114,13 +115,15 @@
         </div>
         
         <button onclick="subscribeUser()" id="enable-btn" style="width: 100%; margin-top: 30px; background: #22c55e; padding: 12px; border-radius: 8px; font-weight: bold; border: none; display: none;">🔔 Enable Matchday Alerts</button>
+        
+        <button onclick="logoutUser()" style="width: 100%; margin-top: 15px; background: #ef4444; color: #fff; padding: 12px; border-radius: 8px; font-weight: bold; border: none; cursor: pointer;">🚪 Logout / Switch Manager</button>
     </div>
 
     <!-- SCREEN 3: LIVE SCORES -->
     <div id="screen-scores" class="app-screen">
         <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <button onclick="navigate('home')" style="background: none; border: none; color: #38bdf8; font-size: 1rem; font-weight: bold; cursor: pointer; padding: 0;">← Home</button>
-            <button onclick="fetchLiveScores(activeLeagueId)" style="background: #1e293b; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer;">🔄 Refresh</button>
+            <button onclick="fetchLiveScores(activeLeagueId, document.getElementById('gw-select') ? document.getElementById('gw-select').value : '0')" style="background: #1e293b; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer;">🔄 Refresh</button>
         </div>
         
         <div class="header" style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
@@ -175,108 +178,8 @@
             </div>
         </div>
     </div>
+
     <script>
-        // ==========================================
-        // 1. DATA FETCHING AND CARD RENDERING
-        // ==========================================
-        async function fetchLiveScores(leagueId) {
-            const listEl = document.getElementById("match-list");
-            listEl.innerHTML = "<p style='text-align:center; color:#94a3b8;'>Running FPL Engine calculations...</p>";
-            
-            try {
-                const response = await fetch("/api/live_scores");
-                const json = await response.json();
-                
-                document.getElementById("gw-title").innerText = `🔴 LIVE SCORES (GW ${json.gw})`;
-                listEl.innerHTML = "";
-                
-                json.matches.forEach(m => {
-                    let c1Class = "c-tie", c2Class = "c-tie";
-                    let barColor = "#94a3b8";
-                    
-                    if (m.pr1 > m.pr2) { 
-                        c1Class = "c1"; barColor = "#f59e0b"; 
-                    } else if (m.pr2 > m.pr1) { 
-                        c2Class = "c2"; barColor = "#38bdf8"; 
-                    }
-
-                    listEl.innerHTML += `
-                        <div class="match-card" onclick="openMatchModal('${m.m1}', '${m.m2}')" style="cursor: pointer;">
-                            <div class="m-header">
-                                <div class="m1-name">${m.m1}</div>
-                                <div class="m2-name">${m.m2}</div>
-                            </div>
-                            
-                            <div class="scores">
-                                <div class="score-box">
-                                    <div class="score-val">${m.s1}</div>
-                                    <div class="proj">Proj: ${m.p1.toFixed(1)} (${m.r1})</div>
-                                    <div class="bench">Bench: ${m.b1} pts</div>
-                                </div>
-                                <div class="vs">vs</div>
-                                <div class="score-box right">
-                                    <div class="score-val">${m.s2}</div>
-                                    <div class="proj">Proj: ${m.p2.toFixed(1)} (${m.r2})</div>
-                                    <div class="bench">Bench: ${m.b2} pts</div>
-                                </div>
-                            </div>
-                            
-                            <div class="progress-bg">
-                                <div class="progress-bar-1" style="width: ${m.pr1}%; background-color: ${barColor};"></div>
-                            </div>
-                            
-                            <div class="win-pct">
-                                <span class="${c1Class}">Win: ${m.pr1}%</span>
-                                <span class="${c2Class}">Win: ${m.pr2}%</span>
-                            </div>
-                        </div>
-                    `;
-                });
-            } catch (error) {
-                listEl.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load live scores from Python server.</p>";
-            }
-        }
-
-        // ==========================================
-        // 2. PUSH NOTIFICATIONS
-        // ==========================================
-        const VAPID_PUBLIC_KEY = "BCVBFGP0PNXvzRz9JuVB2wTj57YL8Mv_v_aSV1R6EyaswT00lPF8eQ7sDGoeI3VBcf_aAQaJXNTUkToaB7gGnNY";
-
-        function urlBase64ToUint8Array(base64String) {
-            const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-            const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/");
-            const rawData = window.atob(base64);
-            const outputArray = new Uint8Array(rawData.length);
-            for (let i = 0; i < rawData.length; ++i) {
-                outputArray[i] = rawData.charCodeAt(i);
-            }
-            return outputArray;
-        }
-
-        async function subscribeUser() {
-            const statusEl = document.getElementById("status-msg");
-            if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-                statusEl.textContent = "Push not supported on this browser.";
-                return;
-            }
-            const registration = await navigator.serviceWorker.register("/sw.js");
-            const permission = await Notification.requestPermission();
-            if (permission !== "granted") {
-                statusEl.textContent = "Push permission denied.";
-                return;
-            }
-            const existingSub = await registration.pushManager.getSubscription();
-            if (existingSub) await existingSub.unsubscribe();
-            const subscription = await registration.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-            });
-            await fetch("/api/save_subscription", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(subscription) });
-            statusEl.textContent = "✅ Device registered for push alerts!";
-            document.getElementById("enable-btn").style.display = "none";
-        }
-        
-        // Auto-load scores on app startup
         let activeLeagueId = 63;
         
         // 0. ROUTING & AUTH
@@ -333,13 +236,124 @@
             }
         }
 
+        function logoutUser() {
+            localStorage.removeItem("cdp_alias");
+            localStorage.removeItem("cdp_league");
+            document.getElementById("pin-input").value = "";
+            document.getElementById("alias-select").value = "";
+            navigate('login');
+        }
+
         function switchLeague(leagueId) {
             activeLeagueId = leagueId;
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             document.getElementById(`tab-${leagueId}`).classList.add('active');
-            fetchLiveScores(leagueId);
+            // Reset dropdown to 0 so when we switch leagues we start on current GW
+            const gwSelect = document.getElementById("gw-select");
+            if (gwSelect) gwSelect.value = "0";
+            fetchLiveScores(leagueId, "0");
         }
-function toggleSpotlightView(view) {
+
+        async function fetchLiveScores(leagueId, gw = "0") {
+            const listEl = document.getElementById("match-list");
+            listEl.innerHTML = "<p style='text-align:center; color:#94a3b8;'>Running FPL Engine calculations...</p>";
+            
+            try {
+                const response = await fetch(`/api/live_scores?league_id=${leagueId}&gw=${gw}`);
+                const json = await response.json();
+                
+                document.getElementById("gw-title").innerText = `🔴 LIVE SCORES (GW ${json.gw})`;
+                
+                // Populate GW Dropdown
+                const gwSelect = document.getElementById("gw-select");
+                if (gwSelect.options.length <= 1 && json.all_gws) {
+                    gwSelect.innerHTML = `<option value="0">Current GW (${json.gw})</option>`;
+                    json.all_gws.forEach(g => {
+                        gwSelect.innerHTML += `<option value="${g}">Gameweek ${g}</option>`;
+                    });
+                }
+                gwSelect.value = gw === "0" ? "0" : gw;
+                
+                listEl.innerHTML = "";
+                
+                json.matches.forEach(m => {
+                    let c1Class = "c-tie", c2Class = "c-tie", barColor = "#94a3b8";
+                    if (m.pr1 > m.pr2) { c1Class = "c1"; barColor = "#f59e0b"; } 
+                    else if (m.pr2 > m.pr1) { c2Class = "c2"; barColor = "#38bdf8"; }
+
+                    listEl.innerHTML += `
+                        <div class="match-card" onclick="openMatchModal('${m.m1}', '${m.m2}', '${json.gw}')" style="cursor: pointer;">
+                            <div class="m-header">
+                                <div class="m1-name">${m.m1}</div>
+                                <div class="m2-name">${m.m2}</div>
+                            </div>
+                            <div class="scores">
+                                <div class="score-box">
+                                    <div class="score-val">${m.s1}</div>
+                                    <div class="proj">Proj: ${m.p1.toFixed(1)} (${m.r1})</div>
+                                    <div class="bench">Bench: ${m.b1} pts</div>
+                                </div>
+                                <div class="vs">vs</div>
+                                <div class="score-box right">
+                                    <div class="score-val">${m.s2}</div>
+                                    <div class="proj">Proj: ${m.p2.toFixed(1)} (${m.r2})</div>
+                                    <div class="bench">Bench: ${m.b2} pts</div>
+                                </div>
+                            </div>
+                            <div class="progress-bg">
+                                <div class="progress-bar-1" style="width: ${m.pr1}%; background-color: ${barColor};"></div>
+                            </div>
+                            <div class="win-pct">
+                                <span class="${c1Class}">Win: ${m.pr1}%</span>
+                                <span class="${c2Class}">Win: ${m.pr2}%</span>
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch (error) {
+                listEl.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load live scores.</p>";
+            }
+        }
+
+        // PUSH NOTIFICATIONS
+        const VAPID_PUBLIC_KEY = "BCVBFGP0PNXvzRz9JuVB2wTj57YL8Mv_v_aSV1R6EyaswT00lPF8eQ7sDGoeI3VBcf_aAQaJXNTUkToaB7gGnNY";
+
+        function urlBase64ToUint8Array(base64String) {
+            const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+            const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/");
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+            for (let i = 0; i < rawData.length; ++i) {
+                outputArray[i] = rawData.charCodeAt(i);
+            }
+            return outputArray;
+        }
+
+        async function subscribeUser() {
+            const statusEl = document.getElementById("status-msg");
+            if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+                if (statusEl) statusEl.textContent = "Push not supported on this browser.";
+                return;
+            }
+            const registration = await navigator.serviceWorker.register("/sw.js");
+            const permission = await Notification.requestPermission();
+            if (permission !== "granted") {
+                if (statusEl) statusEl.textContent = "Push permission denied.";
+                return;
+            }
+            const existingSub = await registration.pushManager.getSubscription();
+            if (existingSub) await existingSub.unsubscribe();
+            const subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+            });
+            await fetch("/api/save_subscription", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(subscription) });
+            if (statusEl) statusEl.textContent = "✅ Device registered for push alerts!";
+            const btn = document.getElementById("enable-btn");
+            if (btn) btn.style.display = "none";
+        }
+        
+        function toggleSpotlightView(view) {
             const pitchEl = document.getElementById('spotlight-pitch');
             const tableEl = document.getElementById('spotlight-table');
             const btnPitch = document.getElementById('btn-view-pitch');
