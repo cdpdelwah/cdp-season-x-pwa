@@ -62,14 +62,16 @@
         .pitch-layout { display: flex; gap: 15px; width: 100%; flex-direction: column; }
         .manager-pitch { flex: 1; display: flex; flex-direction: column; }
         .pitch-header { display: flex; justify-content: space-between; font-weight: bold; padding: 5px 0; font-size: 0.9rem; }
-        .football-pitch { background: #0d2e1b; border: 2px solid #ffffff33; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 15px; min-height: 350px; position: relative; }
-        .football-pitch::before { content: ''; position: absolute; top: 50%; left: 0; right: 0; border-top: 2px solid #ffffff22; }
+        .football-pitch { background: #0d2e1b; border: 2px solid #ffffff33; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; gap: 15px; min-height: 350px; position: relative; }
+        .football-pitch::before { content: ''; position: absolute; top: 50%; left: 0; right: 0; border-top: 2px solid #ffffff22; z-index: 0; }
         .pitch-row { display: flex; justify-content: center; gap: 10px; z-index: 1; }
-        .player-card { display: flex; flex-direction: column; align-items: center; text-align: center; }
-        .player-shirt { width: 25px; height: 25px; background: #fff; border-radius: 50%; margin-bottom: 3px; font-size: 10px; line-height: 25px; color: #000; font-weight: bold; }
-        .player-name { font-size: 11px; color: #fff; background: #000; padding: 2px 4px; border-radius: 3px; }
-        .player-fixture { font-size: 9px; color: #aaa; }
-        .player-points { font-size: 10px; font-weight: bold; color: #ffeb3b; background: #222; padding: 2px 5px; border-radius: 3px; margin-top: 2px; }
+        .player-card { display: flex; flex-direction: column; align-items: center; text-align: center; z-index: 1; width: 45px;}
+        .player-shirt { width: 28px; height: 28px; background: #1e293b; border: 2px solid #fff; border-radius: 50%; margin-bottom: 4px; font-size: 9px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 900; box-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+        .player-name { font-size: 10px; color: #fff; background: #000; padding: 2px 4px; border-radius: 4px; white-space: nowrap; }
+        .player-fixture { font-size: 9px; color: #94a3b8; margin-top: 2px; }
+        .player-points { font-size: 10px; font-weight: bold; color: #f59e0b; background: #182030; padding: 2px 5px; border-radius: 4px; margin-top: 2px; border: 1px solid #333; white-space: nowrap;}
+        .subs-tray { background: #060911; border: 1px solid #182030; border-radius: 8px; padding: 10px; display: flex; justify-content: space-around; }
+        .subs-header { font-size: 0.75rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin: 10px 0 6px 0; }
         @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
     </style>
 </head>
@@ -446,47 +448,111 @@
                     }
                 });
 
-                renderPitch('pitch-m1', data.pitch_m1);
-                renderPitch('pitch-m2', data.pitch_m2);
-                renderTable('table-m1', data.pitch_m1);
-                renderTable('table-m2', data.pitch_m2);
+                renderPitch('pitch-m1', data.pitch_m1, '#f59e0b');
+                renderPitch('pitch-m2', data.pitch_m2, '#38bdf8');
+                renderTable('table-m1', data.table_m1);
+                renderTable('table-m2', data.table_m2);
             } catch (error) {
                 console.error("Error loading match data:", error);
             }
         }
 
-        function renderTable(elementId, rows) {
-            let html = `<table style="width: 100%; border-collapse: collapse; text-align: left;">
-                <tr style="border-bottom: 1px solid #333; color: #94a3b8;">
-                    <th style="padding: 6px;">Player</th><th style="padding: 6px;">Pos</th>
-                    <th style="padding: 6px;">Opp</th><th style="padding: 6px; text-align: right;">Pts</th>
+        function renderTable(elementId, tableData) {
+            let html = `
+                <div style="font-size:0.75rem; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:6px;">STARTING XI</div>
+                <table style="width: 100%; border-collapse: collapse; text-align: left; margin-bottom: 15px;">
+                <tr style="border-bottom: 1px solid #333; color: #94a3b8; font-size: 0.75rem;">
+                    <th style="padding: 4px;">Player</th><th style="padding: 4px;">Pos</th>
+                    <th style="padding: 4px;">Opp</th><th style="padding: 4px; text-align:center;">Mins</th>
+                    <th style="padding: 4px; text-align:center;">G</th><th style="padding: 4px; text-align:center;">A</th>
+                    <th style="padding: 4px; text-align:center;">CS</th><th style="padding: 4px; text-align:center;">Bns</th>
+                    <th style="padding: 4px; text-align: right; color:#fff;">Pts</th>
                 </tr>`;
             
-            rows.forEach(row => {
-                row.forEach(p => {
-                    html += `<tr style="border-bottom: 1px solid #141a26;">
-                        <td style="padding: 8px 6px; font-weight: bold; color: #fff;">${p.name} <span style="font-size: 0.7rem;">${p.events}</span></td>
-                        <td style="padding: 8px 6px; color: #cbd5e1;">${p.pos}</td>
-                        <td style="padding: 8px 6px; color: #cbd5e1;">${p.fixture}</td>
-                        <td style="padding: 8px 6px; font-weight: 900; text-align: right; color: #fff;">${p.pts}</td>
-                    </tr>`;
-                });
+            tableData.starters.forEach(p => {
+                html += `<tr style="border-bottom: 1px solid #141a26; font-size: 0.8rem;">
+                    <td style="padding: 6px 4px; font-weight: bold; color: #fff;">${p.name}</td>
+                    <td style="padding: 6px 4px; color: #cbd5e1;">${p.pos}</td>
+                    <td style="padding: 6px 4px; color: #cbd5e1;">${p.opp}</td>
+                    <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.mins}</td>
+                    <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.g}</td>
+                    <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.a}</td>
+                    <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.cs}</td>
+                    <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.bonus}</td>
+                    <td style="padding: 6px 4px; font-weight: 900; text-align: right; color: #fff;">${p.pts}</td>
+                </tr>`;
             });
             html += `</table>`;
+
+            if (tableData.subs && tableData.subs.length > 0) {
+                html += `
+                    <div style="font-size:0.75rem; font-weight:800; color:#94a3b8; text-transform:uppercase; margin-bottom:6px;">DUGOUT SUBSTITUTES</div>
+                    <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                    <tr style="border-bottom: 1px solid #333; color: #94a3b8; font-size: 0.75rem;">
+                        <th style="padding: 4px;">Player</th><th style="padding: 4px;">Pos</th>
+                        <th style="padding: 4px;">Opp</th><th style="padding: 4px; text-align:center;">Mins</th>
+                        <th style="padding: 4px; text-align:center;">G</th><th style="padding: 4px; text-align:center;">A</th>
+                        <th style="padding: 4px; text-align:center;">CS</th><th style="padding: 4px; text-align:center;">Bns</th>
+                        <th style="padding: 4px; text-align: right; color:#fff;">Pts</th>
+                    </tr>`;
+                tableData.subs.forEach(p => {
+                    html += `<tr style="border-bottom: 1px solid #141a26; font-size: 0.8rem; opacity: 0.7;">
+                        <td style="padding: 6px 4px; font-weight: bold; color: #fff;">${p.name}</td>
+                        <td style="padding: 6px 4px; color: #cbd5e1;">${p.pos}</td>
+                        <td style="padding: 6px 4px; color: #cbd5e1;">${p.opp}</td>
+                        <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.mins}</td>
+                        <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.g}</td>
+                        <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.a}</td>
+                        <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.cs}</td>
+                        <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.bonus}</td>
+                        <td style="padding: 6px 4px; font-weight: 900; text-align: right; color: #fff;">${p.pts}</td>
+                    </tr>`;
+                });
+                html += `</table>`;
+            }
             document.getElementById(elementId).innerHTML = html;
         }
 
-        function renderPitch(elementId, rows) {
-            const pitch = document.getElementById(elementId);
-            pitch.innerHTML = '';
-            rows.forEach(row => {
+        function renderPitch(elementId, data, accentColor) {
+            const container = document.getElementById(elementId);
+            container.innerHTML = '';
+            
+            // 1. Pitch Area (Starting XI)
+            const pitchDiv = document.createElement('div');
+            pitchDiv.className = 'football-pitch';
+            
+            data.pitch.forEach(row => {
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'pitch-row';
                 row.forEach(p => {
-                    rowDiv.innerHTML += `<div class="player-card"><div class="player-shirt">${p.pos}</div><div class="player-name">${p.name}</div><div class="player-fixture">${p.fixture}</div><div class="player-points">${p.pts} pts ${p.events}</div></div>`;
+                    rowDiv.innerHTML += `
+                        <div class="player-card">
+                            <div class="player-shirt" style="border-color: ${accentColor};">${p.club || p.pos}</div>
+                            <div class="player-name">${p.name}</div>
+                            <div class="player-fixture">${p.fixture}</div>
+                            <div class="player-points">${p.pts} pts ${p.events}</div>
+                        </div>`;
                 });
-                pitch.appendChild(rowDiv);
+                pitchDiv.appendChild(rowDiv);
             });
+            container.appendChild(pitchDiv);
+            
+            // 2. Subs Area
+            if (data.subs && data.subs.length > 0) {
+                container.innerHTML += `<div class="subs-header">🛡️ SUBS</div>`;
+                const subsDiv = document.createElement('div');
+                subsDiv.className = 'subs-tray';
+                data.subs.forEach(p => {
+                    subsDiv.innerHTML += `
+                        <div class="player-card" style="opacity: 0.7;">
+                            <div class="player-shirt" style="border-color: #475569;">${p.club || p.pos}</div>
+                            <div class="player-name">${p.name}</div>
+                            <div class="player-fixture">${p.fixture}</div>
+                            <div class="player-points" style="color:#94a3b8; border-color:#333;">${p.pts} pts</div>
+                        </div>`;
+                });
+                container.appendChild(subsDiv);
+            }
         }
 
         function closeModal() {

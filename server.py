@@ -218,6 +218,8 @@ def get_match_spotlight(m1: str, m2: str, gw: str = "1"):
     
     def format_pitch(start_df, bench_df):
         rows = [[], [], [], []]
+        subs = []
+        
         active = engine.get_active_players_from_dfs(start_df, bench_df)
         for r in active:
             events = []
@@ -229,6 +231,7 @@ def get_match_spotlight(m1: str, m2: str, gw: str = "1"):
             p_dict = {
                 "name": str(r.get("Player", "Unknown")),
                 "pos": str(r.get("Pos", "")),
+                "club": str(r.get("Club", "")).upper()[:3],
                 "fixture": str(r.get("Opp", "")),
                 "pts": int(r.get("Pts", 0)),
                 "events": " ".join(events)
@@ -237,7 +240,41 @@ def get_match_spotlight(m1: str, m2: str, gw: str = "1"):
             elif p_dict["pos"] == "DEF": rows[1].append(p_dict)
             elif p_dict["pos"] == "MID": rows[2].append(p_dict)
             elif p_dict["pos"] == "FWD": rows[3].append(p_dict)
-        return [r for r in rows if r]
+
+        inactive = []
+        if start_df is not None and not start_df.empty:
+            inactive.extend(start_df[start_df["sub_action"] == "Subbed Off"].to_dict("records"))
+        if bench_df is not None and not bench_df.empty:
+            inactive.extend(bench_df[bench_df["sub_action"] != "Subbed On"].to_dict("records"))
+            
+        for r in inactive:
+            subs.append({
+                "name": str(r.get("Player", "Unknown")),
+                "pos": str(r.get("Pos", "")),
+                "club": str(r.get("Club", "")).upper()[:3],
+                "fixture": str(r.get("Opp", "")),
+                "pts": int(r.get("Pts", 0)),
+                "events": ""
+            })
+            
+        return {"pitch": [r for r in rows if r], "subs": subs}
+
+    def format_table(start_df, bench_df):
+        def parse_row(r):
+            return {
+                "name": str(r.get("Player", "Unknown")),
+                "pos": str(r.get("Pos", "")),
+                "opp": str(r.get("Opp", "")),
+                "mins": int(r.get("Mins", 0)),
+                "g": int(r.get("G", 0)),
+                "a": int(r.get("A", 0)),
+                "cs": int(r.get("CS", 0)) if r.get("Pos") in ["GKP", "DEF", "MID"] else "-",
+                "bonus": int(r.get("Bonus", 0)),
+                "pts": int(r.get("Pts", 0))
+            }
+        starters = [parse_row(r) for _, r in start_df.iterrows()] if start_df is not None and not start_df.empty else []
+        subs = [parse_row(r) for _, r in bench_df.iterrows()] if bench_df is not None and not bench_df.empty else []
+        return {"starters": starters, "subs": subs}
 
     gw_fixtures = [f for f in all_fixtures if f.get("event") == target_gw] if all_fixtures else []
     labels, m1_data, m1_pts, m1_events, m2_data, m2_pts, m2_events = [], [], [], [], [], [], []
@@ -271,5 +308,7 @@ def get_match_spotlight(m1: str, m2: str, gw: str = "1"):
             "m2_data": m2_data, "m2_match_pts": m2_pts, "m2_events": m2_events
         },
         "pitch_m1": format_pitch(t1_start, t1_bench),
-        "pitch_m2": format_pitch(t2_start, t2_bench)
+        "pitch_m2": format_pitch(t2_start, t2_bench),
+        "table_m1": format_table(t1_start, t1_bench),
+        "table_m2": format_table(t2_start, t2_bench)
     }
