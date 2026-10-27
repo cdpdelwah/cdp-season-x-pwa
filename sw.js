@@ -1,3 +1,25 @@
+const CACHE_VERSION = 'cdp-v1';
+
+// Instantly install the new service worker
+self.addEventListener('install', (event) => {
+    self.skipWaiting(); 
+});
+
+// Wipe out any old caches so the app is forced to pull fresh code
+self.addEventListener('activate', (event) => {
+    event.waitUntil(
+        caches.keys().then((cacheNames) => {
+            return Promise.all(
+                cacheNames.map((cache) => {
+                    if (cache !== CACHE_VERSION) {
+                        return caches.delete(cache);
+                    }
+                })
+            );
+        }).then(() => self.clients.claim()) 
+    );
+});
+
 self.addEventListener("push", function (event) {
     let data = { title: "CDP Season X", body: "Matchday alert incoming!" };
     if (event.data) {

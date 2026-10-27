@@ -13,9 +13,17 @@ base_dir = Path(__file__).resolve().parent
 VAPID_PRIVATE_KEY = "SPXvvzkxVdsxWXj-8RfQXdBCxrcQdrgO3NNZXGvNP7Q"
 VAPID_CLAIMS = {"sub": "mailto:commissar@cdp.com"}
 
+from fastapi import Response
+
 @app.get("/")
-def serve_index():
-    return FileResponse(base_dir / "index.html")
+def serve_index(response: Response):
+    # This prevents mobile browsers from clinging to old versions of your HTML
+    headers = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    }
+    return FileResponse(base_dir / "index.html", headers=headers)
 
 @app.get("/sw.js")
 def serve_sw():
