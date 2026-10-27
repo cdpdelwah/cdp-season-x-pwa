@@ -517,7 +517,6 @@
             const container = document.getElementById(elementId);
             container.innerHTML = '';
             
-            // 1. Pitch Area (Starting XI)
             const pitchDiv = document.createElement('div');
             pitchDiv.className = 'football-pitch';
             
@@ -537,7 +536,6 @@
             });
             container.appendChild(pitchDiv);
             
-            // 2. Subs Area
             if (data.subs && data.subs.length > 0) {
                 container.innerHTML += `<div class="subs-header">🛡️ SUBS</div>`;
                 const subsDiv = document.createElement('div');
