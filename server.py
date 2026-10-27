@@ -25,6 +25,10 @@ def serve_sw():
 def serve_manifest():
     return FileResponse(base_dir / "manifest.json", media_type="application/manifest+json")
 
+@app.get("/icon.png")
+def serve_icon():
+    return FileResponse(base_dir / "icon.png", media_type="image/png")
+
 # 👈 NEW ENDPOINT: This routes web traffic into your Python engine
 @app.get("/api/league_data")
 def get_league_data():
