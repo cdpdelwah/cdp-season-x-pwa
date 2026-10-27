@@ -274,7 +274,8 @@ def get_match_spotlight(m1: str, m2: str, gw: str = "1"):
     
     t1_active = engine.get_active_players_from_dfs(t1_start, t1_bench)
     t2_active = engine.get_active_players_from_dfs(t2_start, t2_bench)
-    curr1, curr2 = 0
+    curr1 =0
+    curr2 = 0
     
     for f in gw_fixtures:
         h_id, a_id = f.get("team_h"), f.get("team_a")

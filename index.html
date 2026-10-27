@@ -165,8 +165,14 @@
 
             <!-- PITCH VIEW -->
             <div id="spotlight-pitch" class="pitch-layout">
-                <div class="manager-pitch"><div class="pitch-header"><span id="m1-name-pitch" style="color: #f59e0b;">M1</span></div><div class="football-pitch" id="pitch-m1"></div></div>
-                <div class="manager-pitch"><div class="pitch-header"><span id="m2-name-pitch" style="color: #38bdf8;">M2</span></div><div class="football-pitch" id="pitch-m2"></div></div>
+                <div class="manager-pitch">
+                    <div class="pitch-header"><span id="m1-name-pitch" style="color: #f59e0b;">M1</span></div>
+                    <div id="pitch-m1"></div>
+                </div>
+                <div class="manager-pitch">
+                    <div class="pitch-header"><span id="m2-name-pitch" style="color: #38bdf8;">M2</span></div>
+                    <div id="pitch-m2"></div>
+                </div>
             </div>
 
             <!-- TABLE VIEW -->
@@ -517,6 +523,7 @@
             const container = document.getElementById(elementId);
             container.innerHTML = '';
             
+            // 1. Build the Pitch
             const pitchDiv = document.createElement('div');
             pitchDiv.className = 'football-pitch';
             
@@ -529,15 +536,20 @@
                             <div class="player-shirt" style="border-color: ${accentColor};">${p.club || p.pos}</div>
                             <div class="player-name">${p.name}</div>
                             <div class="player-fixture">${p.fixture}</div>
-                            <div class="player-points">${p.pts} pts ${p.events}</div>
+                            <div class="player-points">${p.pts} pts <span style="font-size:0.7rem">${p.events}</span></div>
                         </div>`;
                 });
                 pitchDiv.appendChild(rowDiv);
             });
             container.appendChild(pitchDiv);
             
+            // 2. Build the Subs Tray
             if (data.subs && data.subs.length > 0) {
-                container.innerHTML += `<div class="subs-header">🛡️ SUBS</div>`;
+                const subHead = document.createElement('div');
+                subHead.className = 'subs-header';
+                subHead.innerHTML = '🛡️ SUBS';
+                container.appendChild(subHead);
+
                 const subsDiv = document.createElement('div');
                 subsDiv.className = 'subs-tray';
                 data.subs.forEach(p => {
@@ -546,7 +558,7 @@
                             <div class="player-shirt" style="border-color: #475569;">${p.club || p.pos}</div>
                             <div class="player-name">${p.name}</div>
                             <div class="player-fixture">${p.fixture}</div>
-                            <div class="player-points" style="color:#94a3b8; border-color:#333;">${p.pts} pts</div>
+                            <div class="player-points" style="color:#94a3b8; border-color:#333; background:#090c13;">${p.pts} pts</div>
                         </div>`;
                 });
                 container.appendChild(subsDiv);
