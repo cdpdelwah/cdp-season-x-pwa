@@ -160,7 +160,7 @@
         </div>
         
         <div class="home-menu">
-            <button class="menu-btn" onclick="navigate('scores')"><span>🔴 Live Scores</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="navigate('scores')"><span>🔴 Scores</span> <span>➔</span></button>
             <button class="menu-btn" onclick="alert('Squad Analyser requires private data authorization. Coming soon.')" style="opacity: 0.6;"><span>🧠 Squad Analyser</span> <span>🔒</span></button>
             <button class="menu-btn" onclick="alert('Trade Block requires private data authorization. Coming soon.')" style="opacity: 0.6;"><span>🤝 Trade Block</span> <span>🔒</span></button>
         </div>
@@ -177,7 +177,7 @@
         </div>
         
         <div class="header" style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-            <h1 id="gw-title" style="margin: 0; font-size: 1.35rem; text-align: left;">🔴 LIVE SCORES</h1>
+            <h1 id="gw-title" style="margin: 0; font-size: 1.35rem; text-align: left;">🔴SCORES</h1>
             <select id="gw-select" onchange="fetchLiveScores(activeLeagueId, this.value)" style="padding: 8px 12px; border-radius: 6px; background: #ffffff; color: #000000; border: 1px solid #cbd5e1; font-weight: 800; font-size: 0.9rem; cursor: pointer;">
                 <option value="0">Current GW</option>
             </select>
@@ -185,9 +185,9 @@
 
         <div class="league-tabs">
             <button class="tab-btn" id="tab-63" onclick="switchLeague(63)">CDP</button>
-            <button class="tab-btn" id="tab-240" onclick="switchLeague(240)">LDE</button>
-            <button class="tab-btn" id="tab-378" onclick="switchLeague(378)">BDR</button>
             <button class="tab-btn" id="tab-320" onclick="switchLeague(320)">SDM</button>
+            <button class="tab-btn" id="tab-378" onclick="switchLeague(378)">BDR</button>
+            <button class="tab-btn" id="tab-240" onclick="switchLeague(240)">LDE</button>
         </div>
         
         <div class="list-container" id="match-list"></div>
@@ -328,7 +328,7 @@
                 const response = await fetch(`/api/live_scores?league_id=${leagueId}&gw=${gw}`);
                 const json = await response.json();
                 
-                document.getElementById("gw-title").innerText = `🔴 LIVE SCORES (GW ${json.gw})`;
+                document.getElementById("gw-title").innerText = `🔴 SCORES (GW ${json.gw})`;
                 
                 const gwSelect = document.getElementById("gw-select");
                 if (json.all_gws && json.all_gws.length > 0) {
