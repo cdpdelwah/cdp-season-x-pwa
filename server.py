@@ -24,11 +24,14 @@ MANAGER_PINS = {
 
 # 👈 MANAGER DEFAULT LEAGUE ROUTING
 MANAGER_LEAGUES = {
-    "Andy": 63, "James": 63, "Jimmy": 63, "Greg": 63, "Nick": 63, "Foy": 63, "Hugh": 63, "Phil": 63 # CDP
-    "Sam": 320, "Garth": 320, "Bungle": 320, "Dave": 320, "Crouch": 320, "Ali": 320, "Stew": 320, "Josh": 320 # SDM
-    "Duncan": 378, "Rackett": 378, "Barney": 378, "Rob": 378, "Wilson": 378, "Culley": 378, "Bobby": 378, "Tudor": 378 # BDR
-"Adi": 240, "Lee": 240, "Jamie": 240, "Tom": 240, "Ben": 240, "Will": 240, "Niall": 240, "Pete": 240 # LDE
-    # (Unmapped managers will default to 63 automatically)
+    "Andy": 63, "James": 63, "Jimmy": 63, "Greg": 63, "Nick": 63, "Foy": 63, "Hugh": 63,
+    "Phil": 63, # CDP
+    "Sam": 320, "Garth": 320, "Bungle": 320, "Dave": 320, "Crouch": 320, "Ali": 320,
+    "Stew": 320, "Josh": 320, # SDM
+    "Duncan": 378, "Rackett": 378, "Barney": 378, "Rob": 378, "Wilson": 378, "Culley": 378,
+    "Bobby": 378, "Tudor": 378, # BDR
+    "Adi": 240, "Lee": 240, "Jamie": 240, "Tom": 240, "Ben": 240, "Will": 240, "Niall": 240,
+    "Pete": 240 # LDE
 }
 
 @app.get("/api/login")
