@@ -6,14 +6,13 @@
     <title>CDP App | Season X</title>
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#000000">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         body { background-color: #000000; color: #f1f5f9; display: flex; flex-direction: column; align-items: center; padding: 16px; }
         
         /* App Screens & Navigation */
-        .app-screen { display: none; width: 100%; max-width: 600px; flex-direction: column; align-items: center; }
+        .app-screen { display: none; width: 100%; max-width: 900px; flex-direction: column; align-items: center; }
         .app-screen.active { display: flex; }
         .league-tabs { display: flex; width: 100%; gap: 5px; margin-bottom: 15px; background: #090c13; padding: 5px; border-radius: 8px; border: 1px solid #182030; }
         .tab-btn { flex: 1; padding: 10px 5px; background: transparent; color: #64748b; border: none; border-radius: 6px; font-size: 0.85rem; font-weight: 800; cursor: pointer; transition: all 0.2s; }
@@ -22,26 +21,27 @@
         .menu-btn { width: 100%; padding: 16px; background: #090c13; border: 1px solid #182030; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 1.1rem; font-weight: 700; cursor: pointer; }
         .menu-btn:active { background: #1e293b; }
 
-        .header { text-align: center; margin-bottom: 20px; width: 100%; max-width: 600px; }
-        .header h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.5px; }
+        .header { text-align: center; margin-bottom: 20px; width: 100%; }
+        .header h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px; }
         .header p { color: #94a3b8; font-size: 0.85rem; margin-top: 4px; }
         
-        .list-container { width: 100%; max-width: 600px; display: flex; flex-direction: column; gap: 12px; padding-bottom: 40px; }
+        .list-container { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 12px; padding-bottom: 40px; }
         
-        /* The Match Card Styling */
-        .match-card { background-color: #090c13; border: 1px solid #182030; border-radius: 8px; padding: 14px; }
+        /* Match Card Styling */
+        .match-card { background-color: #090c13; border: 1px solid #182030; border-radius: 8px; padding: 14px; transition: border-color 0.2s; }
+        .match-card:hover { border-color: #f59e0b; }
         .m-header { display: flex; justify-content: space-between; margin-bottom: 6px; }
         .m1-name { color: #f59e0b; font-size: 0.95rem; font-weight: 800; text-transform: uppercase; }
         .m2-name { color: #38bdf8; font-size: 0.95rem; font-weight: 800; text-transform: uppercase; text-align: right; }
         
         .scores { display: flex; justify-content: space-between; align-items: center; }
         .score-val { font-size: 2.2rem; font-weight: 900; line-height: 1; color: #ffffff; }
-        .score-box { display: flex; flex-direction: column; width: 40%; }
+        .score-box { display: flex; flex-direction: column; width: 42%; }
         .score-box.right { text-align: right; }
-        .vs { font-size: 1rem; color: #64748b; font-weight: 700; text-align: center; width: 20%; }
+        .vs { font-size: 0.9rem; color: #64748b; font-weight: 800; text-align: center; width: 16%; text-transform: uppercase; }
         
         .proj { font-size: 0.8rem; color: #cbd5e1; font-weight: 600; margin-top: 6px; }
-        .bench { font-size: 0.7rem; color: #94a3b8; margin-top: 2px; }
+        .bench { font-size: 0.72rem; color: #94a3b8; margin-top: 2px; }
         
         .progress-bg { background-color: #121824; height: 10px; border-radius: 6px; margin: 14px 0 6px 0; display: flex; overflow: hidden; }
         .progress-bar-1 { height: 100%; transition: width 0.5s ease; }
@@ -51,36 +51,83 @@
         .c2 { color: #38bdf8; }
         .c-tie { color: #94a3b8; }
 
-        /* Modal & Pitch Styles */
-        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: flex-end; z-index: 1000; transition: opacity 0.3s; }
-        .modal-overlay.hidden { display: none; opacity: 0; pointer-events: none; }
-        .modal-content { background: #121212; width: 100%; max-height: 90vh; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 20px; animation: slideUp 0.3s ease-out; border-top: 1px solid #333; }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; padding-bottom: 10px; margin-bottom: 15px; }
-        .close-btn { background: none; border: none; color: #fff; font-size: 20px; cursor: pointer; }
-        .section-subtitle { font-size: 14px; font-weight: bold; color: #fff; margin-bottom: 10px; border-bottom: 1px solid #333; padding-bottom: 5px; }
-        .chart-container { position: relative; height: 300px; width: 100%; }
-        .pitch-layout { display: flex; gap: 15px; width: 100%; flex-direction: column; }
-        .manager-pitch { flex: 1; display: flex; flex-direction: column; }
-        .pitch-header { display: flex; justify-content: space-between; font-weight: bold; padding: 5px 0; font-size: 0.9rem; }
-        
-        .football-pitch { background: #0d2e1b; border: 2px solid #ffffff33; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; gap: 15px; min-height: 350px; position: relative; }
-        .football-pitch::before { content: ''; position: absolute; top: 50%; left: 0; right: 0; border-top: 2px solid #ffffff22; z-index: 0; }
-        .pitch-row { display: flex; justify-content: center; gap: 10px; z-index: 1; }
-        .player-card { display: flex; flex-direction: column; align-items: center; text-align: center; z-index: 1; width: 45px;}
-        .player-shirt { width: 28px; height: 28px; background: #1e293b; border: 2px solid #fff; border-radius: 50%; margin-bottom: 4px; font-size: 9px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 900; box-shadow: 0 2px 4px rgba(0,0,0,0.5); }
-        .player-name { font-size: 10px; color: #fff; background: #000; padding: 2px 4px; border-radius: 4px; white-space: nowrap; }
-        .player-fixture { font-size: 9px; color: #94a3b8; margin-top: 2px; }
-        .player-points { font-size: 10px; font-weight: bold; color: #f59e0b; background: #182030; padding: 2px 5px; border-radius: 4px; margin-top: 2px; border: 1px solid #333; white-space: nowrap;}
-        .subs-tray { background: #060911; border: 1px solid #182030; border-radius: 8px; padding: 10px; display: flex; justify-content: space-around; }
-        .subs-header { font-size: 0.75rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; margin: 10px 0 6px 0; }
-        
-        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        /* Modal Overlay */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.88); display: flex; justify-content: center; align-items: flex-end; z-index: 1000; }
+        .modal-overlay.hidden { display: none; }
+        .modal-content { background: #000000; width: 100%; max-width: 1050px; max-height: 92vh; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 18px; border-top: 1px solid #263042; margin: 0 auto; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #182030; padding-bottom: 12px; margin-bottom: 14px; position: sticky; top: -18px; background: #000000; z-index: 60; padding-top: 4px; }
+        .close-btn { background: #1e293b; border: none; color: #fff; font-size: 16px; width: 34px; height: 34px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+
+        /* Responsive Side by Side Grid for Laptop, Stacked for Mobile */
+        .spotlight-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; width: 100%; }
+        @media (max-width: 768px) {
+            .spotlight-grid { grid-template-columns: 1fr; }
+        }
+
+        /* Pitch & Dugout Styles */
+        .manager-col { display: flex; flex-direction: column; width: 100%; min-width: 0; }
+        .mgr-header-block { margin-bottom: 10px; }
+        .mgr-title-line { font-size: 1.35rem; font-weight: 800; color: #ffffff; letter-spacing: -0.3px; }
+        .mgr-sub-line { font-size: 0.82rem; color: #94a3b8; margin-top: 3px; font-weight: 500; }
+
+        .view-tabs { display: flex; gap: 18px; border-bottom: 1px solid #182030; margin-bottom: 14px; }
+        .view-tab-btn { background: none; border: none; border-bottom: 2px solid transparent; padding: 8px 4px; font-size: 0.92rem; font-weight: 700; color: #94a3b8; cursor: pointer; }
+        .view-tab-btn.active { color: #ffffff; border-bottom-color: #ef4444; }
+
+        .football-pitch {
+            position: relative;
+            width: 100%;
+            height: 490px;
+            background: repeating-linear-gradient(180deg, #0f351e, #0f351e 62px, #0d2e1a 62px, #0d2e1a 124px);
+            border-radius: 10px;
+            border: 2px solid #1a4d2e;
+            overflow: hidden;
+            box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 10px 6px 14px 6px;
+        }
+        .pitch-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0.35; }
+        .pitch-row { position: relative; z-index: 2; display: flex; justify-content: space-around; align-items: center; width: 100%; }
+        .player-card { flex: 1 1 0px; width: 0; min-width: 0; display: flex; flex-direction: column; align-items: center; text-align: center; position: relative; }
+        .club-token { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.4px; box-shadow: 0 4px 10px rgba(0,0,0,0.6); border: 2px solid #fff; position: relative; }
+        .flag-badge { position: absolute; top: -3px; right: -3px; width: 13px; height: 13px; border-radius: 3px; font-size: 0.6rem; font-weight: 900; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(0,0,0,0.5); }
+        .flag-red { background: #ef4444; color: #fff; }
+        .flag-orange { background: #f97316; color: #fff; }
+        .flag-yellow { background: #eab308; color: #000; }
+        .flag-susp { position: absolute; top: -4px; right: -3px; width: 9px; height: 13px; background: #ef4444; border: 1px solid #fff; border-radius: 2px; transform: rotate(8deg); }
+
+        .player-name-pill { background: rgba(9, 12, 19, 0.94); border: 1px solid #1e293b; color: #ffffff; font-size: 0.68rem; font-weight: 700; padding: 1px 5px; border-radius: 4px; margin-top: 3px; max-width: 96px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .player-opp-pill { background: rgba(6, 9, 17, 0.88); color: #cbd5e1; font-size: 0.62rem; font-weight: 700; padding: 1px 4px; border-radius: 3px; margin-top: 1px; white-space: nowrap; }
+        .player-pts-pill { background: #000000; border: 1px solid #f59e0b; color: #f59e0b; font-size: 0.72rem; font-weight: 800; padding: 1px 5px; border-radius: 4px; margin-top: 1px; white-space: nowrap; }
+
+        .dugout-container { width: 100%; margin-top: 8px; background: #060911; border: 1px solid #182030; border-radius: 8px; padding: 8px 6px; }
+        .dugout-header { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; color: #94a3b8; margin-bottom: 8px; border-bottom: 1px solid #141a26; padding-bottom: 4px; }
+        .dugout-row { display: flex; justify-content: space-around; align-items: center; width: 100%; }
+
+        /* Table View Styles */
+        .clean-table { width: 100%; border-collapse: collapse; background: #090c13; border-radius: 6px; overflow: hidden; font-size: 0.8rem; margin-bottom: 12px; border: 1px solid #182030; }
+        .clean-table th { background: #0e131d; color: #94a3b8; border-bottom: 2px solid #182030; font-weight: 700; padding: 7px 6px; text-align: center; }
+        .clean-table th:first-child, .clean-table td:first-child { text-align: left; font-weight: 700; color: #ffffff; padding-left: 10px; }
+        .clean-table td { border-bottom: 1px solid #141a26; color: #cbd5e1; padding: 7px 6px; text-align: center; white-space: nowrap; }
+
+        /* Interactive Progression SVG & Tooltip Styles */
+        .chart-wrapper { position: relative; width: 100%; height: 360px; background: #000000; margin-bottom: 18px; user-select: none; -webkit-user-select: none; }
+        .svg-box { position: relative; width: 100%; height: 320px; }
+        .prog-tooltip { display: none; position: absolute; background: #090c13; border: 2px solid #ffffff; border-radius: 8px; padding: 8px 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.95); z-index: 50; min-width: 220px; max-width: 290px; pointer-events: none; }
+        .prog-tooltip table { width: 100%; border-collapse: collapse; }
+        .prog-tooltip td { padding: 3px 6px; font-size: 13px; border-bottom: 1px solid #141a26; }
+        .prog-tooltip tr:last-child td { border-bottom: none; }
+        .prog-tooltip td.k { color: #94a3b8; font-weight: 600; text-align: right; width: 42%; white-space: nowrap; }
+        .prog-tooltip td.v { color: #f8fafc; font-weight: 700; text-align: left; }
+        .vis-dot.active { r: 8px; stroke: #ffffff; stroke-width: 2.5px; }
     </style>
 </head>
 <body>
 
     <!-- SCREEN 1: LOGIN VAULT -->
-    <div id="screen-login" class="app-screen active" style="margin-top: 10vh; text-align: center;">
+    <div id="screen-login" class="app-screen active" style="margin-top: 10vh; max-width: 420px; text-align: center;">
         <h2 style="color: #f59e0b; font-size: 1.8rem; margin-bottom: 5px;">CDP Command Center</h2>
         <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 30px;">Identify yourself to enter.</p>
         
@@ -106,7 +153,7 @@
     </div>
 
     <!-- SCREEN 2: HOME DASHBOARD -->
-    <div id="screen-home" class="app-screen">
+    <div id="screen-home" class="app-screen" style="max-width: 600px;">
         <div class="header" style="text-align: left; margin-bottom: 10px;">
             <h1 id="welcome-msg">Welcome, Manager</h1>
             <p>Dellarverse Season X</p>
@@ -119,7 +166,6 @@
         </div>
         
         <button onclick="subscribeUser()" id="enable-btn" style="width: 100%; margin-top: 30px; background: #22c55e; padding: 12px; border-radius: 8px; font-weight: bold; border: none; display: none;">🔔 Enable Matchday Alerts</button>
-        
         <button onclick="logoutUser()" style="width: 100%; margin-top: 15px; background: #ef4444; color: #fff; padding: 12px; border-radius: 8px; font-weight: bold; border: none; cursor: pointer;">🚪 Logout / Switch Manager</button>
     </div>
 
@@ -127,12 +173,12 @@
     <div id="screen-scores" class="app-screen">
         <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <button onclick="navigate('home')" style="background: none; border: none; color: #38bdf8; font-size: 1rem; font-weight: bold; cursor: pointer; padding: 0;">← Home</button>
-            <button onclick="fetchLiveScores(activeLeagueId, document.getElementById('gw-select') ? document.getElementById('gw-select').value : '0')" style="background: #1e293b; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer;">🔄 Refresh</button>
+            <button onclick="fetchLiveScores(activeLeagueId, document.getElementById('gw-select').value)" style="background: #1e293b; color: #fff; border: 1px solid #334155; padding: 6px 12px; border-radius: 6px; font-size: 0.82rem; font-weight: 700; cursor: pointer;">🔄 Refresh</button>
         </div>
         
-        <div class="header" style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
-            <h1 id="gw-title" style="margin: 0; font-size: 1.4rem;">🔴 LIVE SCORES</h1>
-            <select id="gw-select" onchange="fetchLiveScores(activeLeagueId, this.value)" style="padding: 6px 10px; border-radius: 6px; background: #1e293b; color: #fff; border: 1px solid #333; font-weight: bold; cursor: pointer;">
+        <div class="header" style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+            <h1 id="gw-title" style="margin: 0; font-size: 1.35rem; text-align: left;">🔴 LIVE SCORES</h1>
+            <select id="gw-select" onchange="fetchLiveScores(activeLeagueId, this.value)" style="padding: 8px 12px; border-radius: 6px; background: #ffffff; color: #000000; border: 1px solid #cbd5e1; font-weight: 800; font-size: 0.9rem; cursor: pointer;">
                 <option value="0">Current GW</option>
             </select>
         </div>
@@ -148,42 +194,52 @@
     </div>
 
     <!-- MATCH SPOTLIGHT MODAL -->
-    <div id="match-modal" class="modal-overlay hidden">
-        <div class="modal-content" style="max-width: 900px; margin: auto;">
+    <div id="match-modal" class="modal-overlay hidden" onclick="if(event.target.id==='match-modal') closeModal()">
+        <div class="modal-content">
             <div class="modal-header">
-                <h2 id="modal-match-title" style="font-size: 1.4rem; font-weight: 900;">Match Spotlight</h2>
-                <button onclick="closeModal()" class="close-btn">✖</button>
+                <h2 id="modal-match-title" style="font-size: 1.25rem; font-weight: 900; color: #fff;">Match Spotlight</h2>
+                <button onclick="closeModal()" class="close-btn">✕</button>
             </div>
             
-            <p class="section-subtitle">Gameweek Points Progression</p>
-            <div class="chart-container" style="height: 250px; margin-bottom: 20px;"><canvas id="progressionChart"></canvas></div>
+            <div style="margin-bottom: 6px;">
+                <h3 id="prog-title" style="font-size: 1.05rem; font-weight: 800; color: #fff;">Gameweek Points Progression</h3>
+                <p style="font-size: 0.78rem; color: #94a3b8; margin-top: 2px;">Cumulative matchday points tracking each EPL fixture in the order played • Tap or hover any dot to inspect</p>
+            </div>
 
-            <div class="modal-tabs" style="display: flex; gap: 20px; border-bottom: 1px solid #333; margin-bottom: 15px; padding-bottom: 5px;">
-                <button onclick="toggleSpotlightView('pitch')" id="btn-view-pitch" style="background:none; border:none; color:#38bdf8; font-weight:bold; cursor:pointer; font-size:1rem;">⚽ Pitch View</button>
-                <button onclick="toggleSpotlightView('table')" id="btn-view-table" style="background:none; border:none; color:#94a3b8; font-weight:bold; cursor:pointer; font-size:1rem;">📋 Table View</button>
+            <div class="chart-wrapper">
+                <div class="svg-box" id="svg-box">
+                    <svg id="prog-svg" style="width:100%; height:100%; display:block; overflow:visible;"></svg>
+                    <div class="prog-tooltip" id="prog-tooltip"></div>
+                </div>
+                <div id="prog-legend" style="display:flex; justify-content:center; gap:24px; height:32px; align-items:center;"></div>
+            </div>
+
+            <div class="view-tabs">
+                <button onclick="toggleSpotlightView('pitch')" id="btn-view-pitch" class="view-tab-btn active">⚽ Pitch View</button>
+                <button onclick="toggleSpotlightView('table')" id="btn-view-table" class="view-tab-btn">📋 Table View</button>
             </div>
 
             <!-- PITCH VIEW -->
-            <div id="spotlight-pitch" class="pitch-layout">
-                <div class="manager-pitch">
-                    <div class="pitch-header"><span id="m1-name-pitch" style="color: #f59e0b;">M1</span></div>
+            <div id="spotlight-pitch" class="spotlight-grid">
+                <div class="manager-col">
+                    <div class="mgr-header-block" id="m1-header-pitch"></div>
                     <div id="pitch-m1"></div>
                 </div>
-                <div class="manager-pitch">
-                    <div class="pitch-header"><span id="m2-name-pitch" style="color: #38bdf8;">M2</span></div>
+                <div class="manager-col">
+                    <div class="mgr-header-block" id="m2-header-pitch"></div>
                     <div id="pitch-m2"></div>
                 </div>
             </div>
 
             <!-- TABLE VIEW -->
-            <div id="spotlight-table" style="display: none; width: 100%; gap: 15px; flex-wrap: wrap;">
-                <div style="flex: 1; min-width: 300px; background: #090c13; border: 1px solid #182030; border-radius: 8px; padding: 10px;">
-                    <div style="color: #f59e0b; font-weight: bold; margin-bottom: 10px;" id="m1-name-table">M1</div>
-                    <div id="table-m1" style="font-size: 0.8rem;"></div>
+            <div id="spotlight-table" class="spotlight-grid" style="display: none;">
+                <div class="manager-col">
+                    <div class="mgr-header-block" id="m1-header-table"></div>
+                    <div id="table-m1"></div>
                 </div>
-                <div style="flex: 1; min-width: 300px; background: #090c13; border: 1px solid #182030; border-radius: 8px; padding: 10px;">
-                    <div style="color: #38bdf8; font-weight: bold; margin-bottom: 10px;" id="m2-name-table">M2</div>
-                    <div id="table-m2" style="font-size: 0.8rem;"></div>
+                <div class="manager-col">
+                    <div class="mgr-header-block" id="m2-header-table"></div>
+                    <div id="table-m2"></div>
                 </div>
             </div>
         </div>
@@ -191,14 +247,15 @@
 
     <script>
         let activeLeagueId = 63;
-        
+        window.currentMatches = [];
+        window.activeSpotlightData = null;
+
         window.onload = () => {
             const savedAlias = localStorage.getItem("cdp_alias");
             if (savedAlias) {
                 document.getElementById("welcome-msg").innerText = `Welcome, ${savedAlias}`;
                 activeLeagueId = parseInt(localStorage.getItem("cdp_league")) || 63;
                 navigate('home');
-                
                 if ("Notification" in window && Notification.permission !== "granted") {
                     const btn = document.getElementById("enable-btn");
                     if (btn) btn.style.display = "block";
@@ -222,14 +279,13 @@
             errorEl.style.display = "none"; btn.innerText = "VERIFYING...";
 
             try {
-                const response = await fetch(`/api/login?alias=${alias}&pin=${pin}`);
+                const response = await fetch(`/api/login?alias=${encodeURIComponent(alias)}&pin=${encodeURIComponent(pin)}`);
                 const data = await response.json();
                 
                 if (data.status === "success") {
                     localStorage.setItem("cdp_alias", alias);
                     localStorage.setItem("cdp_league", data.default_league);
                     activeLeagueId = data.default_league;
-                    
                     document.getElementById("welcome-msg").innerText = `Welcome, ${alias}`;
                     btn.innerText = "VERIFY IDENTITY";
                     document.getElementById("pin-input").value = "";
@@ -257,16 +313,16 @@
         function switchLeague(leagueId) {
             activeLeagueId = leagueId;
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-            document.getElementById(`tab-${leagueId}`).classList.add('active');
+            const activeTab = document.getElementById(`tab-${leagueId}`);
+            if (activeTab) activeTab.classList.add('active');
             
-            const gwSelect = document.getElementById("gw-select");
-            if (gwSelect) gwSelect.value = "0";
-            fetchLiveScores(leagueId, "0");
+            const currentGwVal = document.getElementById("gw-select") ? document.getElementById("gw-select").value : "0";
+            fetchLiveScores(leagueId, currentGwVal || "0");
         }
 
         async function fetchLiveScores(leagueId, gw = "0") {
             const listEl = document.getElementById("match-list");
-            listEl.innerHTML = "<p style='text-align:center; color:#94a3b8;'>Running FPL Engine calculations...</p>";
+            listEl.innerHTML = "<p style='text-align:center; color:#94a3b8; grid-column: 1 / -1; padding: 20px;'>Running FPL Engine calculations...</p>";
             
             try {
                 const response = await fetch(`/api/live_scores?league_id=${leagueId}&gw=${gw}`);
@@ -275,23 +331,25 @@
                 document.getElementById("gw-title").innerText = `🔴 LIVE SCORES (GW ${json.gw})`;
                 
                 const gwSelect = document.getElementById("gw-select");
-                if (gwSelect.options.length <= 1 && json.all_gws) {
-                    gwSelect.innerHTML = `<option value="0">Current GW (${json.gw})</option>`;
+                if (json.all_gws && json.all_gws.length > 0) {
+                    gwSelect.innerHTML = "";
                     json.all_gws.forEach(g => {
-                        gwSelect.innerHTML += `<option value="${g}">Gameweek ${g}</option>`;
+                        const label = (g === json.detected_gw) ? `GW ${g} (Current)` : `Gameweek ${g}`;
+                        gwSelect.innerHTML += `<option value="${g}">${label}</option>`;
                     });
+                    gwSelect.value = String(json.gw);
                 }
-                gwSelect.value = gw === "0" ? "0" : gw;
                 
+                window.currentMatches = json.matches || [];
                 listEl.innerHTML = "";
                 
-                json.matches.forEach(m => {
+                window.currentMatches.forEach((m, idx) => {
                     let c1Class = "c-tie", c2Class = "c-tie", barColor = "#94a3b8";
                     if (m.pr1 > m.pr2) { c1Class = "c1"; barColor = "#f59e0b"; } 
                     else if (m.pr2 > m.pr1) { c2Class = "c2"; barColor = "#38bdf8"; }
 
                     listEl.innerHTML += `
-                        <div class="match-card" onclick="openMatchModal('${m.m1}', '${m.m2}', '${json.gw}')" style="cursor: pointer;">
+                        <div class="match-card" onclick="openMatchModal(${idx}, ${json.gw})" style="cursor: pointer;">
                             <div class="m-header">
                                 <div class="m1-name">${m.m1}</div>
                                 <div class="m2-name">${m.m2}</div>
@@ -300,13 +358,13 @@
                                 <div class="score-box">
                                     <div class="score-val">${m.s1}</div>
                                     <div class="proj">Proj: ${m.p1.toFixed(1)} (${m.r1})</div>
-                                    <div class="bench">Bench: ${m.b1} pts</div>
+                                    <div class="bench">Bench: ${m.b1} pts | Opt: ${m.opt1} pts</div>
                                 </div>
                                 <div class="vs">vs</div>
                                 <div class="score-box right">
                                     <div class="score-val">${m.s2}</div>
                                     <div class="proj">Proj: ${m.p2.toFixed(1)} (${m.r2})</div>
-                                    <div class="bench">Bench: ${m.b2} pts</div>
+                                    <div class="bench">Bench: ${m.b2} pts | Opt: ${m.opt2} pts</div>
                                 </div>
                             </div>
                             <div class="progress-bg">
@@ -320,47 +378,10 @@
                     `;
                 });
             } catch (error) {
-                listEl.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load live scores.</p>";
+                listEl.innerHTML = "<p style='color:#ef4444; text-align:center; grid-column: 1 / -1;'>Failed to load live scores.</p>";
             }
         }
 
-        const VAPID_PUBLIC_KEY = "BCVBFGP0PNXvzRz9JuVB2wTj57YL8Mv_v_aSV1R6EyaswT00lPF8eQ7sDGoeI3VBcf_aAQaJXNTUkToaB7gGnNY";
-
-        function urlBase64ToUint8Array(base64String) {
-            const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-            const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/");
-            const rawData = window.atob(base64);
-            const outputArray = new Uint8Array(rawData.length);
-            for (let i = 0; i < rawData.length; ++i) {
-                outputArray[i] = rawData.charCodeAt(i);
-            }
-            return outputArray;
-        }
-
-        async function subscribeUser() {
-            const statusEl = document.getElementById("status-msg");
-            if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-                if (statusEl) statusEl.textContent = "Push not supported on this browser.";
-                return;
-            }
-            const registration = await navigator.serviceWorker.register("/sw.js");
-            const permission = await Notification.requestPermission();
-            if (permission !== "granted") {
-                if (statusEl) statusEl.textContent = "Push permission denied.";
-                return;
-            }
-            const existingSub = await registration.pushManager.getSubscription();
-            if (existingSub) await existingSub.unsubscribe();
-            const subscription = await registration.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-            });
-            await fetch("/api/save_subscription", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(subscription) });
-            if (statusEl) statusEl.textContent = "✅ Device registered for push alerts!";
-            const btn = document.getElementById("enable-btn");
-            if (btn) btn.style.display = "none";
-        }
-        
         function toggleSpotlightView(view) {
             const pitchEl = document.getElementById('spotlight-pitch');
             const tableEl = document.getElementById('spotlight-table');
@@ -368,153 +389,231 @@
             const btnTable = document.getElementById('btn-view-table');
 
             if (view === 'pitch') {
-                pitchEl.style.display = 'flex';
+                pitchEl.style.display = 'grid';
                 tableEl.style.display = 'none';
-                btnPitch.style.color = '#38bdf8';
-                btnTable.style.color = '#94a3b8';
+                btnPitch.classList.add('active');
+                btnTable.classList.remove('active');
             } else {
                 pitchEl.style.display = 'none';
-                tableEl.style.display = 'flex';
-                btnPitch.style.color = '#94a3b8';
-                btnTable.style.color = '#38bdf8';
+                tableEl.style.display = 'grid';
+                btnPitch.classList.remove('active');
+                btnTable.classList.add('active');
             }
         }
 
-        let currentChart = null;
+        function openMatchModal(matchIndex, gw) {
+            const matchObj = window.currentMatches[matchIndex];
+            if (!matchObj || !matchObj.spotlight) return;
 
-        async function openMatchModal(manager1, manager2, gw) {
+            const manager1 = matchObj.m1;
+            const manager2 = matchObj.m2;
+            const data = matchObj.spotlight;
+            window.activeSpotlightData = { manager1, manager2, gw, data };
+
             document.getElementById('match-modal').classList.remove('hidden');
-            document.getElementById('modal-match-title').innerText = `${manager1} vs ${manager2}`;
-            document.getElementById('m1-name-pitch').innerText = manager1;
-            document.getElementById('m2-name-pitch').innerText = manager2;
-            document.getElementById('m1-name-table').innerText = manager1;
-            document.getElementById('m2-name-table').innerText = manager2;
-            
+            document.getElementById('modal-match-title').innerText = `${manager1} (${matchObj.s1}) vs (${matchObj.s2}) ${manager2}`;
+            document.getElementById('prog-title').innerText = `Gameweek ${gw} Points Progression`;
+
+            const h1 = `<div class="mgr-title-line">${manager1} (${data.m1_meta.score} pts)</div><div class="mgr-sub-line">Bench Left: ${data.m1_meta.bench} pts | Optimum Score: ${data.m1_meta.opt} pts</div>`;
+            const h2 = `<div class="mgr-title-line">${manager2} (${data.m2_meta.score} pts)</div><div class="mgr-sub-line">Bench Left: ${data.m2_meta.bench} pts | Optimum Score: ${data.m2_meta.opt} pts</div>`;
+
+            document.getElementById('m1-header-pitch').innerHTML = h1;
+            document.getElementById('m2-header-pitch').innerHTML = h2;
+            document.getElementById('m1-header-table').innerHTML = h1;
+            document.getElementById('m2-header-table').innerHTML = h2;
+
             toggleSpotlightView('pitch');
+            renderPitch('pitch-m1', data.pitch_m1, '#f59e0b');
+            renderPitch('pitch-m2', data.pitch_m2, '#38bdf8');
+            renderTable('table-m1', data.table_m1);
+            renderTable('table-m2', data.table_m2);
 
-            try {
-                const response = await fetch(`/api/match_spotlight?m1=${manager1}&m2=${manager2}&gw=${gw}`);
-                const data = await response.json();
+            requestAnimationFrame(() => {
+                drawProgressionSvg(manager1, manager2, data.progression);
+            });
+        }
 
-                const ctx = document.getElementById('progressionChart').getContext('2d');
-                if (currentChart) currentChart.destroy();
-                
-                currentChart = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: data.progression.labels,
-                        datasets: [
-                            { 
-                                label: manager1, 
-                                data: data.progression.m1_data,
-                                matchPts: data.progression.m1_match_pts,
-                                events: data.progression.m1_events,
-                                borderColor: '#f59e0b', backgroundColor: '#f59e0b', tension: 0, borderWidth: 3, pointRadius: 5, pointHoverRadius: 8 
-                            },
-                            { 
-                                label: manager2, 
-                                data: data.progression.m2_data,
-                                matchPts: data.progression.m2_match_pts,
-                                events: data.progression.m2_events, 
-                                borderColor: '#38bdf8', backgroundColor: '#38bdf8', tension: 0, borderWidth: 3, pointRadius: 5, pointHoverRadius: 8 
-                            }
-                        ]
-                    },
-                    options: { 
-                        responsive: true, maintainAspectRatio: false, 
-                        plugins: { 
-                            legend: { labels: { color: '#fff' } },
-                            tooltip: {
-                                backgroundColor: 'rgba(9, 12, 19, 0.95)',
-                                titleColor: '#94a3b8',
-                                bodyColor: '#fff',
-                                borderColor: '#333',
-                                borderWidth: 1,
-                                padding: 12,
-                                displayColors: false,
-                                callbacks: {
-                                    title: (context) => `Match: ${context[0].label}`,
-                                    label: (context) => {
-                                        const ds = context.dataset;
-                                        const idx = context.dataIndex;
-                                        return [
-                                            `Manager: ${ds.label}`,
-                                            `Total Pts: ${ds.data[idx]}`,
-                                            `Match Pts: +${ds.matchPts[idx]}`,
-                                            `Events: ${ds.events[idx] || 'None'}`
-                                        ];
-                                    }
-                                }
-                            }
-                        }, 
-                        scales: { 
-                            x: { ticks: { color: '#aaa', font: {size: 10} }, grid: { color: '#182030' } }, 
-                            y: { ticks: { color: '#aaa' }, grid: { color: '#182030' } } 
-                        } 
-                    }
-                });
+        function drawProgressionSvg(alias1, alias2, prog) {
+            const svgEl = document.getElementById("prog-svg");
+            const boxEl = document.getElementById("svg-box");
+            const tooltipEl = document.getElementById("prog-tooltip");
+            const legendEl = document.getElementById("prog-legend");
 
-                renderPitch('pitch-m1', data.pitch_m1, '#f59e0b');
-                renderPitch('pitch-m2', data.pitch_m2, '#38bdf8');
-                renderTable('table-m1', data.table_m1);
-                renderTable('table-m2', data.table_m2);
-            } catch (error) {
-                console.error("Error loading match data:", error);
+            tooltipEl.style.display = "none";
+            legendEl.innerHTML = `
+                <div style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:700; color:#fff;">
+                    <span style="width:12px; height:12px; border-radius:50%; background:#f59e0b; display:inline-block;"></span><span>${alias1}</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:700; color:#fff;">
+                    <span style="width:12px; height:12px; border-radius:50%; background:#38bdf8; display:inline-block;"></span><span>${alias2}</span>
+                </div>
+            `;
+
+            const fixtures = prog.fixtures || [];
+            if (!fixtures.length) {
+                svgEl.innerHTML = "";
+                return;
             }
+
+            const W = boxEl.clientWidth || 340;
+            const H = boxEl.clientHeight || 300;
+            svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
+
+            const padL = 42, padR = 16, padT = 16, padB = 72;
+            const plotW = Math.max(100, W - padL - padR);
+            const plotH = Math.max(100, H - padT - padB);
+
+            let maxVal = 0;
+            fixtures.forEach(f => {
+                if (f.m1.pts > maxVal) maxVal = f.m1.pts;
+                if (f.m2.pts > maxVal) maxVal = f.m2.pts;
+            });
+
+            let step = 5;
+            if (maxVal > 60) step = 20;
+            else if (maxVal > 30) step = 10;
+            else if (maxVal <= 10) step = 2;
+
+            const yMax = Math.max(step * 2, Math.ceil((maxVal + 1) / step) * step);
+            const n = fixtures.length;
+            const getX = (i) => n === 1 ? padL + plotW / 2 : padL + (i / (n - 1)) * plotW;
+            const getY = (val) => padT + plotH - (val / yMax) * plotH;
+
+            let svg = `<rect x="0" y="0" width="${W}" height="${H}" fill="transparent" id="bg-catcher" />`;
+
+            for (let v = 0; v <= yMax; v += step) {
+                const y = getY(v);
+                svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#182030" stroke-width="1" />`;
+                svg += `<text x="${padL - 8}" y="${y + 4}" fill="#94a3b8" font-size="11" font-weight="600" text-anchor="end">${v}</text>`;
+            }
+
+            svg += `<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + plotH}" stroke="#182030" stroke-width="1" />`;
+            const titleY = padT + plotH / 2;
+            svg += `<text x="12" y="${titleY}" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle" transform="rotate(-90, 12, ${titleY})">Cumulative Points</text>`;
+
+            fixtures.forEach((f, i) => {
+                const x = getX(i);
+                const labelY = padT + plotH + 8;
+                svg += `<line x1="${x}" y1="${padT + plotH}" x2="${x}" y2="${padT + plotH + 4}" stroke="#182030" stroke-width="1" />`;
+                svg += `<text x="${x}" y="${labelY}" fill="#94a3b8" font-size="10.5" font-weight="600" text-anchor="end" dominant-baseline="central" transform="rotate(-90, ${x}, ${labelY})">${f.match}</text>`;
+            });
+
+            const pts1 = fixtures.map((f, i) => `${getX(i)},${getY(f.m1.pts)}`).join(" ");
+            const pts2 = fixtures.map((f, i) => `${getX(i)},${getY(f.m2.pts)}`).join(" ");
+
+            svg += `<polyline fill="none" stroke="#f59e0b" stroke-width="2.5" points="${pts1}" />`;
+            svg += `<polyline fill="none" stroke="#38bdf8" stroke-width="2.5" points="${pts2}" />`;
+
+            fixtures.forEach((f, i) => {
+                const x = getX(i);
+                svg += `<circle id="vdot-${i}-m2" class="vis-dot" cx="${x}" cy="${getY(f.m2.pts)}" r="5" fill="#38bdf8" />`;
+                svg += `<circle id="vdot-${i}-m1" class="vis-dot" cx="${x}" cy="${getY(f.m1.pts)}" r="5" fill="#f59e0b" />`;
+            });
+
+            fixtures.forEach((f, i) => {
+                const x = getX(i);
+                svg += `<circle class="hit-dot" data-idx="${i}" data-side="m2" data-px="${x}" data-py="${getY(f.m2.pts)}" cx="${x}" cy="${getY(f.m2.pts)}" r="16" fill="transparent" style="cursor:pointer;" />`;
+                svg += `<circle class="hit-dot" data-idx="${i}" data-side="m1" data-px="${x}" data-py="${getY(f.m1.pts)}" cx="${x}" cy="${getY(f.m1.pts)}" r="16" fill="transparent" style="cursor:pointer;" />`;
+            });
+
+            svgEl.innerHTML = svg;
+
+            let pinnedKey = null;
+            function buildTableHtml(item, matchName) {
+                return `<table>
+                    <tr><td class="k">Manager</td><td class="v">${item.manager}</td></tr>
+                    <tr><td class="k">Match</td><td class="v">${matchName}</td></tr>
+                    <tr><td class="k">Total Pts</td><td class="v">${item.pts}</td></tr>
+                    <tr><td class="k">Match Pts</td><td class="v">${item.added}</td></tr>
+                    <tr><td class="k">Key Events</td><td class="v">${item.events}</td></tr>
+                </table>`;
+            }
+
+            function showTip(idx, side, px, py) {
+                const f = fixtures[idx];
+                if (!f) return;
+                if (f.m1.pts === f.m2.pts) {
+                    const p = side === "m1" ? f.m1 : f.m2;
+                    const s = side === "m1" ? f.m2 : f.m1;
+                    tooltipEl.innerHTML = buildTableHtml(p, f.match) + '<div style="height:1px; background:#334155; margin:5px 0;"></div>' + buildTableHtml(s, f.match);
+                } else {
+                    tooltipEl.innerHTML = buildTableHtml(side === "m1" ? f.m1 : f.m2, f.match);
+                }
+                tooltipEl.style.display = "block";
+                document.querySelectorAll(".vis-dot").forEach(el => el.classList.remove("active"));
+                const activeDot = document.getElementById(`vdot-${idx}-${side}`);
+                if (activeDot) activeDot.classList.add("active");
+
+                const rect = tooltipEl.getBoundingClientRect();
+                const tw = rect.width || 230;
+                const th = rect.height || 140;
+                let left = px + 12;
+                if (px + tw + 20 > W) left = px - tw - 12;
+                if (left < 6) left = 6;
+                let top = py - th / 2;
+                if (top < 6) top = 6;
+                if (top + th > H - 6) top = Math.max(6, H - th - 6);
+
+                tooltipEl.style.left = left + "px";
+                tooltipEl.style.top = top + "px";
+            }
+
+            function hideTip() {
+                tooltipEl.style.display = "none";
+                document.querySelectorAll(".vis-dot").forEach(el => el.classList.remove("active"));
+            }
+
+            document.getElementById("bg-catcher").addEventListener("click", () => { pinnedKey = null; hideTip(); });
+
+            document.querySelectorAll(".hit-dot").forEach(dot => {
+                const idx = parseInt(dot.getAttribute("data-idx"));
+                const side = dot.getAttribute("data-side");
+                const px = parseFloat(dot.getAttribute("data-px"));
+                const py = parseFloat(dot.getAttribute("data-py"));
+                const key = `${idx}-${side}`;
+
+                dot.addEventListener("mouseenter", () => { if (!pinnedKey) showTip(idx, side, px, py); });
+                dot.addEventListener("mouseleave", () => { if (!pinnedKey) hideTip(); });
+                dot.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    if (pinnedKey === key) { pinnedKey = null; hideTip(); }
+                    else { pinnedKey = key; showTip(idx, side, px, py); }
+                });
+            });
         }
 
         function renderTable(elementId, tableData) {
             let html = `
-                <div style="font-size:0.75rem; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:6px;">STARTING XI</div>
-                <table style="width: 100%; border-collapse: collapse; text-align: left; margin-bottom: 15px;">
-                <tr style="border-bottom: 1px solid #333; color: #94a3b8; font-size: 0.75rem;">
-                    <th style="padding: 4px;">Player</th><th style="padding: 4px;">Pos</th>
-                    <th style="padding: 4px;">Opp</th><th style="padding: 4px; text-align:center;">Mins</th>
-                    <th style="padding: 4px; text-align:center;">G</th><th style="padding: 4px; text-align:center;">A</th>
-                    <th style="padding: 4px; text-align:center;">CS</th><th style="padding: 4px; text-align:center;">Bns</th>
-                    <th style="padding: 4px; text-align: right; color:#fff;">Pts</th>
-                </tr>`;
+                <div style="font-size:0.76rem; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:5px;">STARTING XI</div>
+                <table class="clean-table">
+                <thead><tr>
+                    <th>Player</th><th>Pos</th><th>Opp</th><th>Mins</th><th>G</th><th>A</th><th>CS</th><th>Bonus</th><th>Pts</th>
+                </tr></thead><tbody>`;
             
-            tableData.starters.forEach(p => {
-                html += `<tr style="border-bottom: 1px solid #141a26; font-size: 0.8rem;">
-                    <td style="padding: 6px 4px; font-weight: bold; color: #fff;">${p.name}</td>
-                    <td style="padding: 6px 4px; color: #cbd5e1;">${p.pos}</td>
-                    <td style="padding: 6px 4px; color: #cbd5e1;">${p.opp}</td>
-                    <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.mins}</td>
-                    <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.g}</td>
-                    <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.a}</td>
-                    <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.cs}</td>
-                    <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.bonus}</td>
-                    <td style="padding: 6px 4px; font-weight: 900; text-align: right; color: #fff;">${p.pts}</td>
+            (tableData.starters || []).forEach(p => {
+                html += `<tr>
+                    <td>${p.name}</td><td>${p.pos}</td><td>${p.opp}</td><td>${p.mins}</td>
+                    <td>${p.g}</td><td>${p.a}</td><td>${p.cs}</td><td>${p.bonus}</td>
+                    <td style="font-weight:900; color:#fff;">${p.pts}</td>
                 </tr>`;
             });
-            html += `</table>`;
+            html += `</tbody></table>`;
 
             if (tableData.subs && tableData.subs.length > 0) {
                 html += `
-                    <div style="font-size:0.75rem; font-weight:800; color:#94a3b8; text-transform:uppercase; margin-bottom:6px;">DUGOUT SUBSTITUTES</div>
-                    <table style="width: 100%; border-collapse: collapse; text-align: left;">
-                    <tr style="border-bottom: 1px solid #333; color: #94a3b8; font-size: 0.75rem;">
-                        <th style="padding: 4px;">Player</th><th style="padding: 4px;">Pos</th>
-                        <th style="padding: 4px;">Opp</th><th style="padding: 4px; text-align:center;">Mins</th>
-                        <th style="padding: 4px; text-align:center;">G</th><th style="padding: 4px; text-align:center;">A</th>
-                        <th style="padding: 4px; text-align:center;">CS</th><th style="padding: 4px; text-align:center;">Bns</th>
-                        <th style="padding: 4px; text-align: right; color:#fff;">Pts</th>
-                    </tr>`;
+                    <div style="font-size:0.76rem; font-weight:800; color:#94a3b8; text-transform:uppercase; margin: 10px 0 5px 0;">DUGOUT SUBSTITUTES</div>
+                    <table class="clean-table">
+                    <thead><tr>
+                        <th>Player</th><th>Pos</th><th>Opp</th><th>Mins</th><th>G</th><th>A</th><th>CS</th><th>Bonus</th><th>Pts</th>
+                    </tr></thead><tbody>`;
                 tableData.subs.forEach(p => {
-                    html += `<tr style="border-bottom: 1px solid #141a26; font-size: 0.8rem; opacity: 0.7;">
-                        <td style="padding: 6px 4px; font-weight: bold; color: #fff;">${p.name}</td>
-                        <td style="padding: 6px 4px; color: #cbd5e1;">${p.pos}</td>
-                        <td style="padding: 6px 4px; color: #cbd5e1;">${p.opp}</td>
-                        <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.mins}</td>
-                        <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.g}</td>
-                        <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.a}</td>
-                        <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.cs}</td>
-                        <td style="padding: 6px 4px; text-align:center; color: #cbd5e1;">${p.bonus}</td>
-                        <td style="padding: 6px 4px; font-weight: 900; text-align: right; color: #fff;">${p.pts}</td>
+                    html += `<tr style="opacity:0.8;">
+                        <td>${p.name}</td><td>${p.pos}</td><td>${p.opp}</td><td>${p.mins}</td>
+                        <td>${p.g}</td><td>${p.a}</td><td>${p.cs}</td><td>${p.bonus}</td>
+                        <td style="font-weight:900; color:#fff;">${p.pts}</td>
                     </tr>`;
                 });
-                html += `</table>`;
+                html += `</tbody></table>`;
             }
             document.getElementById(elementId).innerHTML = html;
         }
@@ -523,50 +622,86 @@
             const container = document.getElementById(elementId);
             container.innerHTML = '';
             
-            // 1. Build the Pitch
             const pitchDiv = document.createElement('div');
             pitchDiv.className = 'football-pitch';
+            pitchDiv.innerHTML = `
+                <svg class="pitch-svg" viewBox="0 0 360 520" preserveAspectRatio="none">
+                    <rect x="15" y="15" width="330" height="490" fill="none" stroke="#ffffff" stroke-width="2"/>
+                    <line x1="15" y1="260" x2="345" y2="260" stroke="#ffffff" stroke-width="2"/>
+                    <circle cx="180" cy="260" r="48" fill="none" stroke="#ffffff" stroke-width="2"/>
+                    <circle cx="180" cy="260" r="3" fill="#ffffff"/>
+                    <rect x="90" y="15" width="180" height="80" fill="none" stroke="#ffffff" stroke-width="2"/>
+                    <rect x="135" y="15" width="90" height="30" fill="none" stroke="#ffffff" stroke-width="2"/>
+                    <rect x="90" y="425" width="180" height="80" fill="none" stroke="#ffffff" stroke-width="2"/>
+                    <rect x="135" y="475" width="90" height="30" fill="none" stroke="#ffffff" stroke-width="2"/>
+                </svg>`;
+
+            function makeCardHtml(p, pillColor) {
+                let flagHtml = '';
+                if (p.flag === 's') flagHtml = '<div class="flag-susp"></div>';
+                else if (p.flag === 'red') flagHtml = '<div class="flag-badge flag-red">+</div>';
+                else if (p.flag === 'orange') flagHtml = '<div class="flag-badge flag-orange">+</div>';
+                else if (p.flag === 'yellow') flagHtml = '<div class="flag-badge flag-yellow">+</div>';
+
+                const ev = p.events ? ` <span style="margin-left:2px;">${p.events}</span>` : '';
+                return `
+                    <div class="player-card">
+                        <div class="club-token" style="background:${p.bg}; color:${p.text}; border-color:${p.border};">
+                            ${p.club}${flagHtml}
+                        </div>
+                        <div class="player-name-pill">${p.name}</div>
+                        <div class="player-opp-pill">${p.fixture}</div>
+                        <div class="player-pts-pill" style="border-color:${pillColor}; color:${pillColor};">${p.pts} pts${ev}</div>
+                    </div>`;
+            }
             
-            data.pitch.forEach(row => {
+            (data.pitch || []).forEach(row => {
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'pitch-row';
-                row.forEach(p => {
-                    rowDiv.innerHTML += `
-                        <div class="player-card">
-                            <div class="player-shirt" style="border-color: ${accentColor};">${p.club || p.pos}</div>
-                            <div class="player-name">${p.name}</div>
-                            <div class="player-fixture">${p.fixture}</div>
-                            <div class="player-points">${p.pts} pts <span style="font-size:0.7rem">${p.events}</span></div>
-                        </div>`;
-                });
+                row.forEach(p => { rowDiv.innerHTML += makeCardHtml(p, accentColor); });
                 pitchDiv.appendChild(rowDiv);
             });
             container.appendChild(pitchDiv);
             
-            // 2. Build the Subs Tray
             if (data.subs && data.subs.length > 0) {
-                const subHead = document.createElement('div');
-                subHead.className = 'subs-header';
-                subHead.innerHTML = '🛡️ SUBS';
-                container.appendChild(subHead);
-
-                const subsDiv = document.createElement('div');
-                subsDiv.className = 'subs-tray';
-                data.subs.forEach(p => {
-                    subsDiv.innerHTML += `
-                        <div class="player-card" style="opacity: 0.7;">
-                            <div class="player-shirt" style="border-color: #475569;">${p.club || p.pos}</div>
-                            <div class="player-name">${p.name}</div>
-                            <div class="player-fixture">${p.fixture}</div>
-                            <div class="player-points" style="color:#94a3b8; border-color:#333; background:#090c13;">${p.pts} pts</div>
-                        </div>`;
-                });
-                container.appendChild(subsDiv);
+                const subTray = document.createElement('div');
+                subTray.className = 'dugout-container';
+                let subsHtml = `<div class="dugout-header">🛡️ SUBS</div><div class="dugout-row">`;
+                data.subs.forEach(p => { subsHtml += makeCardHtml(p, accentColor); });
+                subsHtml += `</div>`;
+                subTray.innerHTML = subsHtml;
+                container.appendChild(subTray);
             }
         }
 
         function closeModal() {
             document.getElementById('match-modal').classList.add('hidden');
+        }
+
+        const VAPID_PUBLIC_KEY = "BCVBFGP0PNXvzRz9JuVB2wTj57YL8Mv_v_aSV1R6EyaswT00lPF8eQ7sDGoeI3VBcf_aAQaJXNTUkToaB7gGnNY";
+        function urlBase64ToUint8Array(base64String) {
+            const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+            const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/");
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+            for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+            return outputArray;
+        }
+
+        async function subscribeUser() {
+            if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+            const registration = await navigator.serviceWorker.register("/sw.js");
+            const permission = await Notification.requestPermission();
+            if (permission !== "granted") return;
+            const existingSub = await registration.pushManager.getSubscription();
+            if (existingSub) await existingSub.unsubscribe();
+            const subscription = await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+            });
+            await fetch("/api/save_subscription", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(subscription) });
+            const btn = document.getElementById("enable-btn");
+            if (btn) btn.style.display = "none";
         }
     </script>
 </body>
