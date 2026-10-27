@@ -159,3 +159,24 @@ def trigger_push():
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/match_spotlight")
+def get_match_spotlight(m1: str, m2: str):
+    return {
+        "progression": {
+            "labels": ['IPS v NFO', 'AVL v MCI', 'ARS v EVE', 'COV v FUL', 'CHE v TOT', 'CRY v NEW', 'HUL v BRE', 'LIV v BHA', 'MUN v BOU', 'SUN v LEE'],
+            "m1_data": [0, 0, 15, 15, 15, 23, 29, 42, 44, 56],
+            "m2_data": [0, 0, 0, 15, 18, 19, 21, 31, 37, 43]
+        },
+        "pitch_m1": [
+            [{"pos": "GKP", "name": "Leno", "fixture": "COV (A)", "pts": 8, "events": "⭐"}],
+            [{"pos": "DEF", "name": "Robinson", "fixture": "COV (A)", "pts": 7, "events": ""}, {"pos": "DEF", "name": "Justin", "fixture": "SUN (A)", "pts": 6, "events": ""}, {"pos": "DEF", "name": "F.Kadioglu", "fixture": "LIV (A)", "pts": 1, "events": ""}],
+            [{"pos": "MID", "name": "Barcola", "fixture": "BHA (H)", "pts": 6, "events": "🎯"}, {"pos": "MID", "name": "Kluivert", "fixture": "MUN (A)", "pts": 6, "events": ""}, {"pos": "MID", "name": "Rogers", "fixture": "TOT (H)", "pts": 1, "events": ""}, {"pos": "MID", "name": "Gross", "fixture": "LIV (A)", "pts": 0, "events": ""}],
+            [{"pos": "FWD", "name": "Thiago", "fixture": "HUL (A)", "pts": 5, "events": ""}, {"pos": "FWD", "name": "Marmoush", "fixture": "CHE (A)", "pts": 2, "events": ""}, {"pos": "FWD", "name": "Wissa", "fixture": "CRY (A)", "pts": 1, "events": ""}]
+        ],
+        "pitch_m2": [
+            [{"pos": "GKP", "name": "Trafford", "fixture": "SUN (A)", "pts": 10, "events": "⭐"}],
+            [{"pos": "DEF", "name": "Konsa", "fixture": "EVE (H)", "pts": 14, "events": "⚽"}, {"pos": "DEF", "name": "Jacquet", "fixture": "BHA (H)", "pts": 8, "events": ""}, {"pos": "DEF", "name": "Calafiori", "fixture": "EVE (H)", "pts": 1, "events": ""}, {"pos": "DEF", "name": "Palestra", "fixture": "TOT (H)", "pts": 0, "events": ""}],
+            [{"pos": "MID", "name": "Wirtz", "fixture": "BHA (H)", "pts": 6, "events": "🎯"}, {"pos": "MID", "name": "Belloumi", "fixture": "BRE (H)", "pts": 4, "events": ""}, {"pos": "MID", "name": "Cunha", "fixture": "BOU (H)", "pts": 1, "events": ""}, {"pos": "MID", "name": "Kroupi", "fixture": "MUN (A)", "pts": 1, "events": ""}],
+            [{"pos": "FWD", "name": "Osula", "fixture": "CRY (A)", "pts": 9, "events": "⭐"}, {"pos": "FWD", "name": "Brobbey", "fixture": "LEE (H)", "pts": 2, "events": ""}]
+        ]
+    }
