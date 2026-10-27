@@ -73,7 +73,7 @@ def get_league_data():
 
 # 👈 NEW ENDPOINT: Live Scores Matchday Dashboard
 @app.get("/api/live_scores")
-def get_live_scores(league_id: int = 63):
+def get_live_scores(league_id: int = 63, gw: int = 0):
     from concurrent.futures import ThreadPoolExecutor
     import math
 
@@ -93,7 +93,9 @@ def get_live_scores(league_id: int = 63):
     
     matches = league_details.get("matches", [])
     unplayed = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
-    current_gw = unplayed[0] if unplayed else 1
+    all_gws = sorted(list({m["event"] for m in matches}))
+
+    current_gw = gw if gw > 0 else (unplayed[0] if unplayed else 1)
     gw_matches = [m for m in matches if m["event"] == current_gw]
     
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
@@ -144,7 +146,7 @@ def get_live_scores(league_id: int = 63):
     with ThreadPoolExecutor(max_workers=10) as executor:
         results = list(executor.map(process_match, gw_matches))
 
-    return {"gw": current_gw, "matches": results}
+    return {"gw": current_gw, "all_gws": all_gws, "matches": results}
 
 @app.post("/api/save_subscription")
 async def save_subscription(request: Request):
@@ -195,23 +197,93 @@ def trigger_push():
         return {"error": str(e)}
 
 @app.get("/api/match_spotlight")
-def get_match_spotlight(m1: str, m2: str):
+def get_match_spotlight(m1: str, m2: str, gw: int):
+    static_data = engine.fetch_fpl_static()
+    all_fixtures = engine.fetch_all_epl_fixtures()
+    teams_reg = engine.get_all_32_teams_registry()
+    
+    # Identify the managers
+    e1_id = teams_reg.get(m1.lower(), {}).get("entry_id")
+    e2_id = teams_reg.get(m2.lower(), {}).get("entry_id")
+    
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
+    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    element_lookup = {item["id"]: item for item in static_data["elements"]}
+    
+    live_data = engine.fetch_live_event(gw)
+    live_elements = live_data.get("elements", {}) if live_data else {}
+    
+    club_minutes = {}
+    for elem_str_id, e_info in live_elements.items():
+        try:
+            club_id = element_lookup.get(int(elem_str_id), {}).get("team")
+            if club_id: 
+                club_minutes[club_id] = club_minutes.get(club_id, 0) + e_info.get("stats", {}).get("minutes", 0)
+        except: pass
+
+    # Fetch and evaluate lineups
+    p1 = engine.fetch_entry_event(e1_id, gw) if e1_id else None
+    p2 = engine.fetch_entry_event(e2_id, gw) if e2_id else None
+    
+    t1_start, t1_bench, _, _, _, _, _, _ = engine.evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, gw, all_fixtures)
+    t2_start, t2_bench, _, _, _, _, _, _ = engine.evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, gw, all_fixtures)
+    
+    # Helper to parse players into the pitch/table format
+    def format_pitch(start_df, bench_df):
+        rows = [[], [], [], []]
+        active = engine.get_active_players_from_dfs(start_df, bench_df)
+        for r in active:
+            events = []
+            if int(r.get("G", 0)) > 0: events.append("⚽" * int(r["G"]))
+            if int(r.get("A", 0)) > 0: events.append("🎯" * int(r["A"]))
+            if int(r.get("CS", 0)) > 0 and r.get("Pos") in ["GKP", "DEF"]: events.append("🛡️")
+            if int(r.get("Bonus", 0)) > 0: events.append(f"{int(r['Bonus'])}⭐")
+            
+            p_dict = {
+                "name": r.get("Player", "Unknown"),
+                "pos": r.get("Pos", ""),
+                "fixture": r.get("Opp", ""),
+                "pts": int(r.get("Pts", 0)),
+                "events": " ".join(events)
+            }
+            if p_dict["pos"] == "GKP": rows[0].append(p_dict)
+            elif p_dict["pos"] == "DEF": rows[1].append(p_dict)
+            elif p_dict["pos"] == "MID": rows[2].append(p_dict)
+            elif p_dict["pos"] == "FWD": rows[3].append(p_dict)
+        return [r for r in rows if r]
+
+    # Process Points Progression Chart
+    gw_fixtures = [f for f in all_fixtures if f.get("event") == gw]
+    labels, m1_data, m1_pts, m1_events, m2_data, m2_pts, m2_events = [], [], [], [], [], [], []
+    
+    t1_active = engine.get_active_players_from_dfs(t1_start, t1_bench)
+    t2_active = engine.get_active_players_from_dfs(t2_start, t2_bench)
+    curr1, curr2 = 0, 0
+    
+    for f in gw_fixtures:
+        h_id, a_id = f.get("team_h"), f.get("team_a")
+        labels.append(f"{team_map.get(h_id, 'H')} v {team_map.get(a_id, 'A')}")
+        
+        # M1 logic
+        f_pts1 = sum(int(p["Pts"]) for p in t1_active if p.get("club_id") in (h_id, a_id))
+        curr1 += f_pts1
+        m1_data.append(curr1)
+        m1_pts.append(f_pts1)
+        m1_events.append(", ".join([p.get("Player") for p in t1_active if p.get("club_id") in (h_id, a_id) and int(p.get("Pts", 0)) >= 4]))
+        
+        # M2 logic
+        f_pts2 = sum(int(p["Pts"]) for p in t2_active if p.get("club_id") in (h_id, a_id))
+        curr2 += f_pts2
+        m2_data.append(curr2)
+        m2_pts.append(f_pts2)
+        m2_events.append(", ".join([p.get("Player") for p in t2_active if p.get("club_id") in (h_id, a_id) and int(p.get("Pts", 0)) >= 4]))
+
     return {
         "progression": {
-            "labels": ['IPS v NFO', 'AVL v MCI', 'ARS v EVE', 'COV v FUL', 'CHE v TOT', 'CRY v NEW', 'HUL v BRE', 'LIV v BHA', 'MUN v BOU', 'SUN v LEE'],
-            "m1_data": [0, 0, 15, 15, 15, 23, 29, 42, 44, 56],
-            "m2_data": [0, 0, 0, 15, 18, 19, 21, 31, 37, 43]
+            "labels": labels,
+            "m1_data": m1_data, "m1_match_pts": m1_pts, "m1_events": m1_events,
+            "m2_data": m2_data, "m2_match_pts": m2_pts, "m2_events": m2_events
         },
-        "pitch_m1": [
-            [{"pos": "GKP", "name": "Leno", "fixture": "COV (A)", "pts": 8, "events": "⭐"}],
-            [{"pos": "DEF", "name": "Robinson", "fixture": "COV (A)", "pts": 7, "events": ""}, {"pos": "DEF", "name": "Justin", "fixture": "SUN (A)", "pts": 6, "events": ""}, {"pos": "DEF", "name": "F.Kadioglu", "fixture": "LIV (A)", "pts": 1, "events": ""}],
-            [{"pos": "MID", "name": "Barcola", "fixture": "BHA (H)", "pts": 6, "events": "🎯"}, {"pos": "MID", "name": "Kluivert", "fixture": "MUN (A)", "pts": 6, "events": ""}, {"pos": "MID", "name": "Rogers", "fixture": "TOT (H)", "pts": 1, "events": ""}, {"pos": "MID", "name": "Gross", "fixture": "LIV (A)", "pts": 0, "events": ""}],
-            [{"pos": "FWD", "name": "Thiago", "fixture": "HUL (A)", "pts": 5, "events": ""}, {"pos": "FWD", "name": "Marmoush", "fixture": "CHE (A)", "pts": 2, "events": ""}, {"pos": "FWD", "name": "Wissa", "fixture": "CRY (A)", "pts": 1, "events": ""}]
-        ],
-        "pitch_m2": [
-            [{"pos": "GKP", "name": "Trafford", "fixture": "SUN (A)", "pts": 10, "events": "⭐"}],
-            [{"pos": "DEF", "name": "Konsa", "fixture": "EVE (H)", "pts": 14, "events": "⚽"}, {"pos": "DEF", "name": "Jacquet", "fixture": "BHA (H)", "pts": 8, "events": ""}, {"pos": "DEF", "name": "Calafiori", "fixture": "EVE (H)", "pts": 1, "events": ""}, {"pos": "DEF", "name": "Palestra", "fixture": "TOT (H)", "pts": 0, "events": ""}],
-            [{"pos": "MID", "name": "Wirtz", "fixture": "BHA (H)", "pts": 6, "events": "🎯"}, {"pos": "MID", "name": "Belloumi", "fixture": "BRE (H)", "pts": 4, "events": ""}, {"pos": "MID", "name": "Cunha", "fixture": "BOU (H)", "pts": 1, "events": ""}, {"pos": "MID", "name": "Kroupi", "fixture": "MUN (A)", "pts": 1, "events": ""}],
-            [{"pos": "FWD", "name": "Osula", "fixture": "CRY (A)", "pts": 9, "events": "⭐"}, {"pos": "FWD", "name": "Brobbey", "fixture": "LEE (H)", "pts": 2, "events": ""}]
-        ]
+        "pitch_m1": format_pitch(t1_start, t1_bench),
+        "pitch_m2": format_pitch(t2_start, t2_bench)
     }
