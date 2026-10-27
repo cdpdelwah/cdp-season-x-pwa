@@ -9,6 +9,16 @@
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+/* App Screens & Navigation */
+        .app-screen { display: none; width: 100%; max-width: 600px; flex-direction: column; align-items: center; }
+        .app-screen.active { display: flex; }
+        .league-tabs { display: flex; width: 100%; gap: 5px; margin-bottom: 15px; background: #090c13; padding: 5px; border-radius: 8px; border: 1px solid #182030; }
+        .tab-btn { flex: 1; padding: 10px 5px; background: transparent; color: #64748b; border: none; border-radius: 6px; font-size: 0.85rem; font-weight: 800; cursor: pointer; transition: all 0.2s; }
+        .tab-btn.active { background: #1e293b; color: #fff; }
+        .home-menu { width: 100%; display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
+        .menu-btn { width: 100%; padding: 16px; background: #090c13; border: 1px solid #182030; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 1.1rem; font-weight: 700; cursor: pointer; }
+        .menu-btn:active { background: #1e293b; }
+
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         body { background-color: #000000; color: #f1f5f9; display: flex; flex-direction: column; align-items: center; padding: 16px; }
@@ -74,39 +84,80 @@
 </head>
 <body>
 
-    <div class="header">
-        <h1 id="gw-title">🔴 LIVE SCORES</h1>
-        <p>Around the Grounds • Projections & Win Probability</p>
+    <!-- SCREEN 1: LOGIN VAULT -->
+    <div id="screen-login" class="app-screen active" style="margin-top: 10vh; text-align: center;">
+        <h2 style="color: #f59e0b; font-size: 1.8rem; margin-bottom: 5px;">CDP Command Center</h2>
+        <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 30px;">Identify yourself to enter.</p>
+        
+        <select id="alias-select" style="width: 100%; padding: 14px; border-radius: 8px; background: #090c13; color: #fff; border: 1px solid #333; margin-bottom: 15px; font-size: 1.1rem;">
+            <option value="">Select Manager...</option>
+            <option value="Adi">Adi</option><option value="Ali">Ali</option><option value="Andy">Andy</option>
+            <option value="Barney">Barney</option><option value="Ben">Ben</option><option value="Bobby">Bobby</option>
+            <option value="Bungle">Bungle</option><option value="Crouch">Crouch</option><option value="Culley">Culley</option>
+            <option value="Dave">Dave</option><option value="Duncan">Duncan</option><option value="Foy">Foy</option>
+            <option value="Garth">Garth</option><option value="Greg">Greg</option><option value="Hugh">Hugh</option>
+            <option value="James">James</option><option value="Jamie">Jamie</option><option value="Jimmy">Jimmy</option>
+            <option value="Josh">Josh</option><option value="Lee">Lee</option><option value="Niall">Niall</option>
+            <option value="Nick">Nick</option><option value="Pete">Pete</option><option value="Phil">Phil</option>
+            <option value="Rackett">Rackett</option><option value="Rob">Rob</option><option value="Sam">Sam</option>
+            <option value="Stew">Stew</option><option value="Tom">Tom</option><option value="Tudor">Tudor</option>
+            <option value="Will">Will</option><option value="Wilson">Wilson</option>
+        </select>
+        
+        <input type="password" id="pin-input" placeholder="4-DIGIT PIN" inputmode="numeric" maxlength="4" style="width: 100%; padding: 14px; border-radius: 8px; background: #090c13; color: #f59e0b; border: 1px solid #333; margin-bottom: 25px; font-size: 1.5rem; text-align: center; letter-spacing: 12px; font-weight: bold;">
+        
+        <button id="login-btn" onclick="attemptLogin()" style="width: 100%; background: #22c55e; color: #000; padding: 16px; border-radius: 8px; font-weight: 900; font-size: 1.1rem; border: none; cursor: pointer;">VERIFY IDENTITY</button>
+        <p id="login-error" style="color: #ef4444; margin-top: 15px; font-size: 0.9rem; display: none; font-weight: bold;"></p>
     </div>
 
-    <div class="action-buttons">
-        <button class="btn-push" id="enable-btn" onclick="subscribeUser()">🔔 Alerts</button>
-        <button class="btn-load" onclick="fetchLiveScores()">🔄 Refresh Scores</button>
+    <!-- SCREEN 2: HOME DASHBOARD -->
+    <div id="screen-home" class="app-screen">
+        <div class="header" style="text-align: left; margin-bottom: 10px;">
+            <h1 id="welcome-msg">Welcome, Manager</h1>
+            <p>Dellarverse Season X</p>
+        </div>
+        
+        <div class="home-menu">
+            <button class="menu-btn" onclick="navigate('scores')"><span>🔴 Live Scores</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="alert('Squad Analyser requires private data authorization. Coming soon.')" style="opacity: 0.6;"><span>🧠 Squad Analyser</span> <span>🔒</span></button>
+            <button class="menu-btn" onclick="alert('Trade Block requires private data authorization. Coming soon.')" style="opacity: 0.6;"><span>🤝 Trade Block</span> <span>🔒</span></button>
+        </div>
+        
+        <button onclick="subscribeUser()" id="enable-btn" style="width: 100%; margin-top: 30px; background: #22c55e; padding: 12px; border-radius: 8px; font-weight: bold; border: none; display: none;">🔔 Enable Matchday Alerts</button>
     </div>
-    
-    <div id="status-msg"></div>
-    <div class="list-container" id="match-list"></div>
-<!-- MATCH SPOTLIGHT MODAL -->
+
+    <!-- SCREEN 3: LIVE SCORES -->
+    <div id="screen-scores" class="app-screen">
+        <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <button onclick="navigate('home')" style="background: none; border: none; color: #38bdf8; font-size: 1rem; font-weight: bold; cursor: pointer; padding: 0;">← Home</button>
+            <button onclick="fetchLiveScores(activeLeagueId)" style="background: #1e293b; color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; cursor: pointer;">🔄 Refresh</button>
+        </div>
+        
+        <div class="header" style="margin-bottom: 15px;"><h1 id="gw-title">🔴 LIVE SCORES</h1></div>
+
+        <div class="league-tabs">
+            <button class="tab-btn" id="tab-63" onclick="switchLeague(63)">CDP</button>
+            <button class="tab-btn" id="tab-240" onclick="switchLeague(240)">LDE</button>
+            <button class="tab-btn" id="tab-378" onclick="switchLeague(378)">BDR</button>
+            <button class="tab-btn" id="tab-320" onclick="switchLeague(320)">SDM</button>
+        </div>
+        
+        <div class="list-container" id="match-list"></div>
+    </div>
+
+    <!-- MATCH SPOTLIGHT MODAL -->
     <div id="match-modal" class="modal-overlay hidden">
         <div class="modal-content">
             <div class="modal-header">
                 <h2 id="modal-match-title" style="font-size: 1.2rem;">Match Spotlight</h2>
                 <button onclick="closeModal()" class="close-btn">✖</button>
             </div>
-            
             <p class="section-subtitle">Gameweek Points Progression</p>
             <div class="chart-container"><canvas id="progressionChart"></canvas></div>
-
             <p class="section-subtitle" style="margin-top: 25px;">Pitch View</p>
             <div class="pitch-layout">
-                <div class="manager-pitch">
-                    <div class="pitch-header"><span id="m1-name">M1</span></div>
-                    <div class="football-pitch" id="pitch-m1"></div>
-                </div>
-                <div class="manager-pitch">
-                    <div class="pitch-header"><span id="m2-name">M2</span></div>
-                    <div class="football-pitch" id="pitch-m2"></div>
-                </div>
+                <div class="manager-pitch"><div class="pitch-header"><span id="m1-name">M1</span></div><div class="football-pitch" id="pitch-m1"></div></div>
+                <div class="manager-pitch"><div class="pitch-header"><span id="m2-name">M2</span></div><div class="football-pitch" id="pitch-m2"></div></div>
             </div>
         </div>
     </div>
@@ -114,7 +165,7 @@
         // ==========================================
         // 1. DATA FETCHING AND CARD RENDERING
         // ==========================================
-        async function fetchLiveScores() {
+        async function fetchLiveScores(leagueId) {
             const listEl = document.getElementById("match-list");
             listEl.innerHTML = "<p style='text-align:center; color:#94a3b8;'>Running FPL Engine calculations...</p>";
             
@@ -212,7 +263,68 @@
         }
         
         // Auto-load scores on app startup
-        window.onload = fetchLiveScores;
+        let activeLeagueId = 63;
+        
+        // 0. ROUTING & AUTH
+        window.onload = () => {
+            const savedAlias = localStorage.getItem("cdp_alias");
+            if (savedAlias) {
+                document.getElementById("welcome-msg").innerText = `Welcome, ${savedAlias}`;
+                activeLeagueId = parseInt(localStorage.getItem("cdp_league")) || 63;
+                navigate('home');
+                
+                if ("Notification" in window && Notification.permission !== "granted") {
+                    document.getElementById("enable-btn").style.display = "block";
+                }
+            }
+        };
+
+        function navigate(screenId) {
+            document.querySelectorAll('.app-screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(`screen-${screenId}`).classList.add('active');
+            if (screenId === 'scores') switchLeague(activeLeagueId);
+        }
+
+        async function attemptLogin() {
+            const alias = document.getElementById("alias-select").value;
+            const pin = document.getElementById("pin-input").value;
+            const errorEl = document.getElementById("login-error");
+            const btn = document.getElementById("login-btn");
+            
+            if (!alias || !pin) { errorEl.innerText = "Select identity and enter PIN."; errorEl.style.display = "block"; return; }
+            errorEl.style.display = "none"; btn.innerText = "VERIFYING...";
+
+            try {
+                const response = await fetch(`/api/login?alias=${alias}&pin=${pin}`);
+                const data = await response.json();
+                
+                if (data.status === "success") {
+                    localStorage.setItem("cdp_alias", alias);
+                    localStorage.setItem("cdp_league", data.default_league);
+                    activeLeagueId = data.default_league;
+                    
+                    document.getElementById("welcome-msg").innerText = `Welcome, ${alias}`;
+                    btn.innerText = "VERIFY IDENTITY";
+                    document.getElementById("pin-input").value = "";
+                    navigate('home');
+                } else {
+                    errorEl.innerText = data.message;
+                    errorEl.style.display = "block";
+                    btn.innerText = "VERIFY IDENTITY";
+                }
+            } catch (err) {
+                errorEl.innerText = "Server connection failed.";
+                errorEl.style.display = "block";
+                btn.innerText = "VERIFY IDENTITY";
+            }
+        }
+
+        function switchLeague(leagueId) {
+            activeLeagueId = leagueId;
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`tab-${leagueId}`).classList.add('active');
+            fetchLiveScores(leagueId);
+        }
 let currentChart = null;
 
         async function openMatchModal(manager1, manager2) {

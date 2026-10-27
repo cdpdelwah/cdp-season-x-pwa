@@ -10,20 +10,40 @@ import engine  # 👈 We are importing your new brain here
 app = FastAPI()
 base_dir = Path(__file__).resolve().parent
 
+# 👈 THE COMMISSAR'S MASTER KEYRING (32 Managers)
+MANAGER_PINS = {
+    "Andy": "1234", "Phil": "1235", "James": "1236", "Jimmy": "1237",
+    "Greg": "1238", "Nick": "1239", "Foy": "1240", "Hugh": "1241",
+    "Bungle": "1242", "Garth": "1243", "Josh": "1244", "Stew": "1245",
+    "Sam": "1246", "Ali": "1247", "Crouch": "1248", "Dave": "1249",
+    "Duncan": "1250", "Barney": "1251", "Rob": "1252", "Rackett": "1253",
+    "Wilson": "1254", "Culley": "1255", "Bobby": "1256", "Tudor": "1257",
+    "Adi": "1258", "Lee": "1259", "Jamie": "1260", "Tom": "1261",
+    "Ben": "1262", "Will": "1263", "Niall": "1264", "Pete": "1265"
+}
+
+# 👈 MANAGER DEFAULT LEAGUE ROUTING
+MANAGER_LEAGUES = {
+    "Andy": 63, "James": 63, "Jimmy": 63, "Greg": 63, "Nick": 63, "Foy": 63, "Hugh": 63, "Phil": 63 # CDP
+    "Sam": 320, "Garth": 320, "Bungle": 320, "Dave": 320, "Crouch": 320, "Ali": 320, "Stew": 320, "Josh": 320 # SDM
+    "Duncan": 378, "Rackett": 378, "Barney": 378, "Rob": 378, "Wilson": 378, "Culley": 378, "Bobby": 378, "Tudor": 378 # BDR
+"Adi": 240, "Lee": 240, "Jamie": 240, "Tom": 240, "Ben": 240, "Will": 240, "Niall": 240, "Pete": 240 # LDE
+    # (Unmapped managers will default to 63 automatically)
+}
+
+@app.get("/api/login")
+def verify_login(alias: str, pin: str):
+    if MANAGER_PINS.get(alias) == str(pin):
+        default_league = MANAGER_LEAGUES.get(alias, 63)
+        return {"status": "success", "default_league": default_league}
+    return {"status": "error", "message": "Incorrect PIN. The Commissar is watching."}
+
 VAPID_PRIVATE_KEY = "SPXvvzkxVdsxWXj-8RfQXdBCxrcQdrgO3NNZXGvNP7Q"
 VAPID_CLAIMS = {"sub": "mailto:commissar@cdp.com"}
 
-from fastapi import Response
-
 @app.get("/")
-def serve_index(response: Response):
-    # This prevents mobile browsers from clinging to old versions of your HTML
-    headers = {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache",
-        "Expires": "0"
-    }
-    return FileResponse(base_dir / "index.html", headers=headers)
+def serve_index():
+    return FileResponse(base_dir / "index.html")
 
 @app.get("/sw.js")
 def serve_sw():
