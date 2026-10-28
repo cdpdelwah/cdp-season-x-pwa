@@ -9,25 +9,48 @@
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        body { background-color: #000000; color: #f1f5f9; display: flex; flex-direction: column; align-items: center; padding: 16px; }
+        body { background-color: #000000; color: #f1f5f9; display: flex; flex-direction: column; align-items: center; padding: 14px; }
         
         /* App Screens & Navigation */
-        .app-screen { display: none; width: 100%; max-width: 900px; flex-direction: column; align-items: center; }
+        .app-screen { display: none; width: 100%; max-width: 960px; flex-direction: column; align-items: center; padding-bottom: 40px; }
         .app-screen.active { display: flex; }
+        .top-nav-bar { width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+        .back-home-btn { background: none; border: none; color: #38bdf8; font-size: 1rem; font-weight: 800; cursor: pointer; padding: 4px 0; }
+        .refresh-btn { background: #1e293b; color: #fff; border: 1px solid #334155; padding: 6px 12px; border-radius: 6px; font-size: 0.82rem; font-weight: 700; cursor: pointer; }
+
         .league-tabs { display: flex; width: 100%; gap: 5px; margin-bottom: 15px; background: #090c13; padding: 5px; border-radius: 8px; border: 1px solid #182030; }
         .tab-btn { flex: 1; padding: 10px 5px; background: transparent; color: #64748b; border: none; border-radius: 6px; font-size: 0.85rem; font-weight: 800; cursor: pointer; transition: all 0.2s; }
         .tab-btn.active { background: #1e293b; color: #fff; }
-        .home-menu { width: 100%; display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
-        .menu-btn { width: 100%; padding: 16px; background: #090c13; border: 1px solid #182030; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 1.1rem; font-weight: 700; cursor: pointer; }
-        .menu-btn:active { background: #1e293b; }
 
-        .header { text-align: center; margin-bottom: 20px; width: 100%; }
-        .header h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.5px; }
-        .header p { color: #94a3b8; font-size: 0.85rem; margin-top: 4px; }
-        
-        .list-container { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 12px; padding-bottom: 40px; }
-        
-        /* Match Card Styling */
+        .sub-tabs { display: flex; width: 100%; gap: 14px; border-bottom: 1px solid #182030; margin-bottom: 15px; overflow-x: auto; }
+        .sub-tab-btn { background: none; border: none; border-bottom: 2px solid transparent; padding: 8px 4px; font-size: 0.88rem; font-weight: 700; color: #94a3b8; cursor: pointer; white-space: nowrap; }
+        .sub-tab-btn.active { color: #ffffff; border-bottom-color: #f59e0b; }
+
+        .home-menu { width: 100%; display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+        .menu-btn { width: 100%; padding: 15px 16px; background: #090c13; border: 1px solid #182030; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 1.02rem; font-weight: 800; cursor: pointer; transition: border-color 0.2s; }
+        .menu-btn:hover, .menu-btn:active { border-color: #f59e0b; background: #0e131f; }
+
+        .header { width: 100%; margin-bottom: 14px; }
+        .header h1 { font-size: 1.45rem; font-weight: 800; letter-spacing: -0.5px; color: #fff; }
+        .header p { color: #94a3b8; font-size: 0.84rem; margin-top: 4px; line-height: 1.35; }
+
+        .white-select { padding: 8px 10px; border-radius: 6px; background: #ffffff; color: #000000; border: 1px solid #cbd5e1; font-weight: 800; font-size: 0.85rem; cursor: pointer; }
+        .dark-input { width: 100%; padding: 10px 12px; border-radius: 6px; background: #090c13; color: #fff; border: 1px solid #334155; font-size: 0.9rem; font-weight: 600; }
+
+        /* Countdown Cards */
+        .countdown-grid { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-bottom: 8px; }
+        .timer-card { background-color: #090c13; border: 1px solid #182030; border-radius: 8px; padding: 10px 14px; width: 100%; }
+        .timer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .timer-title { font-size: 0.8rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.3px; }
+        .gw-badge { font-size: 0.74rem; font-weight: 800; color: #f59e0b; background-color: #231804; border: 1px solid #f59e0b; padding: 1px 6px; border-radius: 4px; }
+        .clock-row { display: flex; gap: 8px; align-items: baseline; margin: 2px 0; }
+        .t-num { font-family: monospace; font-size: 1.45rem; font-weight: 800; color: #ffffff; }
+        .t-sec { font-family: monospace; font-size: 1.45rem; font-weight: 800; color: #f59e0b; }
+        .t-unit { font-size: 0.78rem; font-weight: 600; color: #64748b; margin-left: 1px; }
+        .timer-sub { font-size: 0.78rem; color: #94a3b8; margin-top: 2px; }
+
+        /* Match Cards Grid */
+        .list-container { width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 12px; }
         .match-card { background-color: #090c13; border: 1px solid #182030; border-radius: 8px; padding: 14px; transition: border-color 0.2s; }
         .match-card:hover { border-color: #f59e0b; }
         .m-header { display: flex; justify-content: space-between; margin-bottom: 6px; }
@@ -42,14 +65,18 @@
         
         .proj { font-size: 0.8rem; color: #cbd5e1; font-weight: 600; margin-top: 6px; }
         .bench { font-size: 0.72rem; color: #94a3b8; margin-top: 2px; }
-        
         .progress-bg { background-color: #121824; height: 10px; border-radius: 6px; margin: 14px 0 6px 0; display: flex; overflow: hidden; }
         .progress-bar-1 { height: 100%; transition: width 0.5s ease; }
-        
         .win-pct { display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 800; }
         .c1 { color: #f59e0b; }
         .c2 { color: #38bdf8; }
         .c-tie { color: #94a3b8; }
+
+        /* Expandable Cards (EPL & Disciplinary) */
+        .exp-card { width: 100%; background: #090c13; border: 1px solid #182030; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
+        .exp-toggle { width: 100%; background: #0e131d; border: 1px solid #182030; color: #f59e0b; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; font-weight: 700; text-align: left; cursor: pointer; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .exp-body { display: none; padding-top: 12px; margin-top: 8px; border-top: 1px solid #182030; }
+        .exp-body.open { display: block; }
 
         /* Modal Overlay */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.88); display: flex; justify-content: center; align-items: flex-end; z-index: 1000; }
@@ -58,7 +85,7 @@
         .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #182030; padding-bottom: 12px; margin-bottom: 14px; position: sticky; top: -18px; background: #000000; z-index: 60; padding-top: 4px; }
         .close-btn { background: #1e293b; border: none; color: #fff; font-size: 16px; width: 34px; height: 34px; border-radius: 8px; cursor: pointer; font-weight: bold; }
 
-        /* Responsive Side by Side Grid for Laptop, Stacked for Mobile */
+        /* Responsive Side by Side Grid */
         .spotlight-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; width: 100%; }
         @media (max-width: 768px) {
             .spotlight-grid { grid-template-columns: 1fr; }
@@ -104,13 +131,28 @@
 
         .dugout-container { width: 100%; margin-top: 8px; background: #060911; border: 1px solid #182030; border-radius: 8px; padding: 8px 6px; }
         .dugout-header { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px; color: #94a3b8; margin-bottom: 8px; border-bottom: 1px solid #141a26; padding-bottom: 4px; }
-        .dugout-row { display: flex; justify-content: space-around; align-items: center; width: 100%; }
+        .dugout-row { display: flex; justify-content: space-around; align-items: center; width: 100%; margin-bottom: 8px; }
+        .dugout-row:last-child { margin-bottom: 0; }
 
         /* Table View Styles */
-        .clean-table { width: 100%; border-collapse: collapse; background: #090c13; border-radius: 6px; overflow: hidden; font-size: 0.8rem; margin-bottom: 12px; border: 1px solid #182030; }
-        .clean-table th { background: #0e131d; color: #94a3b8; border-bottom: 2px solid #182030; font-weight: 700; padding: 7px 6px; text-align: center; }
+        .table-wrap { width: 100%; overflow-x: auto; margin-bottom: 14px; }
+        .clean-table { width: 100%; border-collapse: collapse; background: #090c13; border-radius: 6px; overflow: hidden; font-size: 0.8rem; border: 1px solid #182030; }
+        .clean-table th { background: #0e131d; color: #f59e0b; border-bottom: 2px solid #182030; font-weight: 700; padding: 8px 8px; text-align: center; white-space: nowrap; }
         .clean-table th:first-child, .clean-table td:first-child { text-align: left; font-weight: 700; color: #ffffff; padding-left: 10px; }
-        .clean-table td { border-bottom: 1px solid #141a26; color: #cbd5e1; padding: 7px 6px; text-align: center; white-space: nowrap; }
+        .clean-table td { border-bottom: 1px solid #141a26; color: #cbd5e1; padding: 8px 8px; text-align: center; white-space: nowrap; }
+
+        /* Alert Banners & Metric Cards */
+        .alert-box { width: 100%; padding: 10px 14px; border-radius: 8px; margin-bottom: 10px; font-size: 0.86rem; font-weight: 600; line-height: 1.4; }
+        .alert-warn { background: #231804; border: 1px solid #f59e0b; color: #fcd34d; }
+        .alert-err { background: #2a0d0d; border: 1px solid #ef4444; color: #fca5a5; }
+        .alert-ok { background: #052210; border: 1px solid #22c55e; color: #86efac; }
+        .alert-info { background: #07192e; border: 1px solid #38bdf8; color: #bae6fd; }
+
+        .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; width: 100%; margin: 12px 0; }
+        .metric-card { background: #090c13; border: 1px solid #182030; border-radius: 8px; padding: 10px 12px; }
+        .metric-label { font-size: 0.74rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; }
+        .metric-val { font-size: 1.4rem; font-weight: 900; color: #fff; margin: 2px 0; }
+        .metric-delta { font-size: 0.78rem; font-weight: 700; color: #f59e0b; }
 
         /* Interactive Progression SVG & Tooltip Styles */
         .chart-wrapper { position: relative; width: 100%; height: 360px; background: #000000; margin-bottom: 18px; user-select: none; -webkit-user-select: none; }
@@ -127,12 +169,14 @@
 <body>
 
     <!-- SCREEN 1: LOGIN VAULT -->
-    <div id="screen-login" class="app-screen active" style="margin-top: 10vh; max-width: 420px; text-align: center;">
+    <div id="screen-login" class="app-screen active" style="margin-top: 8vh; max-width: 420px; text-align: center;">
+        <img src="/api/logo" alt="Season X" onerror="this.style.display='none'" style="width: 110px; height: auto; margin-bottom: 12px; border-radius: 10px;">
         <h2 style="color: #f59e0b; font-size: 1.8rem; margin-bottom: 5px;">CDP Command Center</h2>
-        <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 30px;">Identify yourself to enter.</p>
+        <p style="color: #94a3b8; font-size: 0.9rem; margin-bottom: 26px;">Identify yourself to enter.</p>
         
         <select id="alias-select" style="width: 100%; padding: 14px; border-radius: 8px; background: #090c13; color: #fff; border: 1px solid #333; margin-bottom: 15px; font-size: 1.1rem;">
             <option value="">Select Manager...</option>
+            <option value="Admin">👑 Admin (The Commissar)</option>
             <option value="Adi">Adi</option><option value="Ali">Ali</option><option value="Andy">Andy</option>
             <option value="Barney">Barney</option><option value="Ben">Ben</option><option value="Bobby">Bobby</option>
             <option value="Bungle">Bungle</option><option value="Crouch">Crouch</option><option value="Culley">Culley</option>
@@ -153,37 +197,99 @@
     </div>
 
     <!-- SCREEN 2: HOME DASHBOARD -->
-    <div id="screen-home" class="app-screen" style="max-width: 600px;">
-        <div class="header" style="text-align: left; margin-bottom: 10px;">
-            <h1 id="welcome-msg">Welcome, Manager</h1>
-            <p>Dellarverse Season X</p>
+    <div id="screen-home" class="app-screen" style="max-width: 620px;">
+        <div style="width: 100%; display: flex; flex-direction: column; align-items: flex-start; margin-bottom: 12px;">
+            <img src="/api/logo" alt="Season X" onerror="this.style.display='none'" style="width: 120px; height: auto; margin-bottom: 10px; border-radius: 8px;">
+            <div style="width: 100%; display: flex; justify-content: space-between; align-items: baseline;">
+                <h1 style="font-size: 1.75rem; font-weight: 900; letter-spacing: -0.5px; color: #fff;">CDP App - Season X</h1>
+                <span id="welcome-msg" style="font-size: 0.8rem; color: #f59e0b; font-weight: 800;"></span>
+            </div>
+            <p style="color: #94a3b8; font-size: 0.86rem; margin-top: 3px; line-height: 1.35;">Dellarverse HQ: Central Draft Intelligence, Live Projections and Official Publications</p>
         </div>
-        
+
+        <!-- LIVE COUNTDOWN TIMERS -->
+        <div class="countdown-grid">
+            <div class="timer-card">
+                <div class="timer-header">
+                    <span class="timer-title">⚡ WAIVER DEADLINE</span>
+                    <span class="gw-badge" id="home-waiver-gw">GW --</span>
+                </div>
+                <div id="waiver-clock" class="clock-row">
+                    <span class="t-num">--<span class="t-unit">d</span></span>
+                    <span class="t-num">--<span class="t-unit">h</span></span>
+                    <span class="t-num">--<span class="t-unit">m</span></span>
+                    <span class="t-sec">--<span class="t-unit">s</span></span>
+                </div>
+                <div id="waiver-sub" class="timer-sub">Calculating deadline...</div>
+            </div>
+
+            <div class="timer-card">
+                <div class="timer-header">
+                    <span class="timer-title">🔒 LINEUP SET DEADLINE</span>
+                    <span class="gw-badge" id="home-lineup-gw">GW --</span>
+                </div>
+                <div id="lineup-clock" class="clock-row">
+                    <span class="t-num">--<span class="t-unit">d</span></span>
+                    <span class="t-num">--<span class="t-unit">h</span></span>
+                    <span class="t-num">--<span class="t-unit">m</span></span>
+                    <span class="t-sec">--<span class="t-unit">s</span></span>
+                </div>
+                <div id="lineup-sub" class="timer-sub">Calculating deadline...</div>
+            </div>
+        </div>
+
+        <!-- COULD BE WORSE, COULD BE WILL TRACKER -->
+        <div id="cbw-wrapper" style="width: 100%; margin-bottom: 6px;">
+            <div style="background-color: #1f1305; border: 1px solid #f59e0b; border-radius: 8px; padding: 9px 14px; display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-size: 0.86rem; font-weight: 800; color: #ffffff; letter-spacing: -0.2px;">
+                    🚨 Could be worse, could be Will - Tracker:
+                </div>
+                <div id="cbw-banner-val" style="font-size: 1.02rem; font-weight: 900; color: #f59e0b; font-family: monospace;">
+                    -- / 32 In Danger
+                </div>
+            </div>
+            <div id="cbw-details-box" style="margin-top: 6px;"></div>
+        </div>
+
+        <!-- NAVIGATION MENU IN EXACT REQUESTED ORDER -->
         <div class="home-menu">
             <button class="menu-btn" onclick="navigate('scores')"><span>🔴 Scores</span> <span>➔</span></button>
-            <button class="menu-btn" onclick="alert('Squad Analyser requires private data authorization. Coming soon.')" style="opacity: 0.6;"><span>🧠 Squad Analyser</span> <span>🔒</span></button>
-            <button class="menu-btn" onclick="alert('Trade Block requires private data authorization. Coming soon.')" style="opacity: 0.6;"><span>🤝 Trade Block</span> <span>🔒</span></button>
+            <button class="menu-btn" onclick="navigate('epl')"><span>⚽ EPL Scores & Lineups</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="navigate('standings')"><span>🏆 Standings</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="navigate('cup')"><span>🪣 Cup & Bucket</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="navigate('squad')"><span>🧠 Squad Analyser</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="navigate('trade')"><span>🤝 Trade Hub</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="navigate('gacs')"><span>🎯 GACS</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="navigate('disc')"><span>🟨🟥 Disciplinary</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="navigate('news')"><span>📰 Newsletters</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="navigate('power')"><span>⚡ Power Rankings</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="navigate('asterisk')"><span>📜 Asterisk*</span> <span>➔</span></button>
         </div>
         
-        <button onclick="subscribeUser()" id="enable-btn" style="width: 100%; margin-top: 30px; background: #22c55e; padding: 12px; border-radius: 8px; font-weight: bold; border: none; display: none;">🔔 Enable Matchday Alerts</button>
-        <button onclick="logoutUser()" style="width: 100%; margin-top: 15px; background: #ef4444; color: #fff; padding: 12px; border-radius: 8px; font-weight: bold; border: none; cursor: pointer;">🚪 Logout / Switch Manager</button>
+        <button onclick="subscribeUser()" id="enable-btn" style="width: 100%; margin-top: 22px; background: #22c55e; color: #000; padding: 12px; border-radius: 8px; font-weight: 800; border: none; display: none; cursor: pointer;">🔔 Enable Matchday Alerts</button>
+        <button onclick="logoutUser()" style="width: 100%; margin-top: 12px; background: #1e293b; color: #cbd5e1; padding: 12px; border-radius: 8px; font-weight: 800; border: 1px solid #334155; cursor: pointer;">🚪 Logout / Switch Manager</button>
     </div>
 
-    <!-- SCREEN 3: LIVE SCORES -->
+    <!-- SCREEN 3: SCORES -->
     <div id="screen-scores" class="app-screen">
-        <div style="width: 100%; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <button onclick="navigate('home')" style="background: none; border: none; color: #38bdf8; font-size: 1rem; font-weight: bold; cursor: pointer; padding: 0;">← Home</button>
-            <button onclick="fetchLiveScores(activeLeagueId, document.getElementById('gw-select').value)" style="background: #1e293b; color: #fff; border: 1px solid #334155; padding: 6px 12px; border-radius: 6px; font-size: 0.82rem; font-weight: 700; cursor: pointer;">🔄 Refresh</button>
+        <div class="top-nav-bar">
+            <button class="back-home-btn" onclick="navigate('home')">← Home</button>
+            <button class="refresh-btn" onclick="fetchLiveScores(activeLeagueId, document.getElementById('gw-select').value, document.getElementById('mgr-select').value)">🔄 Refresh</button>
         </div>
         
-        <div class="header" style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-            <h1 id="gw-title" style="margin: 0; font-size: 1.35rem; text-align: left;">🔴SCORES</h1>
-            <select id="gw-select" onchange="fetchLiveScores(activeLeagueId, this.value)" style="padding: 8px 12px; border-radius: 6px; background: #ffffff; color: #000000; border: 1px solid #cbd5e1; font-weight: 800; font-size: 0.9rem; cursor: pointer;">
-                <option value="0">Current GW</option>
-            </select>
+        <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <h1 id="gw-title" style="margin: 0; font-size: 1.35rem;">🔴 SCORES</h1>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <select id="mgr-select" class="white-select" onchange="onManagerFilterChange()">
+                    <option value="All">All Managers</option>
+                </select>
+                <select id="gw-select" class="white-select" onchange="onGwFilterChange()">
+                    <option value="0">Current GW</option>
+                </select>
+            </div>
         </div>
 
-        <div class="league-tabs">
+        <div class="league-tabs" id="scores-league-tabs">
             <button class="tab-btn" id="tab-63" onclick="switchLeague(63)">CDP</button>
             <button class="tab-btn" id="tab-320" onclick="switchLeague(320)">SDM</button>
             <button class="tab-btn" id="tab-378" onclick="switchLeague(378)">BDR</button>
@@ -191,6 +297,280 @@
         </div>
         
         <div class="list-container" id="match-list"></div>
+    </div>
+
+    <!-- SCREEN 4: EPL SCORES & LINEUPS -->
+    <div id="screen-epl" class="app-screen">
+        <div class="top-nav-bar">
+            <button class="back-home-btn" onclick="navigate('home')">← Home</button>
+            <button class="refresh-btn" onclick="fetchEplScores(document.getElementById('epl-gw-select').value)">🔄 Refresh EPL</button>
+        </div>
+        <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h1>⚽ EPL Scores & Lineups</h1>
+                <p>Official team sheets published 60 to 75m before kickoff • Live matchday scores, active subs, goals and DEFCON metrics</p>
+            </div>
+            <select id="epl-gw-select" class="white-select" onchange="fetchEplScores(this.value)">
+                <option value="0">Current GW</option>
+            </select>
+        </div>
+        <div id="epl-fixtures-list" style="width: 100%;"></div>
+    </div>
+
+    <!-- SCREEN 5: STANDINGS -->
+    <div id="screen-standings" class="app-screen">
+        <div class="top-nav-bar">
+            <button class="back-home-btn" onclick="navigate('home')">← Home</button>
+            <button class="refresh-btn" onclick="fetchStandings(activeLeagueId)">🔄 Refresh</button>
+        </div>
+        <div class="header">
+            <h1 id="standings-title">🏆 Standings</h1>
+        </div>
+        <div class="league-tabs">
+            <button class="tab-btn st-l-tab" data-lid="63" onclick="switchStandingsLeague(63)">CDP</button>
+            <button class="tab-btn st-l-tab" data-lid="320" onclick="switchStandingsLeague(320)">SDM</button>
+            <button class="tab-btn st-l-tab" data-lid="378" onclick="switchStandingsLeague(378)">BDR</button>
+            <button class="tab-btn st-l-tab" data-lid="240" onclick="switchStandingsLeague(240)">LDE</button>
+        </div>
+        <div class="sub-tabs">
+            <button class="sub-tab-btn active" id="st-sub-live" onclick="switchStandingsSubTab('live')">🟢 Live Standings</button>
+            <button class="sub-tab-btn" id="st-sub-off" onclick="switchStandingsSubTab('off')">📊 Official Standings</button>
+            <button class="sub-tab-btn" id="st-sub-gacs" onclick="switchStandingsSubTab('gacs')">🎯 GACS</button>
+            <button class="sub-tab-btn" id="st-sub-disc" onclick="switchStandingsSubTab('disc')">🟨🟥 Discipline</button>
+        </div>
+        <div id="standings-content" style="width: 100%;"></div>
+    </div>
+
+    <!-- SCREEN 6: CUP & BUCKET (PLACEHOLDER FOR NOW) -->
+    <div id="screen-cup" class="app-screen">
+        <div class="top-nav-bar">
+            <button class="back-home-btn" onclick="navigate('home')">← Home</button>
+        </div>
+        <div class="header">
+            <h1>🪣 Cup & Bucket Competition</h1>
+            <p>32 Team Inter League Cup • CDP, SDM, BDR and LDE</p>
+        </div>
+        <div class="alert-box alert-info">🚧 Cup & Bucket module is queued for the next phase.</div>
+    </div>
+
+    <!-- SCREEN 7: SQUAD ANALYSER -->
+    <div id="screen-squad" class="app-screen">
+        <div class="top-nav-bar">
+            <button class="back-home-btn" onclick="navigate('home')">← Home</button>
+            <button class="refresh-btn" onclick="fetchSquadAnalyser(activeLeagueId, document.getElementById('squad-gw-select').value, document.getElementById('squad-focus-select').value)">🔄 Refresh</button>
+        </div>
+        <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h1 id="squad-title">🧠 Squad Analyser</h1>
+                <p>Recommended starting XI projections and tailored waiver wire scouting</p>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <select id="squad-admin-team" class="white-select" style="display: none;" onchange="fetchSquadAnalyser(activeLeagueId, document.getElementById('squad-gw-select').value, document.getElementById('squad-focus-select').value, this.value)"></select>
+                <select id="squad-gw-select" class="white-select" onchange="fetchSquadAnalyser(activeLeagueId, this.value, document.getElementById('squad-focus-select').value)">
+                    <option value="0">Active GW</option>
+                </select>
+            </div>
+        </div>
+        <div class="league-tabs">
+            <button class="tab-btn sq-l-tab" data-lid="63" onclick="switchSquadLeague(63)">CDP</button>
+            <button class="tab-btn sq-l-tab" data-lid="320" onclick="switchSquadLeague(320)">SDM</button>
+            <button class="tab-btn sq-l-tab" data-lid="378" onclick="switchSquadLeague(378)">BDR</button>
+            <button class="tab-btn sq-l-tab" data-lid="240" onclick="switchSquadLeague(240)">LDE</button>
+        </div>
+        <div class="sub-tabs">
+            <button class="sub-tab-btn active" id="sq-sub-xi" onclick="switchSquadSubTab('xi')">⚽ Recommended Lineup</button>
+            <button class="sub-tab-btn" id="sq-sub-waivers" onclick="switchSquadSubTab('waivers')">🔍 Tailored Waivers & Suggested Drops</button>
+        </div>
+        <div id="squad-lock-msg" style="width: 100%; display: none;"></div>
+        <div id="squad-xi-pane" style="width: 100%;">
+            <div id="squad-xi-header" style="margin-bottom: 10px;"></div>
+            <div class="view-tabs">
+                <button class="view-tab-btn active" id="sq-view-pitch-btn" onclick="toggleSquadLineupView('pitch')">⚽ Pitch View</button>
+                <button class="view-tab-btn" id="sq-view-table-btn" onclick="toggleSquadLineupView('table')">📋 Table View</button>
+            </div>
+            <div id="squad-pitch-box" style="max-width: 520px; margin: 0 auto;"></div>
+            <div id="squad-table-box" style="display: none; width: 100%;"></div>
+        </div>
+        <div id="squad-waivers-pane" style="width: 100%; display: none;">
+            <div id="squad-alerts-box" style="width: 100%; margin-bottom: 12px;"></div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <span style="font-size: 0.85rem; font-weight: 800; color: #94a3b8;">Filter Scout Focus:</span>
+                <select id="squad-focus-select" class="white-select" onchange="fetchSquadAnalyser(activeLeagueId, document.getElementById('squad-gw-select').value, this.value)">
+                    <option value="Squad Needs (Auto)">Squad Needs (Auto)</option>
+                    <option value="All Outfield">All Outfield</option>
+                    <option value="DEF Only">DEF Only</option>
+                    <option value="MID Only">MID Only</option>
+                    <option value="FWD Only">FWD Only</option>
+                </select>
+            </div>
+            <div id="squad-waivers-table" style="width: 100%;"></div>
+        </div>
+    </div>
+
+    <!-- SCREEN 8: TRADE HUB -->
+    <div id="screen-trade" class="app-screen">
+        <div class="top-nav-bar">
+            <button class="back-home-btn" onclick="navigate('home')">← Home</button>
+            <button class="refresh-btn" onclick="fetchTradeHub(activeLeagueId)">🔄 Refresh</button>
+        </div>
+        <div class="header">
+            <h1 id="trade-title">🤝 Trade Hub & Trading Block</h1>
+            <p>🛒 The League Transfer List & Calculator: Broadcast your trade targets, scout active listings and evaluate trades.</p>
+        </div>
+        <div class="league-tabs">
+            <button class="tab-btn tr-l-tab" data-lid="63" onclick="switchTradeLeague(63)">CDP</button>
+            <button class="tab-btn tr-l-tab" data-lid="320" onclick="switchTradeLeague(320)">SDM</button>
+            <button class="tab-btn tr-l-tab" data-lid="378" onclick="switchTradeLeague(378)">BDR</button>
+            <button class="tab-btn tr-l-tab" data-lid="240" onclick="switchTradeLeague(240)">LDE</button>
+        </div>
+        <div class="sub-tabs">
+            <button class="sub-tab-btn active" id="tr-sub-browse" onclick="switchTradeSubTab('browse')">🛒 League Transfer List</button>
+            <button class="sub-tab-btn" id="tr-sub-manage" onclick="switchTradeSubTab('manage')">📋 Manage My Listings</button>
+            <button class="sub-tab-btn" id="tr-sub-calc" onclick="switchTradeSubTab('calc')">⚖️ Trade Calculator</button>
+        </div>
+
+        <!-- TAB 1: BROWSE -->
+        <div id="trade-browse-pane" style="width: 100%;">
+            <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+                <select id="tr-div-filter" class="white-select" onchange="renderTradeBrowseTable()">
+                    <option value="All">All Divisions</option>
+                    <option value="CDP">CDP</option>
+                    <option value="SDM">SDM</option>
+                    <option value="BDR">BDR</option>
+                    <option value="LDE">LDE</option>
+                </select>
+                <select id="tr-pos-filter" class="white-select" onchange="renderTradeBrowseTable()">
+                    <option value="All">All Positions</option>
+                    <option value="GKP">GKP</option>
+                    <option value="DEF">DEF</option>
+                    <option value="MID">MID</option>
+                    <option value="FWD">FWD</option>
+                </select>
+            </div>
+            <div id="trade-browse-table" style="width: 100%;"></div>
+        </div>
+
+        <!-- TAB 2: MANAGE -->
+        <div id="trade-manage-pane" style="width: 100%; display: none;"></div>
+
+        <!-- TAB 3: CALCULATOR -->
+        <div id="trade-calc-pane" style="width: 100%; display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+                <span style="font-size: 0.9rem; font-weight: 800; color: #cbd5e1;">Select Trade Format:</span>
+                <select id="tr-calc-mode" class="white-select" onchange="renderTradeCalculatorSelectors()">
+                    <option value="1">1 v 1 Trade Package</option>
+                    <option value="2">2 v 2 Trade Package</option>
+                    <option value="3">3 v 3 Trade Package</option>
+                </select>
+            </div>
+            <div class="spotlight-grid" style="margin-bottom: 16px;">
+                <div style="background: #090c13; border: 1px solid #182030; border-radius: 8px; padding: 12px;">
+                    <div style="font-size: 1rem; font-weight: 800; color: #f59e0b; margin-bottom: 8px;">📤 Side A (Sending)</div>
+                    <select id="tr-team-a" class="white-select" style="width: 100%; margin-bottom: 10px;" onchange="onTradeCalcTeamChange('a')"></select>
+                    <div id="tr-slots-a" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                </div>
+                <div style="background: #090c13; border: 1px solid #182030; border-radius: 8px; padding: 12px;">
+                    <div style="font-size: 1rem; font-weight: 800; color: #38bdf8; margin-bottom: 8px;">📥 Side B (Receiving)</div>
+                    <select id="tr-team-b" class="white-select" style="width: 100%; margin-bottom: 10px;" onchange="onTradeCalcTeamChange('b')"></select>
+                    <div id="tr-slots-b" style="display: flex; flex-direction: column; gap: 8px;"></div>
+                </div>
+            </div>
+            <div id="tr-calc-results" style="width: 100%;"></div>
+        </div>
+    </div>
+
+    <!-- SCREEN 9: GACS -->
+    <div id="screen-gacs" class="app-screen">
+        <div class="top-nav-bar">
+            <button class="back-home-btn" onclick="navigate('home')">← Home</button>
+            <button class="refresh-btn" onclick="fetchGacs(activeLeagueId, document.getElementById('gacs-gw-select').value)">🔄 Refresh</button>
+        </div>
+        <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h1>🎯 GACS - Goals, Assists & Clean Sheets</h1>
+                <p>Goals, Assists and Clean Sheets (GKP & DEF only) registered in each manager's final starting lineup.</p>
+            </div>
+            <select id="gacs-gw-select" class="white-select" onchange="fetchGacs(activeLeagueId, this.value)">
+                <option value="0">Current GW</option>
+            </select>
+        </div>
+        <div class="league-tabs">
+            <button class="tab-btn ga-l-tab" data-lid="63" onclick="switchGacsLeague(63)">CDP</button>
+            <button class="tab-btn ga-l-tab" data-lid="320" onclick="switchGacsLeague(320)">SDM</button>
+            <button class="tab-btn ga-l-tab" data-lid="378" onclick="switchGacsLeague(378)">BDR</button>
+            <button class="tab-btn ga-l-tab" data-lid="240" onclick="switchGacsLeague(240)">LDE</button>
+        </div>
+        <div id="gacs-content" style="width: 100%;"></div>
+    </div>
+
+    <!-- SCREEN 10: DISCIPLINARY -->
+    <div id="screen-disc" class="app-screen">
+        <div class="top-nav-bar">
+            <button class="back-home-btn" onclick="navigate('home')">← Home</button>
+            <button class="refresh-btn" onclick="fetchDisciplinary(activeLeagueId, document.getElementById('disc-gw-select').value)">🔄 Refresh</button>
+        </div>
+        <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h1>🟨🟥 Disciplinary Record</h1>
+                <p>Tracks Yellow Cards (-1 pt) and Red Cards (-3 pts) in each manager's active starting XI and result impact.</p>
+            </div>
+            <select id="disc-gw-select" class="white-select" onchange="fetchDisciplinary(activeLeagueId, this.value)">
+                <option value="0">Current GW</option>
+            </select>
+        </div>
+        <div class="league-tabs">
+            <button class="tab-btn di-l-tab" data-lid="63" onclick="switchDiscLeague(63)">CDP</button>
+            <button class="tab-btn di-l-tab" data-lid="320" onclick="switchDiscLeague(320)">SDM</button>
+            <button class="tab-btn di-l-tab" data-lid="378" onclick="switchDiscLeague(378)">BDR</button>
+            <button class="tab-btn di-l-tab" data-lid="240" onclick="switchDiscLeague(240)">LDE</button>
+        </div>
+        <div id="disc-content" style="width: 100%;"></div>
+    </div>
+
+    <!-- SCREEN 11: NEWSLETTERS -->
+    <div id="screen-news" class="app-screen">
+        <div class="top-nav-bar">
+            <button class="back-home-btn" onclick="navigate('home')">← Home</button>
+            <button class="refresh-btn" onclick="fetchNewsletter(activeNewsDoc)">🔄 Refresh</button>
+        </div>
+        <div class="header">
+            <h1>📰 Dellarverse Gazette</h1>
+            <p>Official match reports, power rankings and editorial coverage</p>
+        </div>
+        <div class="sub-tabs">
+            <button class="sub-tab-btn active" id="news-tab-league" onclick="fetchNewsletter('league')">📰 League Newsletter</button>
+            <button class="sub-tab-btn" id="news-tab-cup" onclick="fetchNewsletter('cup')">🏆 Cup Newsletter</button>
+        </div>
+        <div id="news-content" style="width: 100%; display: flex; flex-direction: column; gap: 12px;"></div>
+    </div>
+
+    <!-- SCREEN 12: POWER RANKINGS -->
+    <div id="screen-power" class="app-screen">
+        <div class="top-nav-bar">
+            <button class="back-home-btn" onclick="navigate('home')">← Home</button>
+            <button class="refresh-btn" onclick="fetchPowerRankings()">🔄 Refresh</button>
+        </div>
+        <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h1>⚡ Power Rankings</h1>
+                <p>Official form guide, momentum ratings and team trajectories</p>
+            </div>
+            <a id="power-download-btn" href="/api/power_rankings/download" style="display: none; background: #f59e0b; color: #000; padding: 8px 14px; border-radius: 6px; font-size: 0.84rem; font-weight: 800; text-decoration: none;">📥 Download Archive</a>
+        </div>
+        <div class="sub-tabs" id="power-sheet-tabs"></div>
+        <div id="power-content" style="width: 100%;"></div>
+    </div>
+
+    <!-- SCREEN 13: ASTERISK* (PLACEHOLDER FOR NOW) -->
+    <div id="screen-asterisk" class="app-screen">
+        <div class="top-nav-bar">
+            <button class="back-home-btn" onclick="navigate('home')">← Home</button>
+        </div>
+        <div class="header">
+            <h1>📜 Asterisk* — Master League Archives</h1>
+            <p>10 Seasons of Power Query data, manager profiles, historical records and season chronicles</p>
+        </div>
+        <div class="alert-box alert-info">🚧 Asterisk* historical archives module is queued for the next phase.</div>
     </div>
 
     <!-- MATCH SPOTLIGHT MODAL -->
@@ -247,13 +627,29 @@
 
     <script>
         let activeLeagueId = 63;
+        let savedAlias = "";
         window.currentMatches = [];
         window.activeSpotlightData = null;
+        window.pitchPlayersRegistry = {};
+        window.waiverTargetMs = NaN;
+        window.lineupTargetMs = NaN;
+        window.standingsCache = null;
+        window.standingsSubTab = 'live';
+        window.tradeHubData = null;
+        window.powerRankingsData = null;
+        window.activeNewsDoc = 'league';
+
+        const LEAGUE_NAMES = {
+            63: "CDP (Crème Dellar Prem)",
+            320: "SDM (Segundo Del Mundo)",
+            378: "BDR (Best De La Rest)",
+            240: "LDE (Liger Del Eager)"
+        };
 
         window.onload = () => {
-            const savedAlias = localStorage.getItem("cdp_alias");
+            savedAlias = localStorage.getItem("cdp_alias") || "";
             if (savedAlias) {
-                document.getElementById("welcome-msg").innerText = `Welcome, ${savedAlias}`;
+                document.getElementById("welcome-msg").innerText = `👤 ${savedAlias}`;
                 activeLeagueId = parseInt(localStorage.getItem("cdp_league")) || 63;
                 navigate('home');
                 if ("Notification" in window && Notification.permission !== "granted") {
@@ -261,12 +657,32 @@
                     if (btn) btn.style.display = "block";
                 }
             }
+            setInterval(updateHomeClocks, 1000);
         };
+
+        function highlightLeagueButtons(selector, leagueId) {
+            document.querySelectorAll(selector).forEach(btn => {
+                if (parseInt(btn.getAttribute('data-lid')) === leagueId) btn.classList.add('active');
+                else btn.classList.remove('active');
+            });
+        }
 
         function navigate(screenId) {
             document.querySelectorAll('.app-screen').forEach(s => s.classList.remove('active'));
-            document.getElementById(`screen-${screenId}`).classList.add('active');
-            if (screenId === 'scores') switchLeague(activeLeagueId);
+            const target = document.getElementById(`screen-${screenId}`);
+            if (target) target.classList.add('active');
+            window.scrollTo(0, 0);
+
+            if (screenId === 'home') fetchHomeSummary();
+            else if (screenId === 'scores') switchLeague(activeLeagueId);
+            else if (screenId === 'epl') fetchEplScores("0");
+            else if (screenId === 'standings') switchStandingsLeague(activeLeagueId);
+            else if (screenId === 'squad') switchSquadLeague(activeLeagueId);
+            else if (screenId === 'trade') switchTradeLeague(activeLeagueId);
+            else if (screenId === 'gacs') switchGacsLeague(activeLeagueId);
+            else if (screenId === 'disc') switchDiscLeague(activeLeagueId);
+            else if (screenId === 'news') fetchNewsletter('league');
+            else if (screenId === 'power') fetchPowerRankings();
         }
 
         async function attemptLogin() {
@@ -283,10 +699,11 @@
                 const data = await response.json();
                 
                 if (data.status === "success") {
+                    savedAlias = alias;
                     localStorage.setItem("cdp_alias", alias);
                     localStorage.setItem("cdp_league", data.default_league);
                     activeLeagueId = data.default_league;
-                    document.getElementById("welcome-msg").innerText = `Welcome, ${alias}`;
+                    document.getElementById("welcome-msg").innerText = `👤 ${alias}`;
                     btn.innerText = "VERIFY IDENTITY";
                     document.getElementById("pin-input").value = "";
                     navigate('home');
@@ -305,30 +722,152 @@
         function logoutUser() {
             localStorage.removeItem("cdp_alias");
             localStorage.removeItem("cdp_league");
+            savedAlias = "";
             document.getElementById("pin-input").value = "";
             document.getElementById("alias-select").value = "";
             navigate('login');
         }
 
+        // ==========================================
+        // HOME SUMMARY: TIMERS & CBWCBW TRACKER
+        // ==========================================
+        async function fetchHomeSummary() {
+            try {
+                const res = await fetch(`/api/home_summary?league_id=${activeLeagueId}`);
+                const data = await res.json();
+
+                document.getElementById("home-waiver-gw").innerText = `GW ${data.current_gw}`;
+                document.getElementById("home-lineup-gw").innerText = `GW ${data.current_gw}`;
+
+                window.waiverTargetMs = data.waiver_iso ? new Date(data.waiver_iso).getTime() : NaN;
+                window.lineupTargetMs = data.lineup_iso ? new Date(data.lineup_iso).getTime() : NaN;
+
+                const opts = { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' };
+                if (!isNaN(window.waiverTargetMs)) {
+                    document.getElementById("waiver-sub").textContent = new Date(window.waiverTargetMs).toLocaleDateString(undefined, opts) + " (24h before KO)";
+                }
+                if (!isNaN(window.lineupTargetMs)) {
+                    document.getElementById("lineup-sub").textContent = new Date(window.lineupTargetMs).toLocaleDateString(undefined, opts) + " (90m before KO)";
+                }
+                updateHomeClocks();
+
+                const cbwCount = data.cbw_count;
+                const cbwValEl = document.getElementById("cbw-banner-val");
+                const cbwWrapper = document.getElementById("cbw-wrapper").firstElementChild;
+                const detailsBox = document.getElementById("cbw-details-box");
+
+                cbwValEl.innerText = `${cbwCount} / 32 In Danger`;
+                if (cbwCount > 10) {
+                    cbwWrapper.style.backgroundColor = "#1f1305";
+                    cbwWrapper.style.borderColor = "#f59e0b";
+                    cbwValEl.style.color = "#f59e0b";
+                    detailsBox.innerHTML = "";
+                } else if (cbwCount > 0) {
+                    cbwWrapper.style.backgroundColor = "#2a0d0d";
+                    cbwWrapper.style.borderColor = "#ef4444";
+                    cbwValEl.style.color = "#ef4444";
+
+                    let chips = "";
+                    (data.cbw_at_risk || []).forEach(item => {
+                        let badge = "<span style='color:#94a3b8;'>0 to play</span>";
+                        if (item.is_locked) badge = "<span style='color:#ef4444; font-weight:900;'>💀 LOCKED IN</span>";
+                        else if (item.rem > 0) badge = `<span style='color:#f59e0b; font-weight:700;'>⏳ ${item.rem} to play</span>`;
+
+                        chips += `<div style="display:inline-flex; align-items:center; gap:6px; background:#0c101a; border:1px solid #202b3d; border-radius:6px; padding:4px 8px; font-size:0.78rem;">
+                            <span style="color:#fff; font-weight:800;">${item.alias}</span>
+                            <span style="color:#64748b; font-size:0.7rem; font-weight:700;">(${item.div})</span>
+                            ${badge}
+                        </div>`;
+                    });
+                    detailsBox.innerHTML = `<div style="background:#090c13; border:1px solid #ef4444; border-radius:8px; padding:8px 12px;">
+                        <div style="font-size:0.72rem; font-weight:800; color:#ef4444; text-transform:uppercase; margin-bottom:6px;">⚠️ CBWCBW Danger Zone (Zero returns registered across Starting XI)</div>
+                        <div style="display:flex; flex-wrap:wrap; gap:6px;">${chips}</div>
+                    </div>`;
+                } else {
+                    cbwWrapper.style.backgroundColor = "#052210";
+                    cbwWrapper.style.borderColor = "#22c55e";
+                    cbwValEl.style.color = "#22c55e";
+                    detailsBox.innerHTML = `<div style="background:#052210; border:1px solid #22c55e; border-radius:6px; padding:6px 10px; text-align:center; font-size:0.78rem; font-weight:700; color:#22c55e;">
+                        🎉 Miraculously, all 32 managers registered a positive contribution. Nobody pulled a Will this week!
+                    </div>`;
+                }
+            } catch (e) {
+                console.error("Failed loading home summary:", e);
+            }
+        }
+
+        function updateHomeClocks() {
+            const now = new Date().getTime();
+            function renderTimer(target, clockId, subId, passedText) {
+                const clockEl = document.getElementById(clockId);
+                const subEl = document.getElementById(subId);
+                if (!clockEl || isNaN(target)) return;
+                const diff = target - now;
+                if (diff <= 0) {
+                    clockEl.innerHTML = '<span style="color:#ef4444; font-weight:800; font-size:1.05rem; font-family:monospace;">DEADLINE PASSED</span>';
+                    if (subEl) subEl.textContent = passedText;
+                    return;
+                }
+                const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+                const h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                const s = Math.floor((diff % (1000 * 60)) / 1000);
+                const pad = (n) => String(n).padStart(2, '0');
+                clockEl.innerHTML = `
+                    <span class="t-num">${pad(d)}<span class="t-unit">d</span></span>
+                    <span class="t-num">${pad(h)}<span class="t-unit">h</span></span>
+                    <span class="t-num">${pad(m)}<span class="t-unit">m</span></span>
+                    <span class="t-sec">${pad(s)}<span class="t-unit">s</span></span>
+                `;
+            }
+            renderTimer(window.waiverTargetMs, 'waiver-clock', 'waiver-sub', 'Waivers Processed');
+            renderTimer(window.lineupTargetMs, 'lineup-clock', 'lineup-sub', 'Lineups Locked');
+        }
+
+        // ==========================================
+        // SCORES SCREEN
+        // ==========================================
         function switchLeague(leagueId) {
             activeLeagueId = leagueId;
-            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('#scores-league-tabs .tab-btn').forEach(btn => btn.classList.remove('active'));
             const activeTab = document.getElementById(`tab-${leagueId}`);
             if (activeTab) activeTab.classList.add('active');
             
-            const currentGwVal = document.getElementById("gw-select") ? document.getElementById("gw-select").value : "0";
-            fetchLiveScores(leagueId, currentGwVal || "0");
+            const mgrSelect = document.getElementById("mgr-select");
+            if (mgrSelect) mgrSelect.value = "All";
+            const gwSelect = document.getElementById("gw-select");
+            if (gwSelect) gwSelect.style.display = "block";
+            
+            const currentGwVal = gwSelect ? gwSelect.value : "0";
+            fetchLiveScores(leagueId, currentGwVal || "0", "All");
         }
 
-        async function fetchLiveScores(leagueId, gw = "0") {
+        function onManagerFilterChange() {
+            const mgrVal = document.getElementById("mgr-select").value;
+            const gwSelect = document.getElementById("gw-select");
+            if (mgrVal !== "All") {
+                gwSelect.style.display = "none";
+                fetchLiveScores(activeLeagueId, "0", mgrVal);
+            } else {
+                gwSelect.style.display = "block";
+                fetchLiveScores(activeLeagueId, gwSelect.value || "0", "All");
+            }
+        }
+
+        function onGwFilterChange() {
+            const gwVal = document.getElementById("gw-select").value;
+            const mgrSelect = document.getElementById("mgr-select");
+            if (mgrSelect) mgrSelect.value = "All";
+            fetchLiveScores(activeLeagueId, gwVal, "All");
+        }
+
+        async function fetchLiveScores(leagueId, gw = "0", manager = "All") {
             const listEl = document.getElementById("match-list");
             listEl.innerHTML = "<p style='text-align:center; color:#94a3b8; grid-column: 1 / -1; padding: 20px;'>Running FPL Engine calculations...</p>";
             
             try {
-                const response = await fetch(`/api/live_scores?league_id=${leagueId}&gw=${gw}`);
+                const response = await fetch(`/api/live_scores?league_id=${leagueId}&gw=${gw}&manager=${encodeURIComponent(manager)}`);
                 const json = await response.json();
-                
-                document.getElementById("gw-title").innerText = `🔴 SCORES (GW ${json.gw})`;
                 
                 const gwSelect = document.getElementById("gw-select");
                 if (json.all_gws && json.all_gws.length > 0) {
@@ -339,6 +878,24 @@
                     });
                     gwSelect.value = String(json.gw);
                 }
+
+                const mgrSelect = document.getElementById("mgr-select");
+                if (json.managers && mgrSelect) {
+                    mgrSelect.innerHTML = `<option value="All">All Managers</option>`;
+                    json.managers.forEach(mName => {
+                        mgrSelect.innerHTML += `<option value="${mName}">${mName}</option>`;
+                    });
+                    mgrSelect.value = json.selected_manager || "All";
+                }
+
+                const isMgrMode = (json.selected_manager && json.selected_manager !== "All");
+                if (isMgrMode) {
+                    document.getElementById("gw-title").innerText = `🔴 SCORES (${json.selected_manager})`;
+                    gwSelect.style.display = "none";
+                } else {
+                    document.getElementById("gw-title").innerText = `🔴 SCORES (GW ${json.gw})`;
+                    gwSelect.style.display = "block";
+                }
                 
                 window.currentMatches = json.matches || [];
                 listEl.innerHTML = "";
@@ -348,8 +905,12 @@
                     if (m.pr1 > m.pr2) { c1Class = "c1"; barColor = "#f59e0b"; } 
                     else if (m.pr2 > m.pr1) { c2Class = "c2"; barColor = "#38bdf8"; }
 
+                    const matchGw = m.gw || json.gw;
+                    const gwBadge = isMgrMode ? `<div style="font-size:0.72rem; font-weight:800; color:#94a3b8; text-transform:uppercase; margin-bottom:6px; border-bottom:1px solid #182030; padding-bottom:4px; display:flex; justify-content:space-between;"><span>GAMEWEEK ${matchGw}</span><span>${m.is_fin ? '✅ FINAL' : '🟢 LIVE'}</span></div>` : '';
+
                     listEl.innerHTML += `
-                        <div class="match-card" onclick="openMatchModal(${idx}, ${json.gw})" style="cursor: pointer;">
+                        <div class="match-card" onclick="openMatchModal(${idx}, ${matchGw})" style="cursor: pointer;">
+                            ${gwBadge}
                             <div class="m-header">
                                 <div class="m1-name">${m.m1}</div>
                                 <div class="m2-name">${m.m2}</div>
@@ -378,10 +939,773 @@
                     `;
                 });
             } catch (error) {
-                listEl.innerHTML = "<p style='color:#ef4444; text-align:center; grid-column: 1 / -1;'>Failed to load live scores.</p>";
+                listEl.innerHTML = "<p style='color:#ef4444; text-align:center; grid-column: 1 / -1;'>Failed to load scores.</p>";
             }
         }
 
+        // ==========================================
+        // EPL SCORES & LINEUPS SCREEN
+        // ==========================================
+        window.eplPitchStore = {};
+
+        async function fetchEplScores(gw = "0") {
+            const listEl = document.getElementById("epl-fixtures-list");
+            listEl.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading Premier League matchday data and official team sheets...</p>";
+            try {
+                const res = await fetch(`/api/epl_scores?gw=${gw}`);
+                const data = await res.json();
+
+                const gwSel = document.getElementById("epl-gw-select");
+                if (data.all_gws && data.all_gws.length > 0) {
+                    gwSel.innerHTML = "";
+                    data.all_gws.forEach(g => {
+                        const lbl = (g === data.detected_gw) ? `GW ${g} (Current)` : `Gameweek ${g}`;
+                        gwSel.innerHTML += `<option value="${g}">${lbl}</option>`;
+                    });
+                    gwSel.value = String(data.gw);
+                }
+
+                listEl.innerHTML = "";
+                window.eplPitchStore = {};
+
+                (data.fixtures || []).forEach(f => {
+                    const fid = f.id;
+                    if (f.lineups && f.lineups.has_lineups) {
+                        window.eplPitchStore[fid] = {
+                            h: f.lineups.pitch_h,
+                            a: f.lineups.pitch_a
+                        };
+                    }
+
+                    const centerHtml = (f.is_started || f.is_finished)
+                        ? `<div style="font-size:1.9rem; font-weight:900; color:#fff; text-align:center; line-height:1;">${f.h_score} - ${f.a_score}</div>`
+                        : `<div style="font-size:0.9rem; font-weight:800; color:#64748b; text-align:center;">VS</div>`;
+
+                    // 1. Events HTML
+                    const ev = f.events || {};
+                    function buildTeamEvents(teamName, side) {
+                        const lines = ev[side] || [];
+                        if (!lines.length) return `<div><div style="font-weight:800; color:#fff; margin-bottom:6px;">${teamName} Events</div><p style="font-size:0.8rem; color:#64748b;">No registered match events yet.</p></div>`;
+                        return `<div><div style="font-weight:800; color:#fff; margin-bottom:6px;">${teamName} Events</div>${lines.map(l => `<div style="font-size:0.82rem; color:#cbd5e1; margin-bottom:4px;">${l}</div>`).join('')}</div>`;
+                    }
+
+                    // 2. Lineups HTML
+                    let lineupsHtml = `<div class="alert-box alert-info">🕒 Official team sheets drop 60 to 75 minutes prior to kickoff. Once submitted by the clubs, they will populate here automatically.</div>`;
+                    if (f.lineups && f.lineups.has_lineups) {
+                        const hS = (f.lineups.h_starters || []).map(s => `<div style="margin-bottom:4px; font-size:0.82rem;">${s}</div>`).join('');
+                        const hU = (f.lineups.h_subs_used || []).map(s => `<div style="margin-bottom:4px; font-size:0.82rem;">${s}</div>`).join('');
+                        const hUn = (f.lineups.h_subs_unused || []).join(', ');
+                        const aS = (f.lineups.a_starters || []).map(s => `<div style="margin-bottom:4px; font-size:0.82rem;">${s}</div>`).join('');
+                        const aU = (f.lineups.a_subs_used || []).map(s => `<div style="margin-bottom:4px; font-size:0.82rem;">${s}</div>`).join('');
+                        const aUn = (f.lineups.a_subs_unused || []).join(', ');
+
+                        lineupsHtml = `
+                            <div style="display:flex; gap:12px; margin-bottom:12px;">
+                                <button class="refresh-btn" id="epl-mode-pitch-${fid}" style="border-color:#f59e0b; color:#f59e0b;" onclick="toggleEplLineupMode(${fid}, 'pitch')">⚽ Pitch View</button>
+                                <button class="refresh-btn" id="epl-mode-list-${fid}" onclick="toggleEplLineupMode(${fid}, 'list')">📋 List View</button>
+                            </div>
+                            <div id="epl-pitch-wrap-${fid}" class="spotlight-grid">
+                                <div>
+                                    <div style="text-align:center; font-weight:800; color:#f59e0b; margin-bottom:6px;">${f.h_name}</div>
+                                    <div id="epl-pitch-h-${fid}"></div>
+                                </div>
+                                <div>
+                                    <div style="text-align:center; font-weight:800; color:#38bdf8; margin-bottom:6px;">${f.a_name}</div>
+                                    <div id="epl-pitch-a-${fid}"></div>
+                                </div>
+                            </div>
+                            <div id="epl-list-wrap-${fid}" class="spotlight-grid" style="display:none;">
+                                <div style="background:#060911; border:1px solid #182030; border-radius:8px; padding:10px;">
+                                    <div style="font-weight:800; color:#f59e0b; margin-bottom:6px;">${f.h_name} Starting XI</div>
+                                    ${hS}
+                                    <div style="font-weight:800; color:#94a3b8; margin:10px 0 4px 0; font-size:0.8rem;">${f.h_name} Subs</div>
+                                    ${hU}
+                                    ${hUn ? `<div style="font-size:0.75rem; color:#64748b; margin-top:4px;">Unused: ${hUn}</div>` : ''}
+                                </div>
+                                <div style="background:#060911; border:1px solid #182030; border-radius:8px; padding:10px;">
+                                    <div style="font-weight:800; color:#38bdf8; margin-bottom:6px;">${f.a_name} Starting XI</div>
+                                    ${aS}
+                                    <div style="font-weight:800; color:#94a3b8; margin:10px 0 4px 0; font-size:0.8rem;">${f.a_name} Subs</div>
+                                    ${aU}
+                                    ${aUn ? `<div style="font-size:0.75rem; color:#64748b; margin-top:4px;">Unused: ${aUn}</div>` : ''}
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    // 3. BPS HTML
+                    let bpsHtml = `<p style="font-size:0.82rem; color:#64748b;">No BPS data registered for this fixture yet.</p>`;
+                    if (f.bps && f.bps.length > 0) {
+                        bpsHtml = `<div class="table-wrap"><table class="clean-table">
+                            <thead><tr><th>Rank</th><th>Player</th><th>Club</th><th>Pos</th><th>BPS</th><th>Projected Bonus</th></tr></thead>
+                            <tbody>${f.bps.map(b => `<tr><td>${b.rank}</td><td>${b.player}</td><td>${b.club}</td><td>${b.pos}</td><td>${b.bps}</td><td>${b.bonus_html}</td></tr>`).join('')}</tbody>
+                        </table></div>`;
+                    }
+
+                    // 4. DefCon HTML
+                    let dcHtml = `<p style="font-size:0.82rem; color:#64748b;">No defensive contributions registered for this fixture yet.</p>`;
+                    if (f.defcon && f.defcon.length > 0) {
+                        dcHtml = `<div class="table-wrap"><table class="clean-table">
+                            <thead><tr><th>Rank</th><th>Player</th><th>Club</th><th>Pos</th><th>DefCon</th><th>DefCon Bonus</th></tr></thead>
+                            <tbody>${f.defcon.map(d => `<tr><td>${d.rank}</td><td>${d.player}</td><td>${d.club}</td><td>${d.pos}</td><td>${d.defcon_str}</td><td>${d.status_html}</td></tr>`).join('')}</tbody>
+                        </table></div>`;
+                    }
+
+                    listEl.innerHTML += `
+                        <div class="exp-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center;">
+                                <div style="width:40%; font-size:1.05rem; font-weight:800; color:#fff;">${f.h_name} <span style="color:#94a3b8; font-size:0.8rem;">(${f.h_short})</span></div>
+                                <div style="width:20%; text-align:center;">
+                                    ${centerHtml}
+                                    <div style="font-size:0.76rem; font-weight:800; color:${f.status_color}; margin-top:3px;">${f.status_text}</div>
+                                </div>
+                                <div style="width:40%; font-size:1.05rem; font-weight:800; color:#fff; text-align:right;"><span style="color:#94a3b8; font-size:0.8rem;">(${f.a_short})</span> ${f.a_name}</div>
+                            </div>
+                            <button class="exp-toggle" onclick="toggleEplFixtureDrawer(${fid})">
+                                <span>📋 Match Events & Confirmed Lineups</span>
+                                <span id="epl-arrow-${fid}">▼</span>
+                            </button>
+                            <div class="exp-body" id="epl-drawer-${fid}">
+                                <div class="sub-tabs">
+                                    <button class="sub-tab-btn active" id="epl-tab-btn-${fid}-events" onclick="switchEplInnerTab(${fid}, 'events')">⚡ Match Stats</button>
+                                    <button class="sub-tab-btn" id="epl-tab-btn-${fid}-sheets" onclick="switchEplInnerTab(${fid}, 'sheets')">👥 Lineups & Subs</button>
+                                    <button class="sub-tab-btn" id="epl-tab-btn-${fid}-bps" onclick="switchEplInnerTab(${fid}, 'bps')">⭐ BPS & Bonus</button>
+                                    <button class="sub-tab-btn" id="epl-tab-btn-${fid}-defcon" onclick="switchEplInnerTab(${fid}, 'defcon')">🔰 DefCon</button>
+                                </div>
+                                <div id="epl-pane-${fid}-events" class="spotlight-grid">
+                                    ${buildTeamEvents(f.h_name, 'h')}
+                                    ${buildTeamEvents(f.a_name, 'a')}
+                                </div>
+                                <div id="epl-pane-${fid}-sheets" style="display:none;">${lineupsHtml}</div>
+                                <div id="epl-pane-${fid}-bps" style="display:none;">${bpsHtml}</div>
+                                <div id="epl-pane-${fid}-defcon" style="display:none;">${dcHtml}</div>
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch (err) {
+                listEl.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load EPL scores.</p>";
+            }
+        }
+
+        function toggleEplFixtureDrawer(fid) {
+            const drawer = document.getElementById(`epl-drawer-${fid}`);
+            const arrow = document.getElementById(`epl-arrow-${fid}`);
+            if (!drawer) return;
+            const isOpen = drawer.classList.toggle('open');
+            if (arrow) arrow.innerText = isOpen ? '▲' : '▼';
+            if (isOpen && window.eplPitchStore[fid] && !window.eplPitchStore[fid].rendered) {
+                renderPitch(`epl-pitch-h-${fid}`, window.eplPitchStore[fid].h, '#f59e0b');
+                renderPitch(`epl-pitch-a-${fid}`, window.eplPitchStore[fid].a, '#38bdf8');
+                window.eplPitchStore[fid].rendered = true;
+            }
+        }
+
+        function switchEplInnerTab(fid, tabName) {
+            ['events', 'sheets', 'bps', 'defcon'].forEach(t => {
+                const btn = document.getElementById(`epl-tab-btn-${fid}-${t}`);
+                const pane = document.getElementById(`epl-pane-${fid}-${t}`);
+                if (btn) btn.classList.toggle('active', t === tabName);
+                if (pane) pane.style.display = (t === tabName) ? (t === 'events' ? 'grid' : 'block') : 'none';
+            });
+            if (tabName === 'sheets' && window.eplPitchStore[fid] && !window.eplPitchStore[fid].rendered) {
+                renderPitch(`epl-pitch-h-${fid}`, window.eplPitchStore[fid].h, '#f59e0b');
+                renderPitch(`epl-pitch-a-${fid}`, window.eplPitchStore[fid].a, '#38bdf8');
+                window.eplPitchStore[fid].rendered = true;
+            }
+        }
+
+        function toggleEplLineupMode(fid, mode) {
+            const pWrap = document.getElementById(`epl-pitch-wrap-${fid}`);
+            const lWrap = document.getElementById(`epl-list-wrap-${fid}`);
+            const pBtn = document.getElementById(`epl-mode-pitch-${fid}`);
+            const lBtn = document.getElementById(`epl-mode-list-${fid}`);
+            if (mode === 'pitch') {
+                pWrap.style.display = 'grid';
+                lWrap.style.display = 'none';
+                pBtn.style.borderColor = '#f59e0b'; pBtn.style.color = '#f59e0b';
+                lBtn.style.borderColor = '#334155'; lBtn.style.color = '#fff';
+            } else {
+                pWrap.style.display = 'none';
+                lWrap.style.display = 'grid';
+                lBtn.style.borderColor = '#f59e0b'; lBtn.style.color = '#f59e0b';
+                pBtn.style.borderColor = '#334155'; pBtn.style.color = '#fff';
+            }
+        }
+
+        // ==========================================
+        // STANDINGS SCREEN
+        // ==========================================
+        function switchStandingsLeague(leagueId) {
+            activeLeagueId = leagueId;
+            highlightLeagueButtons('.st-l-tab', leagueId);
+            document.getElementById('standings-title').innerText = `🏆 Standings - ${LEAGUE_NAMES[leagueId]}`;
+            fetchStandings(leagueId);
+        }
+
+        function switchStandingsSubTab(subTab) {
+            window.standingsSubTab = subTab;
+            ['live', 'off', 'gacs', 'disc'].forEach(k => {
+                const btn = document.getElementById(`st-sub-${k}`);
+                if (btn) btn.classList.toggle('active', k === subTab);
+            });
+            renderStandingsActiveSubTab();
+        }
+
+        async function fetchStandings(leagueId) {
+            const box = document.getElementById('standings-content');
+            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Calculating league tables...</p>";
+            try {
+                const res = await fetch(`/api/standings?league_id=${leagueId}`);
+                window.standingsCache = await res.json();
+                document.getElementById('st-sub-off').innerText = `📊 Official Standings (GW ${window.standingsCache.last_completed_gw})`;
+                renderStandingsActiveSubTab();
+            } catch (e) {
+                box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load standings.</p>";
+            }
+        }
+
+        function renderStandingsActiveSubTab() {
+            const box = document.getElementById('standings-content');
+            const d = window.standingsCache;
+            if (!d) return;
+
+            if (window.standingsSubTab === 'live') {
+                let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">Live Standings - Active Round (GW ${d.current_gw}) • Updated continuously with active points.</p>
+                <div class="table-wrap"><table class="clean-table">
+                    <thead><tr><th>Pos</th><th>Move</th><th>Team</th><th>Manager</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th></tr></thead>
+                    <tbody>`;
+                (d.live_table || []).forEach(r => {
+                    html += `<tr><td>${r.pos}</td><td>${r.move_html}</td><td style="text-align:left; color:#fff; font-weight:700;">${r.team}</td><td>${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#f59e0b;">${r.pts}</td></tr>`;
+                });
+                html += `</tbody></table></div>`;
+                box.innerHTML = html;
+            } else if (window.standingsSubTab === 'off') {
+                let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">Official Standings - Frozen Table (GW ${d.last_completed_gw})</p>
+                <div class="table-wrap"><table class="clean-table">
+                    <thead><tr><th>Pos</th><th>Team</th><th>Manager</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th></tr></thead>
+                    <tbody>`;
+                (d.official_table || []).forEach(r => {
+                    html += `<tr><td>${r.pos}</td><td style="text-align:left; color:#fff; font-weight:700;">${r.team}</td><td>${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#fff;">${r.pts}</td></tr>`;
+                });
+                html += `</tbody></table></div>`;
+                box.innerHTML = html;
+            } else if (window.standingsSubTab === 'gacs') {
+                navigate('gacs');
+            } else if (window.standingsSubTab === 'disc') {
+                navigate('disc');
+            }
+        }
+
+        // ==========================================
+        // SQUAD ANALYSER SCREEN
+        // ==========================================
+        function switchSquadLeague(leagueId) {
+            activeLeagueId = leagueId;
+            highlightLeagueButtons('.sq-l-tab', leagueId);
+            document.getElementById('squad-title').innerText = `🧠 Squad Analyser - ${LEAGUE_NAMES[leagueId]}`;
+            document.getElementById('squad-admin-team').style.display = 'none';
+            fetchSquadAnalyser(leagueId, "0", document.getElementById('squad-focus-select').value);
+        }
+
+        function switchSquadSubTab(tab) {
+            document.getElementById('sq-sub-xi').classList.toggle('active', tab === 'xi');
+            document.getElementById('sq-sub-waivers').classList.toggle('active', tab === 'waivers');
+            if (document.getElementById('squad-lock-msg').style.display === 'block') return;
+            document.getElementById('squad-xi-pane').style.display = (tab === 'xi') ? 'block' : 'none';
+            document.getElementById('squad-waivers-pane').style.display = (tab === 'waivers') ? 'block' : 'none';
+        }
+
+        function toggleSquadLineupView(view) {
+            document.getElementById('sq-view-pitch-btn').classList.toggle('active', view === 'pitch');
+            document.getElementById('sq-view-table-btn').classList.toggle('active', view === 'table');
+            document.getElementById('squad-pitch-box').style.display = (view === 'pitch') ? 'block' : 'none';
+            document.getElementById('squad-table-box').style.display = (view === 'table') ? 'block' : 'none';
+        }
+
+        async function fetchSquadAnalyser(leagueId, targetGw = "0", focus = "Squad Needs (Auto)", overrideEntryId = "") {
+            const lockEl = document.getElementById('squad-lock-msg');
+            lockEl.style.display = 'block';
+            lockEl.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Evaluating squad projections and waiver pool...</p>";
+            document.getElementById('squad-xi-pane').style.display = 'none';
+            document.getElementById('squad-waivers-pane').style.display = 'none';
+
+            try {
+                const res = await fetch(`/api/squad_analyser?league_id=${leagueId}&alias=${encodeURIComponent(savedAlias)}&target_gw=${targetGw}&focus=${encodeURIComponent(focus)}&entry_id=${overrideEntryId}`);
+                const data = await res.json();
+
+                if (data.locked) {
+                    lockEl.innerHTML = `<div class="alert-box alert-warn">${data.lock_message}</div>`;
+                    return;
+                }
+                lockEl.style.display = 'none';
+
+                if (data.is_admin && data.admin_teams) {
+                    const admSel = document.getElementById('squad-admin-team');
+                    admSel.style.display = 'block';
+                    admSel.innerHTML = data.admin_teams.map(t => `<option value="${t.entry_id}">${t.label}</option>`).join('');
+                    admSel.value = String(data.selected_entry_id);
+                }
+
+                const gwSel = document.getElementById('squad-gw-select');
+                if (data.future_gws && data.future_gws.length > 0) {
+                    gwSel.innerHTML = data.future_gws.map(g => `<option value="${g}">${g === data.current_gw ? `GW ${g} (Active)` : `Gameweek ${g}`}</option>`).join('');
+                    gwSel.value = String(data.target_gw);
+                }
+
+                const isXiActive = document.getElementById('sq-sub-xi').classList.contains('active');
+                document.getElementById('squad-xi-pane').style.display = isXiActive ? 'block' : 'none';
+                document.getElementById('squad-waivers-pane').style.display = isXiActive ? 'none' : 'block';
+
+                document.getElementById('squad-xi-header').innerHTML = `
+                    <div style="font-size:1.15rem; font-weight:800; color:#fff;">Recommended Lineup: ${data.manager_name} • GW ${data.target_gw} (${data.xi_proj_sum} proj pts)</div>
+                    <div style="font-size:0.8rem; color:#94a3b8; margin-top:2px;">Gameweek ${data.target_gw} fixture difficulty and projected points shown • Bench ordered GK then DEF then MID then FWD.</div>
+                `;
+
+                renderPitch('squad-pitch-box', data.pitch_data, '#f59e0b', true);
+
+                let tblHtml = `<div style="font-size:0.78rem; font-weight:800; color:#f59e0b; margin-bottom:6px;">STARTING XI (GK FIRST)</div>
+                <div class="table-wrap"><table class="clean-table">
+                    <thead><tr><th>Player</th><th>Pos</th><th>Club</th><th>Status</th><th>GW Proj</th><th>Season Pts</th><th>Last 2 GWs</th><th>Next 3 Fixtures</th><th>PPG</th><th>Form</th></tr></thead>
+                    <tbody>${(data.xi_table || []).map(p => `<tr><td>${p.player}</td><td>${p.pos}</td><td>${p.club}</td><td>${p.status}</td><td style="color:#f59e0b; font-weight:800;">${p.gw_proj}</td><td>${p.season_pts}</td><td>${p.last_2}</td><td>${p.next_3}</td><td>${p.ppg}</td><td>${p.form}</td></tr>`).join('')}</tbody>
+                </table></div>`;
+
+                if (data.bench_table && data.bench_table.length > 0) {
+                    tblHtml += `<div style="font-size:0.78rem; font-weight:800; color:#94a3b8; margin:10px 0 6px 0;">BENCH HIERARCHY (GK → DEF → MID → FWD)</div>
+                    <div class="table-wrap"><table class="clean-table">
+                        <thead><tr><th>Role</th><th>Player</th><th>Pos</th><th>Club</th><th>Status</th><th>GW Proj</th><th>Season Pts</th><th>Last 2 GWs</th><th>Next 3 Fixtures</th><th>PPG</th><th>Form</th></tr></thead>
+                        <tbody>${data.bench_table.map(p => `<tr><td>${p.role}</td><td style="color:#fff; font-weight:700;">${p.player}</td><td>${p.pos}</td><td>${p.club}</td><td>${p.status}</td><td>${p.gw_proj}</td><td>${p.season_pts}</td><td>${p.last_2}</td><td>${p.next_3}</td><td>${p.ppg}</td><td>${p.form}</td></tr>`).join('')}</tbody>
+                    </table></div>`;
+                }
+                document.getElementById('squad-table-box').innerHTML = tblHtml;
+
+                const alertsBox = document.getElementById('squad-alerts-box');
+                if (data.alerts && data.alerts.length > 0) {
+                    alertsBox.innerHTML = data.alerts.map(a => `<div class="alert-box alert-warn">${a}</div>`).join('');
+                } else {
+                    alertsBox.innerHTML = `<div class="alert-box alert-ok">✅ Squad Balance Sound: Roster availability and positional averages meet or exceed division baselines. Scouting high upside upgrades.</div>`;
+                }
+
+                const wBox = document.getElementById('squad-waivers-table');
+                if (data.waivers && data.waivers.length > 0) {
+                    wBox.innerHTML = `<div class="table-wrap"><table class="clean-table">
+                        <thead><tr><th>Waiver Target</th><th>Pos</th><th>Target Form</th><th>Target PPG</th><th>Next 3 Fixtures</th><th>Suggested Drop</th><th>Drop Status</th><th>Upgrade Delta</th></tr></thead>
+                        <tbody>${data.waivers.map(w => `<tr><td>${w.target}</td><td>${w.pos}</td><td>${w.form}</td><td>${w.ppg}</td><td>${w.next_3}</td><td>${w.drop}</td><td>${w.drop_status}</td><td style="color:#22c55e; font-weight:700;">${w.rationale}</td></tr>`).join('')}</tbody>
+                    </table></div>`;
+                } else {
+                    wBox.innerHTML = `<div class="alert-box alert-info">No matching waiver options found with sufficient points and playing chance.</div>`;
+                }
+            } catch (e) {
+                lockEl.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load Squad Analyser.</p>";
+            }
+        }
+
+        // ==========================================
+        // TRADE HUB SCREEN
+        // ==========================================
+        function switchTradeLeague(leagueId) {
+            activeLeagueId = leagueId;
+            highlightLeagueButtons('.tr-l-tab', leagueId);
+            document.getElementById('trade-title').innerText = `🤝 Trade Hub - ${LEAGUE_NAMES[leagueId]}`;
+            fetchTradeHub(leagueId);
+        }
+
+        function switchTradeSubTab(tab) {
+            ['browse', 'manage', 'calc'].forEach(k => {
+                document.getElementById(`tr-sub-${k}`).classList.toggle('active', k === tab);
+                document.getElementById(`trade-${k}-pane`).style.display = (k === tab) ? 'block' : 'none';
+            });
+        }
+
+        async function fetchTradeHub(leagueId) {
+            document.getElementById('trade-browse-table').innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading Trade Hub...</p>";
+            try {
+                const res = await fetch(`/api/trade_hub?league_id=${leagueId}&alias=${encodeURIComponent(savedAlias)}`);
+                window.tradeHubData = await res.json();
+                renderTradeBrowseTable();
+                renderTradeManagePane();
+                initTradeCalculator();
+            } catch (e) {
+                document.getElementById('trade-browse-table').innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load Trade Hub.</p>";
+            }
+        }
+
+        function renderTradeBrowseTable() {
+            const box = document.getElementById('trade-browse-table');
+            if (!window.tradeHubData) return;
+            const divF = document.getElementById('tr-div-filter').value;
+            const posF = document.getElementById('tr-pos-filter').value;
+
+            let list = window.tradeHubData.listings || [];
+            if (divF !== "All") list = list.filter(item => item.div === divF);
+            if (posF !== "All") list = list.filter(item => item.position === posF);
+
+            if (!list.length) {
+                box.innerHTML = `<div class="alert-box alert-info">The trading block is currently empty for these filters. Add players under 'Manage My Listings'!</div>`;
+                return;
+            }
+            box.innerHTML = `<div class="table-wrap"><table class="clean-table">
+                <thead><tr><th>Player</th><th>Club</th><th>Pos</th><th>Div</th><th>Manager</th><th>Asking / Notes</th><th>Date</th></tr></thead>
+                <tbody>${list.map(i => `<tr><td>${i.player_name}</td><td>${i.club}</td><td>${i.position}</td><td>${i.div}</td><td>${i.manager_alias}</td><td>${i.notes}</td><td>${i.date}</td></tr>`).join('')}</tbody>
+            </table></div>`;
+        }
+
+        function renderTradeManagePane() {
+            const pane = document.getElementById('trade-manage-pane');
+            const d = window.tradeHubData;
+            if (!d) return;
+            if (!d.can_manage) {
+                pane.innerHTML = `<div class="alert-box alert-warn">🔒 You do not have a registered team in ${d.league_key}. Switch to your home division tab above to manage your transfer list.</div>`;
+                return;
+            }
+            const opts = (d.my_squad || []).map(p => `<option value="${p.id}">${p.web_name} (${p.club} - ${p.position})</option>`).join('');
+            const myList = (d.listings || []).filter(t => t.manager_alias === d.active_manager_alias && t.league_key === d.league_key);
+
+            let myHtml = `<p style="font-size:0.84rem; color:#94a3b8;">You currently have no players listed on the transfer list in this league.</p>`;
+            if (myList.length > 0) {
+                myHtml = myList.map(l => `
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:#090c13; border:1px solid #182030; border-radius:8px; padding:10px 12px; margin-bottom:8px;">
+                        <div style="font-size:0.88rem; color:#fff;"><b>${l.player_name}</b> (${l.club} - ${l.position}) — <i style="color:#94a3b8;">${l.notes}</i></div>
+                        <button class="refresh-btn" style="background:#ef4444; border:none;" onclick="removeTradeListing(${l.player_id})">Remove</button>
+                    </div>
+                `).join('');
+            }
+
+            pane.innerHTML = `
+                <div style="background:#090c13; border:1px solid #182030; border-radius:8px; padding:14px; margin-bottom:16px;">
+                    <div style="font-size:1rem; font-weight:800; color:#f59e0b; margin-bottom:10px;">➕ Put a Player Up For Trade (${d.active_manager_alias})</div>
+                    <select id="tr-add-player" class="white-select" style="width:100%; margin-bottom:10px;">${opts}</select>
+                    <input id="tr-add-notes" type="text" class="dark-input" value="Open to offers" placeholder="Trade Notes / Asking Requirements" style="margin-bottom:12px;">
+                    <button onclick="addTradeListing()" style="width:100%; background:#f59e0b; color:#000; padding:12px; border:none; border-radius:6px; font-weight:800; cursor:pointer;">📢 Add to League Trading Block</button>
+                </div>
+                <div style="font-size:1rem; font-weight:800; color:#fff; margin-bottom:10px;">❌ Remove Your Active Listings</div>
+                ${myHtml}
+            `;
+        }
+
+        async function addTradeListing() {
+            const pid = parseInt(document.getElementById('tr-add-player').value);
+            const notes = document.getElementById('tr-add-notes').value;
+            await fetch('/api/trade_hub/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ league_id: activeLeagueId, alias: savedAlias, player_id: pid, notes })
+            });
+            fetchTradeHub(activeLeagueId);
+        }
+
+        async function removeTradeListing(pid) {
+            await fetch('/api/trade_hub/remove', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ league_id: activeLeagueId, alias: savedAlias, player_id: pid })
+            });
+            fetchTradeHub(activeLeagueId);
+        }
+
+        function initTradeCalculator() {
+            const d = window.tradeHubData;
+            if (!d) return;
+            const teamA = document.getElementById('tr-team-a');
+            const teamB = document.getElementById('tr-team-b');
+            const tOpts = `<option value="0">All Players</option>` + (d.teams || []).map(t => `<option value="${t.entry_id}">${t.label}</option>`).join('');
+            teamA.innerHTML = tOpts;
+            teamB.innerHTML = tOpts;
+            if (d.matched_entry_id) teamA.value = String(d.matched_entry_id);
+            renderTradeCalculatorSelectors();
+        }
+
+        function onTradeCalcTeamChange() {
+            renderTradeCalculatorSelectors();
+        }
+
+        function renderTradeCalculatorSelectors() {
+            const d = window.tradeHubData;
+            if (!d) return;
+            const mode = parseInt(document.getElementById('tr-calc-mode').value) || 1;
+            const teamAId = parseInt(document.getElementById('tr-team-a').value) || 0;
+            const teamBId = parseInt(document.getElementById('tr-team-b').value) || 0;
+
+            const poolA = (d.players || []).filter(p => teamAId === 0 || p.owner === teamAId);
+            const poolB = (d.players || []).filter(p => teamBId === 0 || p.owner === teamBId);
+
+            const makeOpts = (pool) => `<option value="0">➕ None (Empty Slot)</option>` + pool.map(p => `<option value="${p.id}">${p.web_name} (${p.club} • ${p.position}) | ${p.owner_alias} | ${p.total_points} pts</option>`).join('');
+
+            const slotsA = document.getElementById('tr-slots-a');
+            const slotsB = document.getElementById('tr-slots-b');
+            slotsA.innerHTML = '';
+            slotsB.innerHTML = '';
+
+            for (let i = 1; i <= mode; i++) {
+                slotsA.innerHTML += `<select id="tr-sel-a-${i}" class="white-select" style="width:100%;" onchange="evaluateTradePackages()">${makeOpts(poolA)}</select>`;
+                slotsB.innerHTML += `<select id="tr-sel-b-${i}" class="white-select" style="width:100%;" onchange="evaluateTradePackages()">${makeOpts(poolB)}</select>`;
+            }
+            evaluateTradePackages();
+        }
+
+        function evaluateTradePackages() {
+            const d = window.tradeHubData;
+            const resBox = document.getElementById('tr-calc-results');
+            if (!d) return;
+            const mode = parseInt(document.getElementById('tr-calc-mode').value) || 1;
+
+            const idsA = [], idsB = [];
+            for (let i = 1; i <= mode; i++) {
+                const va = parseInt((document.getElementById(`tr-sel-a-${i}`) || {}).value) || 0;
+                const vb = parseInt((document.getElementById(`tr-sel-b-${i}`) || {}).value) || 0;
+                if (va > 0 && !idsA.includes(va)) idsA.push(va);
+                if (vb > 0 && !idsB.includes(vb)) idsB.push(vb);
+            }
+
+            if (!idsA.length && !idsB.length) {
+                resBox.innerHTML = "";
+                return;
+            }
+
+            const pMap = {};
+            (d.players || []).forEach(p => { pMap[p.id] = p; });
+            const listA = idsA.map(id => pMap[id]).filter(Boolean);
+            const listB = idsB.map(id => pMap[id]).filter(Boolean);
+
+            const sum = (arr, k) => arr.reduce((acc, x) => acc + Number(x[k] || 0), 0);
+            const ptsA = sum(listA, 'total_points'), ptsB = sum(listB, 'total_points');
+            const ppgA = Number(sum(listA, 'ppg').toFixed(1)), ppgB = Number(sum(listB, 'ppg').toFixed(1));
+            const formA = Number(sum(listA, 'form').toFixed(1)), formB = Number(sum(listB, 'form').toFixed(1));
+            const valA = Number(sum(listA, 'trade_value').toFixed(1)), valB = Number(sum(listB, 'trade_value').toFixed(1));
+
+            const valDiff = Number((valB - valA).toFixed(1));
+            const ptsDiff = ptsB - ptsA;
+            const ppgDiff = Number((ppgB - ppgA).toFixed(1));
+            const formDiff = Number((formB - formA).toFixed(1));
+
+            const selTeamAText = document.getElementById('tr-team-a').selectedOptions[0].text;
+            const selTeamBText = document.getElementById('tr-team-b').selectedOptions[0].text;
+            const mgrA = selTeamAText !== "All Players" ? selTeamAText.split(" (")[0] : "Side A Manager";
+            const mgrB = selTeamBText !== "All Players" ? selTeamBText.split(" (")[0] : "Side B Manager";
+
+            const winnerMgr = valDiff >= 0 ? mgrB : mgrA;
+            const loserMgr = valDiff >= 0 ? mgrA : mgrB;
+            const winSide = valDiff >= 0 ? "Side B" : "Side A";
+            const absVal = Math.abs(valDiff);
+            const absPpg = Math.abs(ppgDiff);
+
+            let verdictHtml = "";
+            if (!listA.length || !listB.length) {
+                verdictHtml = `<div class="alert-box alert-info">👀 Pick at least one player on both sides unless you are genuinely proposing a free charity giveaway.</div>`;
+            } else if (absVal <= 1.5) {
+                verdictHtml = `<div class="alert-box alert-ok">🤝 <b>The Commissar's Verdict: Shockingly Sensible.</b> Only <b>${absVal.toFixed(1)}</b> rating points separate these packages. Nobody is getting mugged off here, so shake hands and hit submit before one of you overthinks it.</div>`;
+            } else if (absVal <= 4.5) {
+                verdictHtml = `<div class="alert-box alert-info">😏 <b>The Commissar's Verdict: Cheeky Edge to ${winnerMgr} (${winSide}).</b> <b>${winnerMgr}</b> quietly pockets the better end of this swap (<b>+${absVal.toFixed(1)}</b> rating / <b>${absPpg.toFixed(1)}</b> PPG gap). It is not quite a war crime, though <b>${loserMgr}</b> is definitely trading on pure vibes and blind hope.</div>`;
+            } else if (absVal <= 8.5) {
+                verdictHtml = `<div class="alert-box alert-warn">🚨 <b>The Commissar's Verdict: Daylight Robbery.</b> <b>${winnerMgr} (${winSide})</b> is having <b>${loserMgr}</b>'s pants right down here (<b>+${absVal.toFixed(1)}</b> rating advantage). Unless <b>${loserMgr}</b> lost a forfeit or owes money, accepting this is proper mug behaviour.</div>`;
+            } else {
+                verdictHtml = `<div class="alert-box alert-err">🚓 <b>The Commissar's Verdict: Call the Police.</b> This is not a trade, it is a registered charity donation (<b>+${absVal.toFixed(1)}</b> rating gulf in favour of <b>${winnerMgr}</b>). Put the phone down, step away from the keyboard and check if <b>${loserMgr}</b>'s account has been compromised.</div>`;
+            }
+
+            const crocked = [...listA, ...listB].filter(p => p.avail_factor < 1.0).map(p => p.web_name);
+            const medHtml = crocked.length ? `<div style="font-size:0.78rem; color:#f59e0b; margin-bottom:10px; font-style:italic;">🏥 Medical Room Alert: ${crocked.join(', ')} currently carries an injury or suspension flag. Trying to sneak damaged goods into a package as a 'makeweight' is elite shithousery.</div>` : '';
+
+            const buildPkgTable = (arr, title) => `
+                <div>
+                    <div style="font-size:0.84rem; font-weight:800; color:#fff; margin-bottom:6px;">${title}</div>
+                    <div class="table-wrap"><table class="clean-table">
+                        <thead><tr><th>Player</th><th>Pos</th><th>Club</th><th>Owner</th><th>Status</th><th>Pts</th><th>PPG</th><th>Form</th><th>Next 3</th><th>Rating</th></tr></thead>
+                        <tbody>${arr.map(p => `<tr><td>${p.web_name}</td><td>${p.position}</td><td>${p.club}</td><td>${p.owner_alias}</td><td>${p.status}</td><td>${p.total_points}</td><td>${p.ppg.toFixed(1)}</td><td>${p.form.toFixed(1)}</td><td>${p.next_3}</td><td style="color:#f59e0b; font-weight:800;">${p.trade_value.toFixed(1)}</td></tr>`).join('')}</tbody>
+                    </table></div>
+                </div>
+            `;
+
+            resBox.innerHTML = `
+                ${verdictHtml}
+                ${medHtml}
+                <div class="metric-grid">
+                    <div class="metric-card"><div class="metric-label">Side B Net Rating</div><div class="metric-val">${valB.toFixed(1)}</div><div class="metric-delta">${valDiff >= 0 ? '+' : ''}${valDiff.toFixed(1)} vs Side A</div></div>
+                    <div class="metric-card"><div class="metric-label">Side B Season Pts</div><div class="metric-val">${ptsB}</div><div class="metric-delta">${ptsDiff >= 0 ? '+' : ''}${ptsDiff} pts vs Side A</div></div>
+                    <div class="metric-card"><div class="metric-label">Side B Combined PPG</div><div class="metric-val">${ppgB.toFixed(1)}</div><div class="metric-delta">${ppgDiff >= 0 ? '+' : ''}${ppgDiff.toFixed(1)} PPG vs Side A</div></div>
+                    <div class="metric-card"><div class="metric-label">Side B Combined Form</div><div class="metric-val">${formB.toFixed(1)}</div><div class="metric-delta">${formDiff >= 0 ? '+' : ''}${formDiff.toFixed(1)} Form vs Side A</div></div>
+                </div>
+                <div class="spotlight-grid">
+                    ${buildPkgTable(listA, `Side A Package (${listA.length}/${mode} Players)`)}
+                    ${buildPkgTable(listB, `Side B Package (${listB.length}/${mode} Players)`)}
+                </div>
+            `;
+        }
+
+        // ==========================================
+        // GACS SCREEN
+        // ==========================================
+        function switchGacsLeague(leagueId) {
+            activeLeagueId = leagueId;
+            highlightLeagueButtons('.ga-l-tab', leagueId);
+            fetchGacs(leagueId, "0");
+        }
+
+        async function fetchGacs(leagueId, gw = "0") {
+            const box = document.getElementById('gacs-content');
+            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Compiling starting XI GACS data...</p>";
+            try {
+                const res = await fetch(`/api/gacs?league_id=${leagueId}&gw=${gw}`);
+                const data = await res.json();
+
+                const sel = document.getElementById('gacs-gw-select');
+                if (data.all_gws) {
+                    sel.innerHTML = data.all_gws.map(g => `<option value="${g}">Gameweek ${g}</option>`).join('') + `<option value="all">All Season (Total)</option>`;
+                    sel.value = String(data.selected);
+                }
+
+                box.innerHTML = `<div class="table-wrap"><table class="clean-table">
+                    <thead><tr><th>Manager</th><th>Goals</th><th>Assists</th><th>Clean Sheets</th></tr></thead>
+                    <tbody>${(data.rows || []).map(r => `<tr><td>${r.manager}</td><td>${r.goals}</td><td>${r.assists}</td><td>${r.cs}</td></tr>`).join('')}</tbody>
+                </table></div>`;
+            } catch (e) {
+                box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load GACS.</p>";
+            }
+        }
+
+        // ==========================================
+        // DISCIPLINARY SCREEN
+        // ==========================================
+        window.discPwRows = [];
+
+        function switchDiscLeague(leagueId) {
+            activeLeagueId = leagueId;
+            highlightLeagueButtons('.di-l-tab', leagueId);
+            fetchDisciplinary(leagueId, "0");
+        }
+
+        async function fetchDisciplinary(leagueId, gw = "0") {
+            const box = document.getElementById('disc-content');
+            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading disciplinary records...</p>";
+            try {
+                const res = await fetch(`/api/disciplinary?league_id=${leagueId}&gw=${gw}`);
+                const data = await res.json();
+
+                const sel = document.getElementById('disc-gw-select');
+                if (data.all_gws) {
+                    sel.innerHTML = data.all_gws.map(g => `<option value="${g}">Gameweek ${g}</option>`).join('') + `<option value="all">All Season (Total)</option>`;
+                    sel.value = String(data.selected);
+                }
+
+                if (data.mode === "single") {
+                    box.innerHTML = `<div class="table-wrap"><table class="clean-table">
+                        <thead><tr><th>Manager</th><th>Yellow Cards</th><th>Red Cards</th><th>Card Pts</th><th>Matchup</th><th>Result Changed?</th></tr></thead>
+                        <tbody>${(data.gw_rows || []).map(r => `<tr><td>${r.manager}</td><td>${r.yc}</td><td>${r.rc}</td><td style="color:#ef4444; font-weight:800;">${r.card_pts}</td><td>${r.matchup}</td><td>${r.impact}</td></tr>`).join('')}</tbody>
+                    </table></div>`;
+                } else {
+                    window.discPwRows = data.pw_rows || [];
+                    const swingsHtml = (data.swings_rows && data.swings_rows.length > 0)
+                        ? `<div class="table-wrap"><table class="clean-table"><thead><tr><th>GW</th><th>Manager</th><th>Matchup</th><th>YC</th><th>RC</th><th>Card Pts</th><th>Impact</th></tr></thead><tbody>${data.swings_rows.map(s => `<tr><td>${s.gw}</td><td>${s.manager}</td><td>${s.matchup}</td><td>${s.yc}</td><td>${s.rc}</td><td style="color:#ef4444; font-weight:800;">${s.card_pts}</td><td style="color:#f59e0b; font-weight:800;">${s.impact}</td></tr>`).join('')}</tbody></table></div>`
+                        : `<div class="alert-box alert-info">No match results have been altered by starting XI card deductions this season.</div>`;
+
+                    const mgrOpts = `<option value="All">All Managers</option>` + (data.managers || []).map(m => `<option value="${m}">${m}</option>`).join('');
+
+                    box.innerHTML = `
+                        <div style="font-size:1rem; font-weight:800; color:#fff; margin-bottom:8px;">Season Totals</div>
+                        <div class="table-wrap"><table class="clean-table">
+                            <thead><tr><th>Manager</th><th>Yellow Cards</th><th>Red Cards</th><th>Total Card Pts</th><th>Results Changed</th><th>League Pts Cost</th></tr></thead>
+                            <tbody>${(data.season_rows || []).map(r => `<tr><td>${r.manager}</td><td>${r.yc}</td><td>${r.rc}</td><td style="color:#ef4444; font-weight:800;">${r.total_card_pts}</td><td>${r.results_changed}</td><td>${r.league_pts_cost}</td></tr>`).join('')}</tbody>
+                        </table></div>
+                        <div style="font-size:1rem; font-weight:800; color:#fff; margin:14px 0 8px 0;">Matches Where Cards Changed the Result</div>
+                        ${swingsHtml}
+                        <div class="exp-card" style="margin-top:12px;">
+                            <button class="exp-toggle" onclick="document.getElementById('disc-pw-drawer').classList.toggle('open')">
+                                <span>📅 View Full Per - Week Breakdown</span><span>▼</span>
+                            </button>
+                            <div class="exp-body" id="disc-pw-drawer">
+                                <select id="disc-pw-mgr-sel" class="white-select" style="margin-bottom:10px;" onchange="renderDiscPwTable()">${mgrOpts}</select>
+                                <div id="disc-pw-table-box"></div>
+                            </div>
+                        </div>
+                    `;
+                    renderDiscPwTable();
+                }
+            } catch (e) {
+                box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load disciplinary records.</p>";
+            }
+        }
+
+        function renderDiscPwTable() {
+            const box = document.getElementById('disc-pw-table-box');
+            if (!box) return;
+            const mFilter = document.getElementById('disc-pw-mgr-sel').value;
+            const rows = mFilter === "All" ? window.discPwRows : window.discPwRows.filter(r => r.manager === mFilter);
+            box.innerHTML = `<div class="table-wrap"><table class="clean-table">
+                <thead><tr><th>GW</th><th>Manager</th><th>YC</th><th>RC</th><th>Card Pts</th><th>Matchup</th><th>Result Changed?</th></tr></thead>
+                <tbody>${rows.map(r => `<tr><td>${r.gw}</td><td>${r.manager}</td><td>${r.yc}</td><td>${r.rc}</td><td>${r.card_pts}</td><td>${r.matchup}</td><td>${r.impact}</td></tr>`).join('')}</tbody>
+            </table></div>`;
+        }
+
+        // ==========================================
+        // NEWSLETTERS SCREEN
+        // ==========================================
+        async function fetchNewsletter(docType) {
+            window.activeNewsDoc = docType;
+            document.getElementById('news-tab-league').classList.toggle('active', docType === 'league');
+            document.getElementById('news-tab-cup').classList.toggle('active', docType === 'cup');
+            const box = document.getElementById('news-content');
+            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Rendering Dellarverse Gazette pages...</p>";
+            try {
+                const res = await fetch(`/api/newsletters?doc=${docType}`);
+                const data = await res.json();
+                if (!data.exists || !data.pages || !data.pages.length) {
+                    box.innerHTML = `<div class="alert-box alert-warn">${data.message || "Newsletter PDF not found in Newsletters or Assets folder."}</div>`;
+                    return;
+                }
+                box.innerHTML = data.pages.map(src => `<img src="${src}" style="width:100%; height:auto; border-radius:8px; border:1px solid #182030;">`).join('');
+            } catch (e) {
+                box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load newsletter.</p>";
+            }
+        }
+
+        // ==========================================
+        // POWER RANKINGS SCREEN
+        // ==========================================
+        async function fetchPowerRankings() {
+            const box = document.getElementById('power-content');
+            const tabsBox = document.getElementById('power-sheet-tabs');
+            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading Power Rankings...</p>";
+            try {
+                const res = await fetch('/api/power_rankings');
+                const data = await res.json();
+                if (!data.exists || !data.sheets || !data.sheets.length) {
+                    box.innerHTML = `<div class="alert-box alert-warn">${data.message || "No Power Rankings spreadsheet found in Assets folder."}</div>`;
+                    return;
+                }
+                window.powerRankingsData = data.sheets;
+                const dlBtn = document.getElementById('power-download-btn');
+                dlBtn.style.display = 'inline-block';
+                dlBtn.innerText = `📥 Download Archive (${data.filename})`;
+
+                if (data.sheets.length > 1) {
+                    tabsBox.style.display = 'flex';
+                    tabsBox.innerHTML = data.sheets.map((s, idx) => `<button class="sub-tab-btn ${idx === 0 ? 'active' : ''}" id="pr-tab-${idx}" onclick="renderPowerSheet(${idx})">${s.name}</button>`).join('');
+                } else {
+                    tabsBox.style.display = 'none';
+                }
+                renderPowerSheet(0);
+            } catch (e) {
+                box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load Power Rankings.</p>";
+            }
+        }
+
+        function renderPowerSheet(idx) {
+            const sheets = window.powerRankingsData || [];
+            const s = sheets[idx];
+            if (!s) return;
+            sheets.forEach((_, i) => {
+                const b = document.getElementById(`pr-tab-${i}`);
+                if (b) b.classList.toggle('active', i === idx);
+            });
+            const box = document.getElementById('power-content');
+            box.innerHTML = `<div class="table-wrap"><table class="clean-table">
+                <thead><tr>${s.columns.map(c => `<th>${c}</th>`).join('')}</tr></thead>
+                <tbody>${s.rows.map(r => `<tr>${r.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('')}</tbody>
+            </table></div>`;
+        }
+
+        // ==========================================
+        // SPOTLIGHT MODAL, PITCH, TABLE & SVG CHART
+        // ==========================================
         function toggleSpotlightView(view) {
             const pitchEl = document.getElementById('spotlight-pitch');
             const tableEl = document.getElementById('spotlight-table');
@@ -585,7 +1909,7 @@
         function renderTable(elementId, tableData) {
             let html = `
                 <div style="font-size:0.76rem; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:5px;">STARTING XI</div>
-                <table class="clean-table">
+                <div class="table-wrap"><table class="clean-table">
                 <thead><tr>
                     <th>Player</th><th>Pos</th><th>Opp</th><th>Mins</th><th>G</th><th>A</th><th>CS</th><th>Bonus</th><th>Pts</th>
                 </tr></thead><tbody>`;
@@ -597,12 +1921,12 @@
                     <td style="font-weight:900; color:#fff;">${p.pts}</td>
                 </tr>`;
             });
-            html += `</tbody></table>`;
+            html += `</tbody></table></div>`;
 
             if (tableData.subs && tableData.subs.length > 0) {
                 html += `
                     <div style="font-size:0.76rem; font-weight:800; color:#94a3b8; text-transform:uppercase; margin: 10px 0 5px 0;">DUGOUT SUBSTITUTES</div>
-                    <table class="clean-table">
+                    <div class="table-wrap"><table class="clean-table">
                     <thead><tr>
                         <th>Player</th><th>Pos</th><th>Opp</th><th>Mins</th><th>G</th><th>A</th><th>CS</th><th>Bonus</th><th>Pts</th>
                     </tr></thead><tbody>`;
@@ -613,15 +1937,14 @@
                         <td style="font-weight:900; color:#fff;">${p.pts}</td>
                     </tr>`;
                 });
-                html += `</tbody></table>`;
+                html += `</tbody></table></div>`;
             }
             document.getElementById(elementId).innerHTML = html;
         }
 
-        window.pitchPlayersRegistry = {};
-
-        function renderPitch(elementId, data, accentColor) {
+        function renderPitch(elementId, data, accentColor, showProjPill = false) {
             const container = document.getElementById(elementId);
+            if (!container || !data) return;
             container.innerHTML = '';
             
             const pitchDiv = document.createElement('div');
@@ -653,7 +1976,8 @@
                 else if (p.sub_action === 'Subbed Off') subTag = '<span style="position:absolute; top:-3px; left:-3px; background:#ef4444; color:#fff; font-size:0.55rem; font-weight:800; padding:1px 3px; border-radius:3px;">OFF</span>';
 
                 const ev = p.events ? ` <span style="margin-left:2px;">${p.events}</span>` : '';
-                const pillText = p.state === 'YTP' ? '⏳ YTP' : `${p.pts} pts`;
+                const pillText = p.pill_text ? p.pill_text : (showProjPill ? `${p.proj} pts` : (p.state === 'YTP' ? '⏳ YTP' : `${p.pts} pts`));
+                const oppHtml = p.fixture ? `<div class="player-opp-pill">${p.fixture}</div>` : '';
 
                 return `
                     <div class="player-card" onclick="showPlayerStatsModal('${pKey}', '${accentColor}')" style="cursor:pointer;">
@@ -661,7 +1985,7 @@
                             ${p.club}${flagHtml}${subTag}
                         </div>
                         <div class="player-name-pill">${p.name}</div>
-                        <div class="player-opp-pill">${p.fixture}</div>
+                        ${oppHtml}
                         <div class="player-pts-pill" style="border-color:${pillColor}; color:${pillColor};">${pillText}${ev}</div>
                     </div>`;
             }
@@ -677,9 +2001,20 @@
             if (data.subs && data.subs.length > 0) {
                 const subTray = document.createElement('div');
                 subTray.className = 'dugout-container';
-                let subsHtml = `<div class="dugout-header">🛡️ SUBS</div><div class="dugout-row">`;
-                data.subs.forEach(p => { subsHtml += makeCardHtml(p, accentColor); });
-                subsHtml += `</div>`;
+                let subsHtml = `<div class="dugout-header">🛡️ SUBS</div>`;
+
+                const subsList = data.subs;
+                let subRows = [subsList];
+                if (subsList.length > 5) {
+                    const mid = Math.ceil(subsList.length / 2);
+                    subRows = [subsList.slice(0, mid), subsList.slice(mid)];
+                }
+                subRows.forEach(sRow => {
+                    subsHtml += `<div class="dugout-row">`;
+                    sRow.forEach(p => { subsHtml += makeCardHtml(p, accentColor); });
+                    subsHtml += `</div>`;
+                });
+
                 subTray.innerHTML = subsHtml;
                 container.appendChild(subTray);
             }
@@ -749,7 +2084,7 @@
                     <div style="font-size:0.85rem; color:#94a3b8; margin-bottom:12px; font-weight:600;">${p.pos} • ${p.club}${oppText} (${p.state})</div>
                     <div style="display:flex; justify-content:space-between; align-items:baseline; background:#0f1523; border-radius:8px; padding:8px 12px; margin-bottom:12px; border-left:4px solid ${accentColor};">
                         <div>
-                            <span style="font-size:0.72rem; color:#94a3b8; font-weight:700; text-transform:uppercase;">Match Total</span>
+                            <span style="font-size:0.72rem; color:#94a3b8; font-weight:700; text-transform:uppercase;">Points</span>
                             <div style="font-size:1.75rem; font-weight:900; color:${accentColor};">${p.pts} PTS</div>
                         </div>
                         <div style="text-align:right;">
