@@ -622,9 +622,14 @@ def serve_logo():
     return Response(status_code=404)
 
 @app.get("/api/league_data")
+@app.get("/api/league_data")
 def get_league_data():
     teams = engine.get_all_32_teams_registry()
     return {"status": "success", "manager_count": len(teams) if teams else 0, "data": teams}
+
+@app.get("/api/ping")
+def ping():
+    return {"status": "alive"}
 
 # ==========================================
 # 1. HOME SUMMARY (TIMERS & CBWCBW TRACKER)
