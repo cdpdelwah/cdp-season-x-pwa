@@ -622,14 +622,9 @@ def serve_logo():
     return Response(status_code=404)
 
 @app.get("/api/league_data")
-@app.get("/api/league_data")
 def get_league_data():
     teams = engine.get_all_32_teams_registry()
     return {"status": "success", "manager_count": len(teams) if teams else 0, "data": teams}
-
-@app.get("/api/ping")
-def ping():
-    return {"status": "alive"}
 
 # ==========================================
 # 1. HOME SUMMARY (TIMERS & CBWCBW TRACKER)
@@ -1850,6 +1845,21 @@ def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0
 trade_file = base_dir / "trade_block.json"
 
 def load_trade_block_file():
+    upstash_url = os.getenv("UPSTASH_URL")
+    upstash_token = os.getenv("UPSTASH_TOKEN")
+    if upstash_url and upstash_token:
+        try:
+            headers = {"Authorization": f"Bearer {upstash_token}"}
+            resp = requests.get(f"{upstash_url}/get/cdp_trade_block", headers=headers, timeout=4)
+            if resp.status_code == 200:
+                res_str = resp.json().get("result")
+                if res_str:
+                    data = json.loads(res_str)
+                    if isinstance(data, list):
+                        return data
+        except Exception:
+            pass
+
     if trade_file.exists():
         try:
             with open(trade_file, "r", encoding="utf-8") as tf:
@@ -1861,6 +1871,15 @@ def load_trade_block_file():
     return []
 
 def save_trade_block_file(listings):
+    upstash_url = os.getenv("UPSTASH_URL")
+    upstash_token = os.getenv("UPSTASH_TOKEN")
+    if upstash_url and upstash_token:
+        try:
+            headers = {"Authorization": f"Bearer {upstash_token}"}
+            requests.post(f"{upstash_url}/set/cdp_trade_block", data=json.dumps(listings), headers=headers, timeout=4)
+        except Exception:
+            pass
+
     try:
         with open(trade_file, "w", encoding="utf-8") as tf:
             json.dump(listings, tf, indent=2, ensure_ascii=False)
@@ -2056,12 +2075,12 @@ def compute_gacs_for_gw(league_id: int, gw_num: int):
     return sorted(rows, key=lambda x: x["manager"].lower())
 
 @app.get("/api/gacs")
-def get_gacs(league_id: int = 63, gw: str = "0"):
+def get_gacs(league_id: int = 63, gw: str = "all"):
     league_details, _ = cached_league_data(league_id)
     current_gw, _ = detect_current_gw(league_details)
     gw_list = list(range(current_gw, 0, -1))
 
-    if str(gw).lower() == "all":
+    if str(gw).lower() in ["all", "0", ""]:
         totals = {}
         with ThreadPoolExecutor(max_workers=8) as ex:
             gw_results = list(ex.map(lambda g: compute_gacs_for_gw(league_id, g), range(1, current_gw + 1)))

@@ -671,6 +671,13 @@
             }
         });
 
+        function highlightLeagueButtons(selector, leagueId) {
+            document.querySelectorAll(selector).forEach(btn => {
+                if (parseInt(btn.getAttribute('data-lid')) === leagueId) btn.classList.add('active');
+                else btn.classList.remove('active');
+            });
+        }
+
         function navigate(screenId, addToHistory = true) {
             document.querySelectorAll('.app-screen').forEach(s => s.classList.remove('active'));
             const target = document.getElementById(`screen-${screenId}`);
@@ -1206,20 +1213,20 @@
                 html += `</tbody></table></div>`;
                 box.innerHTML = html;
             } else if (window.standingsSubTab === 'gacs') {
-                loadStandingsGacs("0");
+                loadStandingsGacs("all");
             } else if (window.standingsSubTab === 'disc') {
                 loadStandingsDisc("0");
             }
         }
 
-        async function loadStandingsGacs(gw = "0") {
+        async function loadStandingsGacs(gw = "all") {
             const box = document.getElementById('standings-content');
             box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Compiling starting XI GACS data...</p>";
             try {
                 const res = await fetch(`/api/gacs?league_id=${activeLeagueId}&gw=${gw}`);
                 const data = await res.json();
-                const opts = (data.all_gws || []).map(g => `<option value="${g}" ${String(data.selected) === String(g) ? 'selected' : ''}>Gameweek ${g}</option>`).join('')
-                    + `<option value="all" ${data.selected === 'all' ? 'selected' : ''}>All Season (Total)</option>`;
+                const opts = `<option value="all" ${data.selected === 'all' ? 'selected' : ''}>All Season (Total)</option>`
+                    + (data.all_gws || []).map(g => `<option value="${g}" ${String(data.selected) === String(g) ? 'selected' : ''}>Gameweek ${g}</option>`).join('');
 
                 box.innerHTML = `
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
@@ -1639,10 +1646,10 @@
         function switchGacsLeague(leagueId) {
             activeLeagueId = leagueId;
             highlightLeagueButtons('.ga-l-tab', leagueId);
-            fetchGacs(leagueId, "0");
+            fetchGacs(leagueId, "all");
         }
 
-        async function fetchGacs(leagueId, gw = "0") {
+        async function fetchGacs(leagueId, gw = "all") {
             const box = document.getElementById('gacs-content');
             box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Compiling starting XI GACS data...</p>";
             try {
@@ -1651,7 +1658,7 @@
 
                 const sel = document.getElementById('gacs-gw-select');
                 if (data.all_gws) {
-                    sel.innerHTML = data.all_gws.map(g => `<option value="${g}">Gameweek ${g}</option>`).join('') + `<option value="all">All Season (Total)</option>`;
+                    sel.innerHTML = `<option value="all">All Season (Total)</option>` + data.all_gws.map(g => `<option value="${g}">Gameweek ${g}</option>`).join('');
                     sel.value = String(data.selected);
                 }
 
