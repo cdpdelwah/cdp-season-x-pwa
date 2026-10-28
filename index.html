@@ -632,7 +632,11 @@
             if (savedAlias) {
                 document.getElementById("welcome-msg").innerText = `👤 ${savedAlias}`;
                 activeLeagueId = parseInt(localStorage.getItem("cdp_league")) || 63;
-                navigate('home');
+                
+                // Initialize the history stack so the phone knows we are in the app
+                history.replaceState({ screen: 'home' }, '', '#home');
+                navigate('home', false);
+                
                 if ("Notification" in window && Notification.permission !== "granted") {
                     const btn = document.getElementById("enable-btn");
                     if (btn) btn.style.display = "block";
@@ -641,25 +645,49 @@
             setInterval(updateHomeClocks, 1000);
         };
 
-        function highlightLeagueButtons(selector, leagueId) {
-            document.querySelectorAll(selector).forEach(btn => {
-                if (parseInt(btn.getAttribute('data-lid')) === leagueId) btn.classList.add('active');
-                else btn.classList.remove('active');
-            });
-        }
+        // Intercept the Android hardware Back button / Swipe Back gesture
+        window.addEventListener('popstate', (e) => {
+            // 1. If the Player Stat Popup is open, just close it and stay on the screen
+            const statPopup = document.getElementById('player-stat-popup');
+            if (statPopup && statPopup.style.display !== 'none') {
+                statPopup.style.display = 'none';
+                history.pushState(e.state, '', window.location.hash); // Restore the state we just popped
+                return;
+            }
+            
+            // 2. If the Match Spotlight modal is open, close it and stay on the screen
+            const matchModal = document.getElementById('match-modal');
+            if (matchModal && !matchModal.classList.contains('hidden')) {
+                matchModal.classList.add('hidden');
+                history.pushState(e.state, '', window.location.hash);
+                return;
+            }
+            
+            // 3. Otherwise, go to the previous screen (or default to Home)
+            if (e.state && e.state.screen) {
+                navigate(e.state.screen, false);
+            } else if (savedAlias) {
+                navigate('home', false);
+            }
+        });
 
-        function navigate(screenId) {
+        function navigate(screenId, addToHistory = true) {
             document.querySelectorAll('.app-screen').forEach(s => s.classList.remove('active'));
             const target = document.getElementById(`screen-${screenId}`);
             if (target) target.classList.add('active');
             window.scrollTo(0, 0);
 
+            // Tell the browser history we moved to a new screen
+            if (addToHistory) {
+                history.pushState({ screen: screenId }, '', '#' + screenId);
+            }
+
             if (screenId === 'home') fetchHomeSummary();
             else if (screenId === 'scores') switchLeague(activeLeagueId);
             else if (screenId === 'epl') fetchEplScores("0");
             else if (screenId === 'standings') switchStandingsLeague(activeLeagueId);
-            else if (screenId === 'squad') switchSquadLeague(activeLeagueId);
-            else if (screenId === 'trade') switchTradeLeague(activeLeagueId);
+            else if (screenId === 'squad') switchSquadLeague();
+            else if (screenId === 'trade') switchTradeLeague();
             else if (screenId === 'gacs') switchGacsLeague(activeLeagueId);
             else if (screenId === 'disc') switchDiscLeague(activeLeagueId);
             else if (screenId === 'news') fetchNewsletter('league');
@@ -687,7 +715,9 @@
                     document.getElementById("welcome-msg").innerText = `👤 ${alias}`;
                     btn.innerText = "VERIFY IDENTITY";
                     document.getElementById("pin-input").value = "";
-                    navigate('home');
+                    
+                    history.pushState({ screen: 'home' }, '', '#home');
+                    navigate('home', false);
                 } else {
                     errorEl.innerText = data.message;
                     errorEl.style.display = "block";
@@ -706,7 +736,9 @@
             savedAlias = "";
             document.getElementById("pin-input").value = "";
             document.getElementById("alias-select").value = "";
-            navigate('login');
+            
+            history.pushState({ screen: 'login' }, '', '#login');
+            navigate('login', false);
         }
 
         // ==========================================
