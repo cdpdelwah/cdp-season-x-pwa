@@ -1,27 +1,5 @@
-const CACHE_VERSION = 'cdp-v1';
-
-// Instantly install the new service worker
-self.addEventListener('install', (event) => {
-    self.skipWaiting(); 
-});
-
-// Wipe out any old caches so the app is forced to pull fresh code
-self.addEventListener('activate', (event) => {
-    event.waitUntil(
-        caches.keys().then((cacheNames) => {
-            return Promise.all(
-                cacheNames.map((cache) => {
-                    if (cache !== CACHE_VERSION) {
-                        return caches.delete(cache);
-                    }
-                })
-            );
-        }).then(() => self.clients.claim()) 
-    );
-});
-
 self.addEventListener("push", function (event) {
-    let data = { title: "CDP Season X", body: "Matchday alert incoming!" };
+    let data = { title: "CDP Season X", body: "Matchday alert incoming!", tag: "cdp-alert" };
     if (event.data) {
         try {
             data = event.data.json();
@@ -32,12 +10,32 @@ self.addEventListener("push", function (event) {
 
     const options = {
         body: data.body,
-        icon: "https://via.placeholder.com/192/f59e0b/000000?text=CDP",
-        badge: "https://via.placeholder.com/96/f59e0b/000000?text=CDP",
-        vibrate: [200, 100, 200]
+        icon: "/icon.png",
+        badge: "/icon.png",
+        tag: data.tag || ("cdp-" + Date.now()),
+        renotify: true,
+        vibrate: [200, 100, 200],
+        data: { url: "/#scores" }
     };
 
     event.waitUntil(
         self.registration.showNotification(data.title, options)
+    );
+});
+
+self.addEventListener("notificationclick", function (event) {
+    event.notification.close();
+    event.waitUntil(
+        clients.matchAll({ type: "window", includeUncontrolled: true }).then(function (clientList) {
+            for (let i = 0; i < clientList.length; i++) {
+                const client = clientList[i];
+                if ("focus" in client) {
+                    return client.focus();
+                }
+            }
+            if (clients.openWindow) {
+                return clients.openWindow("/#scores");
+            }
+        })
     );
 });

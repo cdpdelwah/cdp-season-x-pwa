@@ -9,7 +9,7 @@ import requests
 import pandas as pd
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import FileResponse, Response
 from pywebpush import webpush
 from pathlib import Path
@@ -625,6 +625,11 @@ def serve_logo():
 def get_league_data():
     teams = engine.get_all_32_teams_registry()
     return {"status": "success", "manager_count": len(teams) if teams else 0, "data": teams}
+
+@app.get("/api/ping")
+def ping(background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_automated_push_checks)
+    return {"status": "alive"}
 
 # ==========================================
 # 1. HOME SUMMARY (TIMERS & CBWCBW TRACKER)
@@ -2362,33 +2367,312 @@ def download_power_rankings():
     return FileResponse(target_file, filename=target_file.name, media_type="application/octet-stream")
 
 # ==========================================
-# PUSH NOTIFICATIONS
+# PUSH NOTIFICATIONS & LIVE EVENT ENGINE
 # ==========================================
-@app.post("/api/save_subscription")
-async def save_subscription(request: Request):
-    sub_data = await request.json()
-    upstash_url = os.getenv("UPSTASH_URL")
-    upstash_token = os.getenv("UPSTASH_TOKEN")
-    if upstash_url and upstash_token:
-        headers = {"Authorization": f"Bearer {upstash_token}"}
-        requests.post(f"{upstash_url}/set/latest_sub", data=json.dumps(sub_data), headers=headers)
-    return {"status": "saved to cloud database"}
-
-@app.post("/api/trigger_push")
-def trigger_push():
+def upstash_get_json(key: str, default_val):
     upstash_url = os.getenv("UPSTASH_URL")
     upstash_token = os.getenv("UPSTASH_TOKEN")
     if not (upstash_url and upstash_token):
-        return {"error": "Database not configured"}
-    headers = {"Authorization": f"Bearer {upstash_token}"}
-    response = requests.get(f"{upstash_url}/get/latest_sub", headers=headers)
-    data = response.json()
-    if not data.get("result"):
-        return {"error": "No device registered"}
-    sub_data = json.loads(data["result"])
-    payload = json.dumps({"title": "🚨 LIVE FROM THE CLOUD", "body": "Your permanent database is working!"})
+        return default_val
     try:
-        webpush(subscription_info=sub_data, data=payload, vapid_private_key=VAPID_PRIVATE_KEY, vapid_claims=VAPID_CLAIMS)
-        return {"status": "Push sent!"}
+        headers = {"Authorization": f"Bearer {upstash_token}"}
+        r = requests.get(f"{upstash_url}/get/{key}", headers=headers, timeout=4)
+        if r.status_code == 200:
+            res_str = r.json().get("result")
+            if res_str:
+                return json.loads(res_str)
+    except Exception:
+        pass
+    return default_val
+
+def upstash_set_json(key: str, val):
+    upstash_url = os.getenv("UPSTASH_URL")
+    upstash_token = os.getenv("UPSTASH_TOKEN")
+    if not (upstash_url and upstash_token):
+        return
+    try:
+        headers = {"Authorization": f"Bearer {upstash_token}"}
+        requests.post(f"{upstash_url}/set/{key}", data=json.dumps(val), headers=headers, timeout=4)
+    except Exception:
+        pass
+
+def send_push_to_manager(subs_registry: dict, alias: str, title: str, body: str, tag: str = "cdp-alert"):
+    mgr_subs = subs_registry.get(alias, [])
+    if isinstance(mgr_subs, dict):
+        mgr_subs = [mgr_subs]
+    if not mgr_subs:
+        return 0
+    payload = json.dumps({"title": title, "body": body, "tag": tag})
+    sent = 0
+    valid_subs = []
+    for sub in mgr_subs:
+        try:
+            webpush(subscription_info=sub, data=payload, vapid_private_key=VAPID_PRIVATE_KEY, vapid_claims=VAPID_CLAIMS)
+            valid_subs.append(sub)
+            sent += 1
+        except Exception as e:
+            err_str = str(e)
+            if "410" not in err_str and "404" not in err_str:
+                valid_subs.append(sub)
+    subs_registry[alias] = valid_subs
+    return sent
+
+def broadcast_push_to_all(subs_registry: dict, title: str, body: str, tag: str = "cdp-broadcast"):
+    for alias in list(subs_registry.keys()):
+        send_push_to_manager(subs_registry, alias, title, body, tag=tag)
+
+@app.post("/api/save_subscription")
+async def save_subscription(request: Request):
+    body = await request.json()
+    if "subscription" in body and "alias" in body:
+        alias = str(body.get("alias") or "Admin").strip()
+        sub_obj = body.get("subscription")
+    else:
+        alias = "Andy"
+        sub_obj = body
+
+    if not sub_obj or not isinstance(sub_obj, dict):
+        return {"status": "invalid subscription"}
+
+    subs_registry = upstash_get_json("cdp_push_subs_v2", {})
+    if not isinstance(subs_registry, dict):
+        subs_registry = {}
+
+    existing = subs_registry.get(alias, [])
+    if isinstance(existing, dict):
+        existing = [existing]
+
+    endpoint = sub_obj.get("endpoint")
+    existing = [s for s in existing if s.get("endpoint") != endpoint]
+    existing.append(sub_obj)
+    subs_registry[alias] = existing[-3:]
+
+    upstash_set_json("cdp_push_subs_v2", subs_registry)
+    return {"status": f"saved subscription for {alias}"}
+
+@app.post("/api/trigger_push")
+def trigger_push(alias: str = "Andy"):
+    subs_registry = upstash_get_json("cdp_push_subs_v2", {})
+    count = send_push_to_manager(
+        subs_registry,
+        alias,
+        f"🚨 CDP Command Center ({alias})",
+        "Your live Goal, DEFCON, Penalty, Save, Clean Sheet & Deadline alerts are active!",
+        tag="cdp-test"
+    )
+    upstash_set_json("cdp_push_subs_v2", subs_registry)
+    if count == 0:
+        return {"error": f"No active device registered for {alias}. Tap 'Sync Alerts on This Device' first."}
+    return {"status": f"Sent test alert to {count} device(s) for {alias}!"}
+
+def run_automated_push_checks():
+    try:
+        subs_registry = upstash_get_json("cdp_push_subs_v2", {})
+        if not subs_registry or not isinstance(subs_registry, dict):
+            return
+
+        # 1. Check 1-Hour Waiver & Lineup Deadlines
+        home_info = get_home_summary(63)
+        current_gw = home_info.get("current_gw", 1)
+        waiver_iso = home_info.get("waiver_iso", "")
+        lineup_iso = home_info.get("lineup_iso", "")
+
+        state_key = f"cdp_push_state_gw_{current_gw}"
+        gw_state = upstash_get_json(state_key, {"waiver_1h_sent": False, "lineup_1h_sent": False, "players": {}})
+        state_dirty = False
+
+        now_utc = datetime.now(timezone.utc)
+
+        if waiver_iso and not gw_state.get("waiver_1h_sent"):
+            try:
+                w_dt = datetime.fromisoformat(waiver_iso.replace("Z", "+00:00"))
+                secs_left = (w_dt - now_utc).total_seconds()
+                if 0 < secs_left <= 3900:
+                    broadcast_push_to_all(
+                        subs_registry,
+                        f"⚡ 1 Hour to Waiver Deadline (GW {current_gw})",
+                        f"Gameweek {current_gw} waivers process in under an hour. Lock in your claims!",
+                        tag=f"waiver-1h-gw{current_gw}"
+                    )
+                    gw_state["waiver_1h_sent"] = True
+                    state_dirty = True
+            except Exception:
+                pass
+
+        if lineup_iso and not gw_state.get("lineup_1h_sent"):
+            try:
+                l_dt = datetime.fromisoformat(lineup_iso.replace("Z", "+00:00"))
+                secs_left = (l_dt - now_utc).total_seconds()
+                if 0 < secs_left <= 3900:
+                    broadcast_push_to_all(
+                        subs_registry,
+                        f"🔒 1 Hour to Lineup Lock (GW {current_gw})",
+                        f"Gameweek {current_gw} lineups lock in under an hour. Set your starting XI and bench order!",
+                        tag=f"lineup-1h-gw{current_gw}"
+                    )
+                    gw_state["lineup_1h_sent"] = True
+                    state_dirty = True
+            except Exception:
+                pass
+
+        # 2. Check Live EPL Player Events Across All 4 Leagues
+        static_data = cached_fpl_static()
+        all_fixtures = cached_all_fixtures() or []
+        gw_fixtures = [f for f in all_fixtures if f.get("event") == current_gw]
+        if not static_data or not any(f.get("started", False) for f in gw_fixtures):
+            if state_dirty:
+                upstash_set_json(state_key, gw_state)
+                upstash_set_json("cdp_push_subs_v2", subs_registry)
+            return
+
+        _MEMORY_CACHE.clear()
+        live_data = cached_live_event(current_gw)
+        live_elements = live_data.get("elements", {}) if live_data else {}
+        if not live_elements:
+            return
+
+        pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
+        team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+        element_lookup = {item["id"]: item for item in static_data["elements"]}
+
+        finished_clubs = set()
+        club_minutes = {}
+        for f in gw_fixtures:
+            if f.get("finished", False) or f.get("finished_provisional", False):
+                finished_clubs.add(f.get("team_h"))
+                finished_clubs.add(f.get("team_a"))
+
+        for elem_str_id, e_info in live_elements.items():
+            try:
+                c_id = element_lookup.get(int(elem_str_id), {}).get("team")
+                if c_id:
+                    club_minutes[c_id] = club_minutes.get(c_id, 0) + safe_int(e_info.get("stats", {}).get("minutes", 0))
+            except Exception:
+                pass
+
+        prev_players = gw_state.get("players", {})
+        is_first_baseline = (len(prev_players) == 0)
+        curr_players = {}
+        player_new_events = {}
+
+        for elem_str_id, e_info in live_elements.items():
+            try:
+                eid = int(elem_str_id)
+            except Exception:
+                continue
+            raw_elem = element_lookup.get(eid, {})
+            if not raw_elem:
+                continue
+            pos_type = raw_elem.get("element_type", 1)
+            pos_str = pos_map.get(pos_type, "MID")
+            club_id = raw_elem.get("team")
+            club_short = str(team_map.get(club_id, "PL")).upper()
+            p_name = str(raw_elem.get("web_name", "Unknown"))
+
+            stats = e_info.get("stats", {}) if isinstance(e_info, dict) else {}
+            explain_raw = e_info.get("explain", []) if isinstance(e_info, dict) else []
+
+            g = safe_int(stats.get("goals_scored", 0))
+            a = safe_int(stats.get("assists", 0))
+            saves_tiers = safe_int(stats.get("saves", 0)) // 3 if pos_str == "GKP" else 0
+            raw_saves = safe_int(stats.get("saves", 0))
+            p_saved = safe_int(stats.get("penalties_saved", 0))
+            p_missed = safe_int(stats.get("penalties_missed", 0))
+            defcon = 1 if extract_defcon_flag(stats, explain_raw, pos_type) else 0
+
+            is_club_ft = (club_id in finished_clubs) or (club_minutes.get(club_id, 0) >= 800)
+            cs_ft = 1 if (is_club_ft and pos_str in ["GKP", "DEF", "MID"] and safe_int(stats.get("clean_sheets", 0)) > 0) else 0
+
+            snap = {
+                "g": g, "a": a, "save_pts": saves_tiers,
+                "ps": p_saved, "pm": p_missed, "dc": defcon, "cs_ft": cs_ft
+            }
+            curr_players[str(eid)] = snap
+
+            if not is_first_baseline and str(eid) in prev_players:
+                old = prev_players[str(eid)]
+                evs = []
+                if g > old.get("g", 0):
+                    evs.append(("⚽ GOAL!", f"{p_name} ({club_short}) scored a goal!"))
+                if a > old.get("a", 0):
+                    evs.append(("🎯 ASSIST!", f"{p_name} ({club_short}) registered an assist!"))
+                if defcon > old.get("dc", 0):
+                    evs.append(("🔰 DEFCON (+2 pts)!", f"{p_name} ({club_short}) hit the DEFCON threshold (+2 pts)!"))
+                if saves_tiers > old.get("save_pts", 0):
+                    evs.append(("🧤 SAVE POINT!", f"{p_name} ({club_short}) reached {raw_saves} saves (+{saves_tiers} pt)!"))
+                if p_saved > old.get("ps", 0):
+                    evs.append(("🧤 PENALTY SAVED!", f"{p_name} ({club_short}) saved a penalty (+5 pts)!"))
+                if p_missed > old.get("pm", 0):
+                    evs.append(("❌ PENALTY MISSED!", f"{p_name} ({club_short}) missed a penalty (-2 pts)!"))
+                if cs_ft > old.get("cs_ft", 0):
+                    evs.append(("🛡️ FT CLEAN SHEET!", f"{p_name} ({club_short}) locked in a Full Time Clean Sheet!"))
+
+                if evs:
+                    player_new_events[eid] = evs
+
+        gw_state["players"] = curr_players
+        state_dirty = True
+
+        if player_new_events:
+            for l_id in [63, 320, 378, 240]:
+                ld, _ = cached_league_data(l_id)
+                if not ld:
+                    continue
+                entries = ld.get("league_entries", [])
+                lentry_map = {e["id"]: e for e in entries}
+                gw_matches = [m for m in ld.get("matches", []) if m.get("event") == current_gw]
+
+                for m in gw_matches:
+                    e1 = lentry_map.get(m["league_entry_1"], {})
+                    e2 = lentry_map.get(m["league_entry_2"], {})
+                    a1 = engine.get_manager_alias(e1.get("player_first_name", ""), e1.get("player_last_name", ""))
+                    a2 = engine.get_manager_alias(e2.get("player_first_name", ""), e2.get("player_last_name", ""))
+
+                    if a1 not in subs_registry and a2 not in subs_registry:
+                        continue
+
+                    p1 = cached_entry_event(e1.get("entry_id"), current_gw)
+                    p2 = cached_entry_event(e2.get("entry_id"), current_gw)
+                    s1_recs, b1_recs, s1_live, _, _, _, _, _ = full_evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures)
+                    s2_recs, b2_recs, s2_live, _, _, _, _, _ = full_evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures)
+
+                    act1, inact1 = split_squad_records(s1_recs, b1_recs)
+                    act2, inact2 = split_squad_records(s2_recs, b2_recs)
+
+                    act1_ids = {p["id"] for p in act1}
+                    bench1_ids = {p["id"] for p in inact1}
+                    act2_ids = {p["id"] for p in act2}
+                    bench2_ids = {p["id"] for p in inact2}
+
+                    scoreline = f"Live: {a1} {s1_live} - {s2_live} {a2}"
+
+                    def dispatch_pair_alerts(mgr_me, mgr_opp, my_act_ids, my_bench_ids, opp_act_ids, opp_bench_ids):
+                        if mgr_me not in subs_registry:
+                            return
+                        for eid, ev_list in player_new_events.items():
+                            for ev_tag, ev_desc in ev_list:
+                                if eid in my_act_ids:
+                                    title = f"🟢 FOR YOU • {ev_tag}"
+                                    body = f"{ev_desc} (In your active XI) | {scoreline}"
+                                    send_push_to_manager(subs_registry, mgr_me, title, body, tag=f"ev-{current_gw}-{eid}-{ev_tag}")
+                                elif eid in my_bench_ids:
+                                    title = f"🪑 YOUR BENCH • {ev_tag}"
+                                    body = f"{ev_desc} (On your bench) | {scoreline}"
+                                    send_push_to_manager(subs_registry, mgr_me, title, body, tag=f"ev-{current_gw}-{eid}-{ev_tag}")
+                                elif eid in opp_act_ids:
+                                    title = f"🔴 AGAINST YOU ({mgr_opp}) • {ev_tag}"
+                                    body = f"{ev_desc} (In {mgr_opp}'s active XI) | {scoreline}"
+                                    send_push_to_manager(subs_registry, mgr_me, title, body, tag=f"ev-{current_gw}-{eid}-{ev_tag}")
+                                elif eid in opp_bench_ids:
+                                    title = f"🪑 OPP BENCH ({mgr_opp}) • {ev_tag}"
+                                    body = f"{ev_desc} (On {mgr_opp}'s bench) | {scoreline}"
+                                    send_push_to_manager(subs_registry, mgr_me, title, body, tag=f"ev-{current_gw}-{eid}-{ev_tag}")
+
+                    dispatch_pair_alerts(a1, a2, act1_ids, bench1_ids, act2_ids, bench2_ids)
+                    dispatch_pair_alerts(a2, a1, act2_ids, bench2_ids, act1_ids, bench1_ids)
+
+        if state_dirty:
+            upstash_set_json(state_key, gw_state)
+            upstash_set_json("cdp_push_subs_v2", subs_registry)
     except Exception as e:
-        return {"error": str(e)}
+        print("Push scanner error:", e)

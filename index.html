@@ -207,6 +207,15 @@
             <p style="color: #94a3b8; font-size: 0.86rem; margin-top: 3px; line-height: 1.35;">Dellarverse HQ: Central Draft Intelligence, Live Projections and Official Publications</p>
         </div>
 
+        <!-- PUSH NOTIFICATION PROMPT BANNER -->
+        <div id="push-prompt-banner" style="display: none; width: 100%; background: #052210; border: 1px solid #22c55e; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 200px;">
+                <div style="font-size: 0.86rem; font-weight: 800; color: #fff;">🔔 Enable Live Match & Deadline Alerts</div>
+                <div style="font-size: 0.75rem; color: #86efac; margin-top: 2px;">Get instant goals, assists, DEFCON, saves, penalties, FT clean sheets & 1h deadline warnings.</div>
+            </div>
+            <button onclick="subscribeUser()" style="background: #22c55e; color: #000; padding: 8px 14px; border-radius: 6px; font-weight: 900; font-size: 0.82rem; border: none; cursor: pointer; white-space: nowrap;">Enable Alerts</button>
+        </div>
+
         <!-- LIVE COUNTDOWN TIMERS -->
         <div class="countdown-grid">
             <div class="timer-card">
@@ -266,8 +275,11 @@
             <button class="menu-btn" onclick="navigate('asterisk')"><span>📜 Asterisk*</span> <span>➔</span></button>
         </div>
         
-        <button onclick="subscribeUser()" id="enable-btn" style="width: 100%; margin-top: 22px; background: #22c55e; color: #000; padding: 12px; border-radius: 8px; font-weight: 800; border: none; display: none; cursor: pointer;">🔔 Enable Matchday Alerts</button>
-        <button onclick="logoutUser()" style="width: 100%; margin-top: 12px; background: #1e293b; color: #cbd5e1; padding: 12px; border-radius: 8px; font-weight: 800; border: 1px solid #334155; cursor: pointer;">🚪 Logout / Switch Manager</button>
+        <div style="width: 100%; display: flex; gap: 8px; margin-top: 20px;">
+            <button onclick="subscribeUser()" id="enable-btn" style="flex: 1; background: #090c13; color: #22c55e; padding: 11px; border-radius: 8px; font-weight: 800; font-size: 0.84rem; border: 1px solid #22c55e; cursor: pointer;">🔔 Sync Alerts on This Device</button>
+            <button onclick="testMyPushAlert()" style="flex: 1; background: #090c13; color: #f59e0b; padding: 11px; border-radius: 8px; font-weight: 800; font-size: 0.84rem; border: 1px solid #f59e0b; cursor: pointer;">📲 Send Test Alert</button>
+        </div>
+        <button onclick="logoutUser()" style="width: 100%; margin-top: 10px; background: #1e293b; color: #cbd5e1; padding: 12px; border-radius: 8px; font-weight: 800; border: 1px solid #334155; cursor: pointer;">🚪 Logout / Switch Manager</button>
     </div>
 
     <!-- SCREEN 3: SCORES -->
@@ -1195,20 +1207,20 @@
             if (window.standingsSubTab === 'live') {
                 let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">Live Standings - Active Round (GW ${d.current_gw}) • Updated continuously with active points.</p>
                 <div class="table-wrap"><table class="clean-table">
-                    <thead><tr><th>Pos</th><th>Move</th><th>Manager</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th></tr></thead>
+                    <thead><tr><th>Pos</th><th>Move</th><th>Team</th><th>Manager</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th></tr></thead>
                     <tbody>`;
                 (d.live_table || []).forEach(r => {
-                    html += `<tr><td>${r.pos}</td><td>${r.move_html}</td><td style="color:#fff; font-weight:700;">${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#f59e0b;">${r.pts}</td></tr>`;
+                    html += `<tr><td>${r.pos}</td><td>${r.move_html}</td><td style="text-align:left; color:#fff; font-weight:700;">${r.team}</td><td>${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#f59e0b;">${r.pts}</td></tr>`;
                 });
                 html += `</tbody></table></div>`;
                 box.innerHTML = html;
             } else if (window.standingsSubTab === 'off') {
                 let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">Official Standings - Frozen Table (GW ${d.last_completed_gw})</p>
                 <div class="table-wrap"><table class="clean-table">
-                    <thead><tr><th>Pos</th><th>Manager</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th></tr></thead>
+                    <thead><tr><th>Pos</th><th>Team</th><th>Manager</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th></tr></thead>
                     <tbody>`;
                 (d.official_table || []).forEach(r => {
-                    html += `<tr><td>${r.pos}</td><td style="color:#fff; font-weight:700;">${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#fff;">${r.pts}</td></tr>`;
+                    html += `<tr><td>${r.pos}</td><td style="text-align:left; color:#fff; font-weight:700;">${r.team}</td><td>${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#fff;">${r.pts}</td></tr>`;
                 });
                 html += `</tbody></table></div>`;
                 box.innerHTML = html;
@@ -2222,21 +2234,82 @@
             return outputArray;
         }
 
-        async function subscribeUser() {
-            if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
-            const registration = await navigator.serviceWorker.register("/sw.js");
-            const permission = await Notification.requestPermission();
-            if (permission !== "granted") return;
-            const existingSub = await registration.pushManager.getSubscription();
-            if (existingSub) await existingSub.unsubscribe();
-            const subscription = await registration.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-            });
-            await fetch("/api/save_subscription", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(subscription) });
-            const btn = document.getElementById("enable-btn");
-            if (btn) btn.style.display = "none";
+        async function checkPushBannerState() {
+            const banner = document.getElementById("push-prompt-banner");
+            if (!banner) return;
+            if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+                banner.style.display = "none";
+                return;
+            }
+            if (Notification.permission !== "granted") {
+                banner.style.display = "flex";
+            } else {
+                banner.style.display = "none";
+                // Silently ensure subscription is registered under current manager alias
+                try {
+                    const reg = await navigator.serviceWorker.register("/sw.js");
+                    let sub = await reg.pushManager.getSubscription();
+                    if (!sub) {
+                        sub = await reg.pushManager.subscribe({
+                            userVisibleOnly: true,
+                            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+                        });
+                    }
+                    if (sub && savedAlias) {
+                        await fetch("/api/save_subscription", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ alias: savedAlias, subscription: sub })
+                        });
+                    }
+                } catch (e) {
+                    console.warn("Silent push sync warning:", e);
+                }
+            }
         }
+
+        async function subscribeUser() {
+            if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+                alert("Push notifications require adding this app to your Home Screen (iOS) or using Chrome/Edge (Android/Desktop).");
+                return;
+            }
+            try {
+                const registration = await navigator.serviceWorker.register("/sw.js");
+                const permission = await Notification.requestPermission();
+                if (permission !== "granted") {
+                    alert("Notification permission was not granted. Check your browser/phone notification settings.");
+                    return;
+                }
+                const existingSub = await registration.pushManager.getSubscription();
+                if (existingSub) await existingSub.unsubscribe();
+                const subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+                });
+                const activeAlias = savedAlias || localStorage.getItem("cdp_alias") || "Admin";
+                await fetch("/api/save_subscription", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ alias: activeAlias, subscription: subscription })
+                });
+                const banner = document.getElementById("push-prompt-banner");
+                if (banner) banner.style.display = "none";
+                alert(`✅ Live Match & Deadline alerts enabled for ${activeAlias}!`);
+            } catch (err) {
+                alert("Could not enable notifications: " + err.message);
+            }
+        }
+
+        async function testMyPushAlert() {
+            const activeAlias = savedAlias || localStorage.getItem("cdp_alias") || "";
+            if (!activeAlias) return;
+            await subscribeUser();
+            const res = await fetch(`/api/trigger_push?alias=${encodeURIComponent(activeAlias)}`, { method: "POST" });
+            const data = await res.json();
+            if (data.error) alert("Test failed: " + data.error);
+        }
+
+        setTimeout(checkPushBannerState, 800);
     </script>
 </body>
 </html>
