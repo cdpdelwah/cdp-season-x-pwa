@@ -1589,12 +1589,15 @@ def get_standings(league_id: int = 63):
     }
 
 # ==========================================
-# 5. SQUAD ANALYSER
+# 5. SQUAD ANALYSER (STRICTLY LOCKED TO USER)
 # ==========================================
 @app.get("/api/squad_analyser")
-def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0", focus: str = "Squad Needs (Auto)", entry_id: str = ""):
+def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0", focus: str = "Squad Needs (Auto)"):
+    clean_alias = alias.strip()
+    user_league_id = MANAGER_LEAGUES.get(clean_alias, league_id)
+
     static_data = cached_fpl_static()
-    league_details, element_status = cached_league_data(league_id)
+    league_details, element_status = cached_league_data(user_league_id)
     all_fixtures = cached_all_fixtures()
 
     current_gw, all_events = detect_current_gw(league_details)
@@ -1605,9 +1608,6 @@ def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0
         t_gw = current_gw
 
     entries = league_details.get("league_entries", []) if league_details else []
-    is_admin = (alias.strip().lower() == "admin")
-
-    admin_teams = []
     matched_entry_id = None
     entry_label_map = {}
     for e in entries:
@@ -1615,22 +1615,15 @@ def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0
         m_alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
         lbl = f"{m_alias} ({e.get('entry_name', 'Team')})"
         entry_label_map[eid] = lbl
-        admin_teams.append({"entry_id": eid, "label": lbl})
-        if m_alias.lower() == alias.strip().lower():
+        if m_alias.lower() == clean_alias.lower():
             matched_entry_id = eid
 
-    if is_admin:
-        try:
-            sel_entry_id = int(entry_id) if entry_id else (matched_entry_id or (admin_teams[0]["entry_id"] if admin_teams else None))
-        except Exception:
-            sel_entry_id = admin_teams[0]["entry_id"] if admin_teams else None
-    else:
-        if not matched_entry_id:
-            return {
-                "locked": True,
-                "lock_message": f"🔒 Squad Analyser Locked: You do not manage a team in {LEAGUE_ID_TO_KEY.get(league_id, 'this division')}. Switch to your home division tab above to analyse your squad."
-            }
-        sel_entry_id = matched_entry_id
+    if not matched_entry_id:
+        return {
+            "locked": True,
+            "lock_message": "🔒 Squad Analyser Locked: Could not match your login alias to an active squad."
+        }
+    sel_entry_id = matched_entry_id
 
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
@@ -1760,10 +1753,9 @@ def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0
         bench_table.append({
             "role": f"Sub {idx}", "player": bo["web_name"], "pos": bo["position"], "club": bo["club"], "status": bo["health_status"],
             "gw_proj": f"{bo['proj_gw']:.1f}", "season_pts": bo["total_points"], "last_2": bo["last_2_pts"],
-            "next_3": bo["next_3"], "ppg": f"{bo['ppg']:.1f}", "form": f"{bo['form']:.1f}"
+            "next_3": bo["next_3"], "ppg": f"{bg['ppg']:.1f}" if False else f"{bo['ppg']:.1f}", "form": f"{bo['form']:.1f}"
         })
 
-    # Waivers & Alerts
     rostered = [p for p in players if p["owner"] in all_entry_ids]
     alerts, target_positions = [], []
     fit_defs = sum(1 for p in my_squad if p["position"] == "DEF" and p["avail_factor"] >= 0.9)
@@ -1834,8 +1826,6 @@ def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0
     mgr_name = entry_label_map.get(sel_entry_id, "Selected Squad").split(" (")[0]
     return {
         "locked": False,
-        "is_admin": is_admin,
-        "admin_teams": admin_teams,
         "selected_entry_id": sel_entry_id,
         "manager_name": mgr_name,
         "current_gw": current_gw,
@@ -1850,7 +1840,7 @@ def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0
     }
 
 # ==========================================
-# 6. TRADE HUB
+# 6. TRADE HUB (STRICTLY ISOLATED BY LEAGUE)
 # ==========================================
 trade_file = base_dir / "trade_block.json"
 
@@ -1874,10 +1864,13 @@ def save_trade_block_file(listings):
 
 @app.get("/api/trade_hub")
 def get_trade_hub(league_id: int = 63, alias: str = ""):
+    clean_alias = alias.strip()
+    user_league_id = MANAGER_LEAGUES.get(clean_alias, league_id)
+    league_key = LEAGUE_ID_TO_KEY.get(user_league_id, "CDP (Crème Dellar Prem)")
+
     static_data = cached_fpl_static()
-    league_details, element_status = cached_league_data(league_id)
+    league_details, element_status = cached_league_data(user_league_id)
     all_fixtures = cached_all_fixtures()
-    league_key = LEAGUE_ID_TO_KEY.get(league_id, "CDP (Crème Dellar Prem)")
 
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
@@ -1892,13 +1885,12 @@ def get_trade_hub(league_id: int = 63, alias: str = ""):
         t_name = e.get("entry_name", "Team")
         entry_options[eid] = {"alias": m_alias, "team_name": t_name}
         teams_list.append({"entry_id": eid, "label": f"{m_alias} ({t_name})"})
-        if m_alias.lower() == alias.strip().lower():
+        if m_alias.lower() == clean_alias.lower():
             matched_entry_id = eid
 
-    is_admin = (alias.strip().lower() == "admin")
-    can_manage = bool(matched_entry_id or is_admin)
-    active_entry_id = matched_entry_id if matched_entry_id else (teams_list[0]["entry_id"] if (is_admin and teams_list) else None)
-    active_manager_alias = entry_options[active_entry_id]["alias"] if active_entry_id in entry_options else alias
+    can_manage = bool(matched_entry_id)
+    active_entry_id = matched_entry_id
+    active_manager_alias = entry_options[active_entry_id]["alias"] if active_entry_id in entry_options else clean_alias
 
     def get_next_3(tid):
         if not all_fixtures or not tid: return "TBD"
@@ -1941,19 +1933,23 @@ def get_trade_hub(league_id: int = 63, alias: str = ""):
     my_squad = [p for p in players_sorted if p["owner"] == active_entry_id] if active_entry_id else []
 
     raw_listings = load_trade_block_file()
-    formatted_listings = []
+    league_listings = []
     for item in raw_listings:
-        formatted_listings.append({
-            **item,
-            "div": str(item.get("league_key", "")).split(" ")[0]
-        })
+        item_lkey = str(item.get("league_key", ""))
+        item_lid = safe_int(item.get("league_id", 0))
+        mgr_l_id = MANAGER_LEAGUES.get(str(item.get("manager_alias", "")).strip(), 0)
+        if item_lid == user_league_id or item_lkey == league_key or mgr_l_id == user_league_id:
+            league_listings.append({
+                **item,
+                "div": league_key.split(" ")[0]
+            })
 
     return {
         "league_key": league_key,
         "can_manage": can_manage,
         "active_manager_alias": active_manager_alias,
         "matched_entry_id": matched_entry_id,
-        "listings": formatted_listings,
+        "listings": league_listings,
         "my_squad": my_squad,
         "teams": teams_list,
         "players": players_sorted
@@ -1962,14 +1958,14 @@ def get_trade_hub(league_id: int = 63, alias: str = ""):
 @app.post("/api/trade_hub/add")
 async def add_trade_hub_item(request: Request):
     body = await request.json()
-    league_id = int(body.get("league_id", 63))
     alias = str(body.get("alias", "")).strip()
+    user_league_id = MANAGER_LEAGUES.get(alias, int(body.get("league_id", 63)))
+    league_key = LEAGUE_ID_TO_KEY.get(user_league_id, "CDP (Crème Dellar Prem)")
     player_id = int(body.get("player_id", 0))
     notes = str(body.get("notes", "Open to offers")).strip() or "Open to offers"
 
     static_data = cached_fpl_static()
-    league_details, _ = cached_league_data(league_id)
-    league_key = LEAGUE_ID_TO_KEY.get(league_id, "CDP (Crème Dellar Prem)")
+    league_details, _ = cached_league_data(user_league_id)
 
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
@@ -1995,6 +1991,7 @@ async def add_trade_hub_item(request: Request):
         "position": str(pos_map.get(p_obj.get("element_type", 1), "MID")),
         "manager_alias": mgr_alias,
         "team_name": team_name,
+        "league_id": user_league_id,
         "league_key": league_key,
         "notes": notes,
         "date": datetime.now().strftime("%d %b")
@@ -2008,7 +2005,7 @@ async def remove_trade_hub_item(request: Request):
     alias = str(body.get("alias", "")).strip()
     player_id = int(body.get("player_id", 0))
     listings = load_trade_block_file()
-    listings = [t for t in listings if not (t.get("player_id") == player_id and (t.get("manager_alias", "").lower() == alias.lower() or alias.lower() == "admin"))]
+    listings = [t for t in listings if not (t.get("player_id") == player_id and t.get("manager_alias", "").lower() == alias.lower())]
     save_trade_block_file(listings)
     return {"status": "ok"}
 

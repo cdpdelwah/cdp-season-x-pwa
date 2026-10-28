@@ -357,7 +357,7 @@
     <div id="screen-squad" class="app-screen">
         <div class="top-nav-bar">
             <button class="back-home-btn" onclick="navigate('home')">← Home</button>
-            <button class="refresh-btn" onclick="fetchSquadAnalyser(activeLeagueId, document.getElementById('squad-gw-select').value, document.getElementById('squad-focus-select').value)">🔄 Refresh</button>
+            <button class="refresh-btn" onclick="fetchSquadAnalyser(document.getElementById('squad-gw-select').value, document.getElementById('squad-focus-select').value)">🔄 Refresh</button>
         </div>
         <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <div>
@@ -365,17 +365,10 @@
                 <p>Recommended starting XI projections and tailored waiver wire scouting</p>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
-                <select id="squad-admin-team" class="white-select" style="display: none;" onchange="fetchSquadAnalyser(activeLeagueId, document.getElementById('squad-gw-select').value, document.getElementById('squad-focus-select').value, this.value)"></select>
-                <select id="squad-gw-select" class="white-select" onchange="fetchSquadAnalyser(activeLeagueId, this.value, document.getElementById('squad-focus-select').value)">
+                <select id="squad-gw-select" class="white-select" onchange="fetchSquadAnalyser(this.value, document.getElementById('squad-focus-select').value)">
                     <option value="0">Active GW</option>
                 </select>
             </div>
-        </div>
-        <div class="league-tabs">
-            <button class="tab-btn sq-l-tab" data-lid="63" onclick="switchSquadLeague(63)">CDP</button>
-            <button class="tab-btn sq-l-tab" data-lid="320" onclick="switchSquadLeague(320)">SDM</button>
-            <button class="tab-btn sq-l-tab" data-lid="378" onclick="switchSquadLeague(378)">BDR</button>
-            <button class="tab-btn sq-l-tab" data-lid="240" onclick="switchSquadLeague(240)">LDE</button>
         </div>
         <div class="sub-tabs">
             <button class="sub-tab-btn active" id="sq-sub-xi" onclick="switchSquadSubTab('xi')">⚽ Recommended Lineup</button>
@@ -395,7 +388,7 @@
             <div id="squad-alerts-box" style="width: 100%; margin-bottom: 12px;"></div>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <span style="font-size: 0.85rem; font-weight: 800; color: #94a3b8;">Filter Scout Focus:</span>
-                <select id="squad-focus-select" class="white-select" onchange="fetchSquadAnalyser(activeLeagueId, document.getElementById('squad-gw-select').value, this.value)">
+                <select id="squad-focus-select" class="white-select" onchange="fetchSquadAnalyser(document.getElementById('squad-gw-select').value, this.value)">
                     <option value="Squad Needs (Auto)">Squad Needs (Auto)</option>
                     <option value="All Outfield">All Outfield</option>
                     <option value="DEF Only">DEF Only</option>
@@ -411,17 +404,11 @@
     <div id="screen-trade" class="app-screen">
         <div class="top-nav-bar">
             <button class="back-home-btn" onclick="navigate('home')">← Home</button>
-            <button class="refresh-btn" onclick="fetchTradeHub(activeLeagueId)">🔄 Refresh</button>
+            <button class="refresh-btn" onclick="fetchTradeHub()">🔄 Refresh</button>
         </div>
         <div class="header">
             <h1 id="trade-title">🤝 Trade Hub & Trading Block</h1>
-            <p>🛒 The League Transfer List & Calculator: Broadcast your trade targets, scout active listings and evaluate trades.</p>
-        </div>
-        <div class="league-tabs">
-            <button class="tab-btn tr-l-tab" data-lid="63" onclick="switchTradeLeague(63)">CDP</button>
-            <button class="tab-btn tr-l-tab" data-lid="320" onclick="switchTradeLeague(320)">SDM</button>
-            <button class="tab-btn tr-l-tab" data-lid="378" onclick="switchTradeLeague(378)">BDR</button>
-            <button class="tab-btn tr-l-tab" data-lid="240" onclick="switchTradeLeague(240)">LDE</button>
+            <p>🛒 The League Transfer List & Calculator: Broadcast your trade targets, scout active listings in your division and evaluate trades.</p>
         </div>
         <div class="sub-tabs">
             <button class="sub-tab-btn active" id="tr-sub-browse" onclick="switchTradeSubTab('browse')">🛒 League Transfer List</button>
@@ -431,14 +418,8 @@
 
         <!-- TAB 1: BROWSE -->
         <div id="trade-browse-pane" style="width: 100%;">
-            <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
-                <select id="tr-div-filter" class="white-select" onchange="renderTradeBrowseTable()">
-                    <option value="All">All Divisions</option>
-                    <option value="CDP">CDP</option>
-                    <option value="SDM">SDM</option>
-                    <option value="BDR">BDR</option>
-                    <option value="LDE">LDE</option>
-                </select>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+                <span id="tr-browse-subtitle" style="font-size: 0.9rem; font-weight: 800; color: #f59e0b;">Active Transfer List</span>
                 <select id="tr-pos-filter" class="white-select" onchange="renderTradeBrowseTable()">
                     <option value="All">All Positions</option>
                     <option value="GKP">GKP</option>
@@ -1134,8 +1115,10 @@
         }
 
         // ==========================================
-        // STANDINGS SCREEN
+        // STANDINGS SCREEN (WITH EMBEDDED GACS & DISC)
         // ==========================================
+        window.standingsDiscPwRows = [];
+
         function switchStandingsLeague(leagueId) {
             activeLeagueId = leagueId;
             highlightLeagueButtons('.st-l-tab', leagueId);
@@ -1191,21 +1174,113 @@
                 html += `</tbody></table></div>`;
                 box.innerHTML = html;
             } else if (window.standingsSubTab === 'gacs') {
-                navigate('gacs');
+                loadStandingsGacs("0");
             } else if (window.standingsSubTab === 'disc') {
-                navigate('disc');
+                loadStandingsDisc("0");
             }
         }
 
+        async function loadStandingsGacs(gw = "0") {
+            const box = document.getElementById('standings-content');
+            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Compiling starting XI GACS data...</p>";
+            try {
+                const res = await fetch(`/api/gacs?league_id=${activeLeagueId}&gw=${gw}`);
+                const data = await res.json();
+                const opts = (data.all_gws || []).map(g => `<option value="${g}" ${String(data.selected) === String(g) ? 'selected' : ''}>Gameweek ${g}</option>`).join('')
+                    + `<option value="all" ${data.selected === 'all' ? 'selected' : ''}>All Season (Total)</option>`;
+
+                box.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+                        <div>
+                            <div style="font-size:1.05rem; font-weight:800; color:#fff;">GACS - Goals, Assists and Clean Sheets</div>
+                            <div style="font-size:0.78rem; color:#94a3b8;">Goals (all players), Assists (all players) and Clean Sheets (GKP and DEF only) in each manager's final starting lineup.</div>
+                        </div>
+                        <select class="white-select" onchange="loadStandingsGacs(this.value)">${opts}</select>
+                    </div>
+                    <div class="table-wrap"><table class="clean-table">
+                        <thead><tr><th>Manager</th><th>Goals</th><th>Assists</th><th>Clean Sheets</th></tr></thead>
+                        <tbody>${(data.rows || []).map(r => `<tr><td>${r.manager}</td><td>${r.goals}</td><td>${r.assists}</td><td>${r.cs}</td></tr>`).join('')}</tbody>
+                    </table></div>
+                `;
+            } catch (e) {
+                box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load GACS.</p>";
+            }
+        }
+
+        async function loadStandingsDisc(gw = "0") {
+            const box = document.getElementById('standings-content');
+            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading disciplinary records...</p>";
+            try {
+                const res = await fetch(`/api/disciplinary?league_id=${activeLeagueId}&gw=${gw}`);
+                const data = await res.json();
+                const opts = (data.all_gws || []).map(g => `<option value="${g}" ${String(data.selected) === String(g) ? 'selected' : ''}>Gameweek ${g}</option>`).join('')
+                    + `<option value="all" ${data.selected === 'all' ? 'selected' : ''}>All Season (Total)</option>`;
+
+                const headerBar = `
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+                        <div>
+                            <div style="font-size:1.05rem; font-weight:800; color:#fff;">🟨🟥 Disciplinary Record - Starting XI Cards & Result Impact</div>
+                            <div style="font-size:0.78rem; color:#94a3b8;">Tracks Yellow Cards (-1 pt) and Red Cards (-3 pts) in each manager's active starting XI.</div>
+                        </div>
+                        <select class="white-select" onchange="loadStandingsDisc(this.value)">${opts}</select>
+                    </div>
+                `;
+
+                if (data.mode === "single") {
+                    box.innerHTML = headerBar + `<div class="table-wrap"><table class="clean-table">
+                        <thead><tr><th>Manager</th><th>Yellow Cards</th><th>Red Cards</th><th>Card Pts</th><th>Matchup</th><th>Result Changed?</th></tr></thead>
+                        <tbody>${(data.gw_rows || []).map(r => `<tr><td>${r.manager}</td><td>${r.yc}</td><td>${r.rc}</td><td style="color:#ef4444; font-weight:800;">${r.card_pts}</td><td>${r.matchup}</td><td>${r.impact}</td></tr>`).join('')}</tbody>
+                    </table></div>`;
+                } else {
+                    window.standingsDiscPwRows = data.pw_rows || [];
+                    const swingsHtml = (data.swings_rows && data.swings_rows.length > 0)
+                        ? `<div class="table-wrap"><table class="clean-table"><thead><tr><th>GW</th><th>Manager</th><th>Matchup</th><th>YC</th><th>RC</th><th>Card Pts</th><th>Impact</th></tr></thead><tbody>${data.swings_rows.map(s => `<tr><td>${s.gw}</td><td>${s.manager}</td><td>${s.matchup}</td><td>${s.yc}</td><td>${s.rc}</td><td style="color:#ef4444; font-weight:800;">${s.card_pts}</td><td style="color:#f59e0b; font-weight:800;">${s.impact}</td></tr>`).join('')}</tbody></table></div>`
+                        : `<div class="alert-box alert-info">No match results have been altered by starting XI card deductions this season.</div>`;
+                    const mgrOpts = `<option value="All">All Managers</option>` + (data.managers || []).map(m => `<option value="${m}">${m}</option>`).join('');
+
+                    box.innerHTML = headerBar + `
+                        <div style="font-size:1rem; font-weight:800; color:#fff; margin-bottom:8px;">Season Totals</div>
+                        <div class="table-wrap"><table class="clean-table">
+                            <thead><tr><th>Manager</th><th>Yellow Cards</th><th>Red Cards</th><th>Total Card Pts</th><th>Results Changed</th><th>League Pts Cost</th></tr></thead>
+                            <tbody>${(data.season_rows || []).map(r => `<tr><td>${r.manager}</td><td>${r.yc}</td><td>${r.rc}</td><td style="color:#ef4444; font-weight:800;">${r.total_card_pts}</td><td>${r.results_changed}</td><td>${r.league_pts_cost}</td></tr>`).join('')}</tbody>
+                        </table></div>
+                        <div style="font-size:1rem; font-weight:800; color:#fff; margin:14px 0 8px 0;">Matches Where Cards Changed the Result</div>
+                        ${swingsHtml}
+                        <div class="exp-card" style="margin-top:12px;">
+                            <button class="exp-toggle" onclick="document.getElementById('st-disc-pw-drawer').classList.toggle('open')">
+                                <span>📅 View Full Per - Week Breakdown</span><span>▼</span>
+                            </button>
+                            <div class="exp-body" id="st-disc-pw-drawer">
+                                <select id="st-disc-pw-mgr-sel" class="white-select" style="margin-bottom:10px;" onchange="renderStandingsDiscPwTable()">${mgrOpts}</select>
+                                <div id="st-disc-pw-table-box"></div>
+                            </div>
+                        </div>
+                    `;
+                    renderStandingsDiscPwTable();
+                }
+            } catch (e) {
+                box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load disciplinary records.</p>";
+            }
+        }
+
+        function renderStandingsDiscPwTable() {
+            const box = document.getElementById('st-disc-pw-table-box');
+            if (!box) return;
+            const mFilter = document.getElementById('st-disc-pw-mgr-sel').value;
+            const rows = mFilter === "All" ? window.standingsDiscPwRows : window.standingsDiscPwRows.filter(r => r.manager === mFilter);
+            box.innerHTML = `<div class="table-wrap"><table class="clean-table">
+                <thead><tr><th>GW</th><th>Manager</th><th>YC</th><th>RC</th><th>Card Pts</th><th>Matchup</th><th>Result Changed?</th></tr></thead>
+                <tbody>${rows.map(r => `<tr><td>${r.gw}</td><td>${r.manager}</td><td>${r.yc}</td><td>${r.rc}</td><td>${r.card_pts}</td><td>${r.matchup}</td><td>${r.impact}</td></tr>`).join('')}</tbody>
+            </table></div>`;
+        }
+
         // ==========================================
-        // SQUAD ANALYSER SCREEN
+        // SQUAD ANALYSER SCREEN (LOCKED TO USER)
         // ==========================================
-        function switchSquadLeague(leagueId) {
-            activeLeagueId = leagueId;
-            highlightLeagueButtons('.sq-l-tab', leagueId);
-            document.getElementById('squad-title').innerText = `🧠 Squad Analyser - ${LEAGUE_NAMES[leagueId]}`;
-            document.getElementById('squad-admin-team').style.display = 'none';
-            fetchSquadAnalyser(leagueId, "0", document.getElementById('squad-focus-select').value);
+        function switchSquadLeague() {
+            const homeLid = parseInt(localStorage.getItem("cdp_league")) || 63;
+            document.getElementById('squad-title').innerText = `🧠 Squad Analyser - ${LEAGUE_NAMES[homeLid]}`;
+            fetchSquadAnalyser("0", document.getElementById('squad-focus-select').value);
         }
 
         function switchSquadSubTab(tab) {
@@ -1223,15 +1298,16 @@
             document.getElementById('squad-table-box').style.display = (view === 'table') ? 'block' : 'none';
         }
 
-        async function fetchSquadAnalyser(leagueId, targetGw = "0", focus = "Squad Needs (Auto)", overrideEntryId = "") {
+        async function fetchSquadAnalyser(targetGw = "0", focus = "Squad Needs (Auto)") {
+            const homeLid = parseInt(localStorage.getItem("cdp_league")) || 63;
             const lockEl = document.getElementById('squad-lock-msg');
             lockEl.style.display = 'block';
-            lockEl.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Evaluating squad projections and waiver pool...</p>";
+            lockEl.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Evaluating your squad projections and waiver pool...</p>";
             document.getElementById('squad-xi-pane').style.display = 'none';
             document.getElementById('squad-waivers-pane').style.display = 'none';
 
             try {
-                const res = await fetch(`/api/squad_analyser?league_id=${leagueId}&alias=${encodeURIComponent(savedAlias)}&target_gw=${targetGw}&focus=${encodeURIComponent(focus)}&entry_id=${overrideEntryId}`);
+                const res = await fetch(`/api/squad_analyser?league_id=${homeLid}&alias=${encodeURIComponent(savedAlias)}&target_gw=${targetGw}&focus=${encodeURIComponent(focus)}`);
                 const data = await res.json();
 
                 if (data.locked) {
@@ -1239,13 +1315,6 @@
                     return;
                 }
                 lockEl.style.display = 'none';
-
-                if (data.is_admin && data.admin_teams) {
-                    const admSel = document.getElementById('squad-admin-team');
-                    admSel.style.display = 'block';
-                    admSel.innerHTML = data.admin_teams.map(t => `<option value="${t.entry_id}">${t.label}</option>`).join('');
-                    admSel.value = String(data.selected_entry_id);
-                }
 
                 const gwSel = document.getElementById('squad-gw-select');
                 if (data.future_gws && data.future_gws.length > 0) {
@@ -1301,13 +1370,13 @@
         }
 
         // ==========================================
-        // TRADE HUB SCREEN
+        // TRADE HUB SCREEN (LOCKED TO USER LEAGUE)
         // ==========================================
-        function switchTradeLeague(leagueId) {
-            activeLeagueId = leagueId;
-            highlightLeagueButtons('.tr-l-tab', leagueId);
-            document.getElementById('trade-title').innerText = `🤝 Trade Hub - ${LEAGUE_NAMES[leagueId]}`;
-            fetchTradeHub(leagueId);
+        function switchTradeLeague() {
+            const homeLid = parseInt(localStorage.getItem("cdp_league")) || 63;
+            document.getElementById('trade-title').innerText = `🤝 Trade Hub - ${LEAGUE_NAMES[homeLid]}`;
+            document.getElementById('tr-browse-subtitle').innerText = `Active Transfer List — ${LEAGUE_NAMES[homeLid]}`;
+            fetchTradeHub();
         }
 
         function switchTradeSubTab(tab) {
@@ -1317,10 +1386,11 @@
             });
         }
 
-        async function fetchTradeHub(leagueId) {
+        async function fetchTradeHub() {
+            const homeLid = parseInt(localStorage.getItem("cdp_league")) || 63;
             document.getElementById('trade-browse-table').innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading Trade Hub...</p>";
             try {
-                const res = await fetch(`/api/trade_hub?league_id=${leagueId}&alias=${encodeURIComponent(savedAlias)}`);
+                const res = await fetch(`/api/trade_hub?league_id=${homeLid}&alias=${encodeURIComponent(savedAlias)}`);
                 window.tradeHubData = await res.json();
                 renderTradeBrowseTable();
                 renderTradeManagePane();
@@ -1333,20 +1403,18 @@
         function renderTradeBrowseTable() {
             const box = document.getElementById('trade-browse-table');
             if (!window.tradeHubData) return;
-            const divF = document.getElementById('tr-div-filter').value;
             const posF = document.getElementById('tr-pos-filter').value;
 
             let list = window.tradeHubData.listings || [];
-            if (divF !== "All") list = list.filter(item => item.div === divF);
             if (posF !== "All") list = list.filter(item => item.position === posF);
 
             if (!list.length) {
-                box.innerHTML = `<div class="alert-box alert-info">The trading block is currently empty for these filters. Add players under 'Manage My Listings'!</div>`;
+                box.innerHTML = `<div class="alert-box alert-info">The trading block is currently empty for ${window.tradeHubData.league_key}. Add players under 'Manage My Listings'!</div>`;
                 return;
             }
             box.innerHTML = `<div class="table-wrap"><table class="clean-table">
-                <thead><tr><th>Player</th><th>Club</th><th>Pos</th><th>Div</th><th>Manager</th><th>Asking / Notes</th><th>Date</th></tr></thead>
-                <tbody>${list.map(i => `<tr><td>${i.player_name}</td><td>${i.club}</td><td>${i.position}</td><td>${i.div}</td><td>${i.manager_alias}</td><td>${i.notes}</td><td>${i.date}</td></tr>`).join('')}</tbody>
+                <thead><tr><th>Player</th><th>Club</th><th>Pos</th><th>Manager</th><th>Asking / Notes</th><th>Date</th></tr></thead>
+                <tbody>${list.map(i => `<tr><td>${i.player_name}</td><td>${i.club}</td><td>${i.position}</td><td>${i.manager_alias}</td><td>${i.notes}</td><td>${i.date}</td></tr>`).join('')}</tbody>
             </table></div>`;
         }
 
@@ -1355,13 +1423,13 @@
             const d = window.tradeHubData;
             if (!d) return;
             if (!d.can_manage) {
-                pane.innerHTML = `<div class="alert-box alert-warn">🔒 You do not have a registered team in ${d.league_key}. Switch to your home division tab above to manage your transfer list.</div>`;
+                pane.innerHTML = `<div class="alert-box alert-warn">🔒 You do not have a registered team in ${d.league_key}.</div>`;
                 return;
             }
             const opts = (d.my_squad || []).map(p => `<option value="${p.id}">${p.web_name} (${p.club} - ${p.position})</option>`).join('');
-            const myList = (d.listings || []).filter(t => t.manager_alias === d.active_manager_alias && t.league_key === d.league_key);
+            const myList = (d.listings || []).filter(t => t.manager_alias === d.active_manager_alias);
 
-            let myHtml = `<p style="font-size:0.84rem; color:#94a3b8;">You currently have no players listed on the transfer list in this league.</p>`;
+            let myHtml = `<p style="font-size:0.84rem; color:#94a3b8;">You currently have no players listed on the transfer list in ${d.league_key}.</p>`;
             if (myList.length > 0) {
                 myHtml = myList.map(l => `
                     <div style="display:flex; justify-content:space-between; align-items:center; background:#090c13; border:1px solid #182030; border-radius:8px; padding:10px 12px; margin-bottom:8px;">
@@ -1384,23 +1452,25 @@
         }
 
         async function addTradeListing() {
+            const homeLid = parseInt(localStorage.getItem("cdp_league")) || 63;
             const pid = parseInt(document.getElementById('tr-add-player').value);
             const notes = document.getElementById('tr-add-notes').value;
             await fetch('/api/trade_hub/add', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ league_id: activeLeagueId, alias: savedAlias, player_id: pid, notes })
+                body: JSON.stringify({ league_id: homeLid, alias: savedAlias, player_id: pid, notes })
             });
-            fetchTradeHub(activeLeagueId);
+            fetchTradeHub();
         }
 
         async function removeTradeListing(pid) {
+            const homeLid = parseInt(localStorage.getItem("cdp_league")) || 63;
             await fetch('/api/trade_hub/remove', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ league_id: activeLeagueId, alias: savedAlias, player_id: pid })
+                body: JSON.stringify({ league_id: homeLid, alias: savedAlias, player_id: pid })
             });
-            fetchTradeHub(activeLeagueId);
+            fetchTradeHub();
         }
 
         function initTradeCalculator() {
