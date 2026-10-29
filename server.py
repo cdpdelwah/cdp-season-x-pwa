@@ -2077,20 +2077,28 @@ async def add_trade_hub_item(request: Request):
 
     team_name = "Team"
     mgr_alias = alias
+    league_aliases = []
+    
+    # Loop through to find the active manager and build a list of all 8 division members
     for e in (league_details or {}).get("league_entries", []):
         m_a = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
+        league_aliases.append(m_a)
         if m_a.lower() == alias.lower():
             team_name = e.get("entry_name", "Team")
             mgr_alias = m_a
-            break
 
     listings = load_trade_block_file()
     listings = [t for t in listings if not (t.get("player_id") == player_id and t.get("manager_alias") == mgr_alias)]
+    
+    p_name = str(p_obj.get("web_name", "Unknown"))
+    p_club = str(team_map.get(p_obj.get("team"), "PL")).upper()
+    p_pos = str(pos_map.get(p_obj.get("element_type", 1), "MID"))
+
     listings.append({
         "player_id": player_id,
-        "player_name": str(p_obj.get("web_name", "Unknown")),
-        "club": str(team_map.get(p_obj.get("team"), "PL")).upper(),
-        "position": str(pos_map.get(p_obj.get("element_type", 1), "MID")),
+        "player_name": p_name,
+        "club": p_club,
+        "position": p_pos,
         "manager_alias": mgr_alias,
         "team_name": team_name,
         "league_id": user_league_id,
@@ -2099,6 +2107,25 @@ async def add_trade_hub_item(request: Request):
         "date": datetime.now().strftime("%d %b")
     })
     save_trade_block_file(listings)
+
+    # Automatically alert the other 7 managers in the same division
+    try:
+        subs_registry = upstash_get_json("cdp_push_subs_v2", {})
+        if subs_registry:
+            div_short = league_key.split(" ")[0]
+            for other_mgr in league_aliases:
+                if other_mgr.lower() != mgr_alias.lower():
+                    send_push_to_manager(
+                        subs_registry,
+                        other_mgr,
+                        f"🤝 Transfer List: {mgr_alias} ({div_short})",
+                        f"{p_name} ({p_club} - {p_pos}) is on the block! Notes: {notes}",
+                        tag=f"trade-{player_id}"
+                    )
+            upstash_set_json("cdp_push_subs_v2", subs_registry)
+    except Exception as e:
+        print("Trade push error:", e)
+
     return {"status": "ok"}
 
 @app.post("/api/trade_hub/remove")
