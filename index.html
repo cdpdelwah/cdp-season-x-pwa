@@ -963,19 +963,22 @@
                 listEl.innerHTML = "";
                 
                 window.currentMatches.forEach((m, idx) => {
-                    let c1Class = "c-tie", c2Class = "c-tie", barColor = "#94a3b8";
-                    if (m.pr1 > m.pr2) { c1Class = "c1"; barColor = "#f59e0b"; } 
-                    else if (m.pr2 > m.pr1) { c2Class = "c2"; barColor = "#38bdf8"; }
+                    let c1Class = "c-tie", c2Class = "c-tie";
+                    if (m.pr1 > m.pr2) { c1Class = "c1"; }
+                    else if (m.pr2 > m.pr1) { c2Class = "c2"; }
 
                     const matchGw = m.gw || json.gw;
-                    const gwBadge = isMgrMode ? `<div style="font-size:0.72rem; font-weight:800; color:#94a3b8; text-transform:uppercase; margin-bottom:6px; border-bottom:1px solid #182030; padding-bottom:4px; display:flex; justify-content:space-between;"><span>GAMEWEEK ${matchGw}</span><span>${m.is_fin ? '✅ FINAL' : '🟢 LIVE'}</span></div>` : '';
+                    const topLabel = isMgrMode ? `GW ${matchGw} • ${m.stage}` : m.stage;
 
                     listEl.innerHTML += `
                         <div class="match-card" onclick="openMatchModal(${idx}, ${matchGw})" style="cursor: pointer;">
-                            ${gwBadge}
+                            <div style="font-size:0.72rem; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:6px; border-bottom:1px solid #182030; padding-bottom:4px; display:flex; justify-content:space-between;">
+                                <span>${topLabel}</span>
+                                <span style="color:${m.is_fin ? '#94a3b8' : '#22c55e'};">${m.is_fin ? '✅ FINAL' : '🟢 LIVE'}</span>
+                            </div>
                             <div class="m-header">
-                                <div class="m1-name">${m.m1}</div>
-                                <div class="m2-name">${m.m2}</div>
+                                <div class="m1-name">${m.m1} <span style="color:#94a3b8; font-size:0.75rem;">(${m.div1})</span></div>
+                                <div class="m2-name"><span style="color:#94a3b8; font-size:0.75rem;">(${m.div2})</span> ${m.m2}</div>
                             </div>
                             <div class="scores">
                                 <div class="score-box">
@@ -990,8 +993,9 @@
                                     <div class="bench">Bench: ${m.b2} pts | Opt: ${m.opt2} pts</div>
                                 </div>
                             </div>
-                            <div class="progress-bg">
-                                <div class="progress-bar-1" style="width: ${m.pr1}%; background-color: ${barColor};"></div>
+                            <div class="progress-bg" style="display:flex; border-radius:6px; overflow:hidden;">
+                                <div style="width: ${m.pr1}%; background-color: #f59e0b; transition: width 0.5s;"></div>
+                                <div style="width: ${m.pr2}%; background-color: #38bdf8; transition: width 0.5s;"></div>
                             </div>
                             <div class="win-pct">
                                 <span class="${c1Class}">Win: ${m.pr1}%</span>
@@ -1458,9 +1462,9 @@
                 listEl.innerHTML = "";
 
                 window.currentMatches.forEach((m, idx) => {
-                    let c1Class = "c-tie", c2Class = "c-tie", barColor = "#94a3b8";
-                    if (m.pr1 > m.pr2) { c1Class = "c1"; barColor = "#f59e0b"; } 
-                    else if (m.pr2 > m.pr1) { c2Class = "c2"; barColor = "#38bdf8"; }
+                    let c1Class = "c-tie", c2Class = "c-tie";
+                    if (m.pr1 > m.pr2) { c1Class = "c1"; } 
+                    else if (m.pr2 > m.pr1) { c2Class = "c2"; }
 
                     const matchGw = m.gw || json.gw;
 
@@ -1487,8 +1491,9 @@
                                     <div class="bench">Bench: ${m.b2} pts | Opt: ${m.opt2} pts</div>
                                 </div>
                             </div>
-                            <div class="progress-bg">
-                                <div class="progress-bar-1" style="width: ${m.pr1}%; background-color: ${barColor};"></div>
+                            <div class="progress-bg" style="display:flex; border-radius:6px; overflow:hidden;">
+                                <div style="width: ${m.pr1}%; background-color: #f59e0b; transition: width 0.5s;"></div>
+                                <div style="width: ${m.pr2}%; background-color: #38bdf8; transition: width 0.5s;"></div>
                             </div>
                             <div class="win-pct">
                                 <span class="${c1Class}">Win: ${m.pr1}%</span>
