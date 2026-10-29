@@ -1521,24 +1521,34 @@ def get_standings(league_id: int = 63):
 
     official_stats = {e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0} for e in entries}
     live_stats = {e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0} for e in entries}
+    
+    # Track results sequences to calculate streaks
+    off_res = {e["id"]: [] for e in entries}
+    liv_res = {e["id"]: [] for e in entries}
 
-    for m in matches:
+    # Ensure matches are evaluated in exact chronological order for accurate streaks
+    sorted_matches = sorted(matches, key=lambda x: x.get("event", 0))
+
+    for m in sorted_matches:
         ev = m["event"]
         t1_id, t2_id = m["league_entry_1"], m["league_entry_2"]
         if t1_id not in official_stats or t2_id not in official_stats:
             continue
         if ev < current_gw and m.get("finished", False):
             s1, s2 = safe_int(m.get("league_entry_1_points", 0)), safe_int(m.get("league_entry_2_points", 0))
-            for st_map in (official_stats, live_stats):
+            for st_map, res_map in [(official_stats, off_res), (live_stats, liv_res)]:
                 st_map[t1_id]["pf"] += s1
                 st_map[t2_id]["pf"] += s2
                 if s1 > s2:
                     st_map[t1_id]["wins"] += 1; st_map[t1_id]["pts"] += 3; st_map[t2_id]["losses"] += 1
+                    res_map[t1_id].append("W"); res_map[t2_id].append("L")
                 elif s2 > s1:
                     st_map[t2_id]["wins"] += 1; st_map[t2_id]["pts"] += 3; st_map[t1_id]["losses"] += 1
+                    res_map[t2_id].append("W"); res_map[t1_id].append("L")
                 else:
                     st_map[t1_id]["draws"] += 1; st_map[t1_id]["pts"] += 1
                     st_map[t2_id]["draws"] += 1; st_map[t2_id]["pts"] += 1
+                    res_map[t1_id].append("D"); res_map[t2_id].append("D")
         elif ev == current_gw:
             if m.get("finished", False):
                 s1, s2 = safe_int(m.get("league_entry_1_points", 0)), safe_int(m.get("league_entry_2_points", 0))
@@ -1547,22 +1557,40 @@ def get_standings(league_id: int = 63):
                 p2 = cached_entry_event(lentry_map[t2_id].get("entry_id"), current_gw)
                 _, _, s1, _, _, _, _, _ = full_evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures)
                 _, _, s2, _, _, _, _, _ = full_evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures)
+            
             live_stats[t1_id]["pf"] += s1
             live_stats[t2_id]["pf"] += s2
             if s1 > s2:
                 live_stats[t1_id]["wins"] += 1; live_stats[t1_id]["pts"] += 3; live_stats[t2_id]["losses"] += 1
+                liv_res[t1_id].append("W"); liv_res[t2_id].append("L")
             elif s2 > s1:
                 live_stats[t2_id]["wins"] += 1; live_stats[t2_id]["pts"] += 3; live_stats[t1_id]["losses"] += 1
+                liv_res[t2_id].append("W"); liv_res[t1_id].append("L")
             else:
                 live_stats[t1_id]["draws"] += 1; live_stats[t1_id]["pts"] += 1
                 live_stats[t2_id]["draws"] += 1; live_stats[t2_id]["pts"] += 1
+                liv_res[t1_id].append("D"); liv_res[t2_id].append("D")
+
+    def get_streak_html(res_list):
+        if not res_list: return ""
+        last_res = res_list[-1]
+        count = 0
+        for r in reversed(res_list):
+            if r == last_res:
+                count += 1
+            else:
+                break
+        color = "#22c55e" if last_res == "W" else ("#ef4444" if last_res == "L" else "#94a3b8")
+        return f" <span style='color:{color}; font-size:0.85em; font-weight:800;'>({count}{last_res})</span>"
 
     off_rows = []
     for e in entries:
         tid = e["id"]
         st = official_stats[tid]
         alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
-        off_rows.append({"team_id": tid, "team": e.get("entry_name", "Team"), "manager": alias, "w": st["wins"], "d": st["draws"], "l": st["losses"], "pf": st["pf"], "pts": st["pts"]})
+        alias_with_streak = alias + get_streak_html(off_res[tid])
+        off_rows.append({"team_id": tid, "team": e.get("entry_name", "Team"), "manager": alias_with_streak, "w": st["wins"], "d": st["draws"], "l": st["losses"], "pf": st["pf"], "pts": st["pts"]})
+    
     off_rows = sorted(off_rows, key=lambda x: (x["pts"], x["pf"]), reverse=True)
     off_rank_map = {}
     for idx, r in enumerate(off_rows, 1):
@@ -1574,7 +1602,9 @@ def get_standings(league_id: int = 63):
         tid = e["id"]
         st = live_stats[tid]
         alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
-        live_rows.append({"team_id": tid, "team": e.get("entry_name", "Team"), "manager": alias, "w": st["wins"], "d": st["draws"], "l": st["losses"], "pf": st["pf"], "pts": st["pts"]})
+        alias_with_streak = alias + get_streak_html(liv_res[tid])
+        live_rows.append({"team_id": tid, "team": e.get("entry_name", "Team"), "manager": alias_with_streak, "w": st["wins"], "d": st["draws"], "l": st["losses"], "pf": st["pf"], "pts": st["pts"]})
+    
     live_rows = sorted(live_rows, key=lambda x: (x["pts"], x["pf"]), reverse=True)
     for idx, r in enumerate(live_rows, 1):
         r["pos"] = idx
