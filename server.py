@@ -1500,6 +1500,20 @@ def get_standings(league_id: int = 63):
     current_gw, _ = detect_current_gw(league_details)
     last_completed_gw = current_gw - 1 if current_gw > 1 else 1
 
+    # Check if the lineup deadline has passed for the current gameweek
+    gw_started = True
+    events_list = static_data.get("events", []) if static_data else []
+    if isinstance(events_list, dict):
+        events_list = events_list.get("data", [])
+    target_ev = next((ev for ev in events_list if ev.get("id") == current_gw), None)
+    if target_ev and target_ev.get("deadline_time"):
+        try:
+            deadline_dt = datetime.fromisoformat(target_ev["deadline_time"].replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) < deadline_dt:
+                gw_started = False
+        except Exception:
+            pass
+
     entries = league_details.get("league_entries", []) if league_details else []
     matches = league_details.get("matches", []) if league_details else []
     lentry_map = {e["id"]: e for e in entries}
@@ -1550,6 +1564,9 @@ def get_standings(league_id: int = 63):
                     st_map[t2_id]["draws"] += 1; st_map[t2_id]["pts"] += 1
                     res_map[t1_id].append("D"); res_map[t2_id].append("D")
         elif ev == current_gw:
+            if not gw_started:
+                continue
+                
             if m.get("finished", False):
                 s1, s2 = safe_int(m.get("league_entry_1_points", 0)), safe_int(m.get("league_entry_2_points", 0))
             else:
