@@ -2870,6 +2870,12 @@ async def save_subscription(request: Request):
     if not sub_obj or not isinstance(sub_obj, dict):
         return {"status": "invalid subscription"}
 
+    # DIAGNOSTIC: Explicitly check if Render has your credentials
+    upstash_url = os.getenv("UPSTASH_URL")
+    upstash_token = os.getenv("UPSTASH_TOKEN")
+    if not upstash_url or not upstash_token:
+        return {"status": "DATABASE_MISSING"}
+
     subs_registry = upstash_get_json("cdp_push_subs_v2", {})
     if not isinstance(subs_registry, dict):
         subs_registry = {}

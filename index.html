@@ -2495,19 +2495,31 @@
                 }
                 const existingSub = await registration.pushManager.getSubscription();
                 if (existingSub) await existingSub.unsubscribe();
+                
                 const subscription = await registration.pushManager.subscribe({
                     userVisibleOnly: true,
                     applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
                 });
+                
                 const activeAlias = savedAlias || localStorage.getItem("cdp_alias") || "Admin";
-                await fetch("/api/save_subscription", {
+                
+                // Catch database failures instead of failing silently
+                const response = await fetch("/api/save_subscription", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ alias: activeAlias, subscription: subscription })
                 });
+                
+                const data = await response.json();
+                
+                if (data.status === "DATABASE_MISSING") {
+                    alert("❌ ERROR: UPSTASH_URL or UPSTASH_TOKEN is missing from your Render Environment Variables. The token could not be saved.");
+                    return;
+                }
+                
                 const banner = document.getElementById("push-prompt-banner");
                 if (banner) banner.style.display = "none";
-                alert(`✅ Live Match & Deadline alerts enabled for ${activeAlias}!`);
+                alert(`✅ Live Match & Deadline alerts enabled and saved to cloud for ${activeAlias}!`);
             } catch (err) {
                 alert("Could not enable notifications: " + err.message);
             }
