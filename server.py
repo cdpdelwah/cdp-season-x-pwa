@@ -1533,14 +1533,13 @@ def get_standings(league_id: int = 63):
         except Exception:
             pass
 
+    prev_off_stats = {e["id"]: {"pf": 0, "pts": 0} for e in entries}
     official_stats = {e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0} for e in entries}
     live_stats = {e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0} for e in entries}
     
-    # Track results sequences to calculate streaks
     off_res = {e["id"]: [] for e in entries}
     liv_res = {e["id"]: [] for e in entries}
 
-    # Ensure matches are evaluated in exact chronological order for accurate streaks
     sorted_matches = sorted(matches, key=lambda x: x.get("event", 0))
 
     for m in sorted_matches:
@@ -1563,6 +1562,18 @@ def get_standings(league_id: int = 63):
                     st_map[t1_id]["draws"] += 1; st_map[t1_id]["pts"] += 1
                     st_map[t2_id]["draws"] += 1; st_map[t2_id]["pts"] += 1
                     res_map[t1_id].append("D"); res_map[t2_id].append("D")
+            
+            if ev < last_completed_gw:
+                prev_off_stats[t1_id]["pf"] += s1
+                prev_off_stats[t2_id]["pf"] += s2
+                if s1 > s2:
+                    prev_off_stats[t1_id]["pts"] += 3
+                elif s2 > s1:
+                    prev_off_stats[t2_id]["pts"] += 3
+                else:
+                    prev_off_stats[t1_id]["pts"] += 1
+                    prev_off_stats[t2_id]["pts"] += 1
+
         elif ev == current_gw:
             if not gw_started:
                 continue
@@ -1600,6 +1611,11 @@ def get_standings(league_id: int = 63):
         color = "#22c55e" if last_res == "W" else ("#ef4444" if last_res == "L" else "#94a3b8")
         return f" <span style='color:{color}; font-size:0.85em; font-weight:800;'>({count}{last_res})</span>"
 
+    # Calculate previous official ranks
+    prev_off_rows = [{"team_id": tid, "pf": st["pf"], "pts": st["pts"]} for tid, st in prev_off_stats.items()]
+    prev_off_rows = sorted(prev_off_rows, key=lambda x: (x["pts"], x["pf"]), reverse=True)
+    prev_off_rank_map = {r["team_id"]: idx for idx, r in enumerate(prev_off_rows, 1)}
+
     off_rows = []
     for e in entries:
         tid = e["id"]
@@ -1613,6 +1629,14 @@ def get_standings(league_id: int = 63):
     for idx, r in enumerate(off_rows, 1):
         r["pos"] = idx
         off_rank_map[r["team_id"]] = idx
+        
+        diff = prev_off_rank_map.get(r["team_id"], idx) - idx
+        if diff > 0:
+            r["move_html"] = f"<span style='color:#22c55e; font-weight:800;'>▲ {diff}</span>"
+        elif diff < 0:
+            r["move_html"] = f"<span style='color:#ef4444; font-weight:800;'>▼ {abs(diff)}</span>"
+        else:
+            r["move_html"] = "<span style='color:#64748b; font-weight:700;'>▬</span>"
 
     live_rows = []
     for e in entries:
