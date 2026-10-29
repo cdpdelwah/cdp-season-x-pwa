@@ -1924,9 +1924,10 @@ def load_trade_block_file():
     upstash_url = os.getenv("UPSTASH_URL")
     upstash_token = os.getenv("UPSTASH_TOKEN")
     if upstash_url and upstash_token:
+        clean_url = upstash_url.rstrip("/")
         try:
             headers = {"Authorization": f"Bearer {upstash_token}"}
-            resp = requests.get(f"{upstash_url}/get/cdp_trade_block", headers=headers, timeout=4)
+            resp = requests.get(f"{clean_url}/get/cdp_trade_block", headers=headers, timeout=6)
             if resp.status_code == 200:
                 res_str = resp.json().get("result")
                 if res_str:
@@ -1950,9 +1951,10 @@ def save_trade_block_file(listings):
     upstash_url = os.getenv("UPSTASH_URL")
     upstash_token = os.getenv("UPSTASH_TOKEN")
     if upstash_url and upstash_token:
+        clean_url = upstash_url.rstrip("/")
         try:
             headers = {"Authorization": f"Bearer {upstash_token}"}
-            requests.post(f"{upstash_url}/set/cdp_trade_block", data=json.dumps(listings), headers=headers, timeout=4)
+            requests.post(f"{clean_url}/set/cdp_trade_block", data=json.dumps(listings), headers=headers, timeout=6)
         except Exception:
             pass
 
@@ -2779,9 +2781,10 @@ def upstash_get_json(key: str, default_val):
     upstash_token = os.getenv("UPSTASH_TOKEN")
     if not (upstash_url and upstash_token):
         return default_val
+    clean_url = upstash_url.rstrip("/")
     try:
         headers = {"Authorization": f"Bearer {upstash_token}"}
-        r = requests.get(f"{upstash_url}/get/{key}", headers=headers, timeout=4)
+        r = requests.get(f"{clean_url}/get/{key}", headers=headers, timeout=6)
         if r.status_code == 200:
             res_str = r.json().get("result")
             if res_str:
@@ -2795,9 +2798,10 @@ def upstash_set_json(key: str, val):
     upstash_token = os.getenv("UPSTASH_TOKEN")
     if not (upstash_url and upstash_token):
         return
+    clean_url = upstash_url.rstrip("/")
     try:
         headers = {"Authorization": f"Bearer {upstash_token}"}
-        requests.post(f"{upstash_url}/set/{key}", data=json.dumps(val), headers=headers, timeout=4)
+        requests.post(f"{clean_url}/set/{key}", data=json.dumps(val), headers=headers, timeout=6)
     except Exception:
         pass
 
