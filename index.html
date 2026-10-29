@@ -951,7 +951,15 @@
                     gwSelect.style.display = "block";
                 }
                 
-                window.currentMatches = json.matches || [];
+                let matchesArray = json.matches || [];
+                // Sort the array so the logged-in user's match is always index 0
+                matchesArray.sort((a, b) => {
+                    const aIsMe = (a.m1 === savedAlias || a.m2 === savedAlias);
+                    const bIsMe = (b.m1 === savedAlias || b.m2 === savedAlias);
+                    return (aIsMe === bIsMe) ? 0 : aIsMe ? -1 : 1;
+                });
+                
+                window.currentMatches = matchesArray;
                 listEl.innerHTML = "";
                 
                 window.currentMatches.forEach((m, idx) => {
@@ -1438,7 +1446,15 @@
                     gwSel.style.display = 'block';
                 }
 
-                window.currentMatches = json.matches || [];
+                let cupMatchesArray = json.matches || [];
+                // Sort the array so the logged-in user's cup tie is always index 0
+                cupMatchesArray.sort((a, b) => {
+                    const aIsMe = (a.m1 === savedAlias || a.m2 === savedAlias);
+                    const bIsMe = (b.m1 === savedAlias || b.m2 === savedAlias);
+                    return (aIsMe === bIsMe) ? 0 : aIsMe ? -1 : 1;
+                });
+
+                window.currentMatches = cupMatchesArray;
                 listEl.innerHTML = "";
 
                 window.currentMatches.forEach((m, idx) => {
