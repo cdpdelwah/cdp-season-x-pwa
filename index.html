@@ -353,16 +353,37 @@
         <div id="standings-content" style="width: 100%;"></div>
     </div>
 
-    <!-- SCREEN 6: CUP & BUCKET (PLACEHOLDER FOR NOW) -->
+    <!-- SCREEN 6: CUP & BUCKET COMPETITION -->
     <div id="screen-cup" class="app-screen">
         <div class="top-nav-bar">
             <button class="back-home-btn" onclick="navigate('home')">← Home</button>
+            <button class="refresh-btn" onclick="refreshCupScreen()">🔄 Refresh Cup</button>
         </div>
-        <div class="header">
-            <h1>🪣 Cup & Bucket Competition</h1>
-            <p>32 Team Inter League Cup • CDP, SDM, BDR and LDE</p>
+        <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h1 id="cup-title">🏆 Cup & Bucket</h1>
+                <p>32 Team Inter League Cup • CDP, SDM, BDR and LDE</p>
+            </div>
+            <div id="cup-filters-bar" style="display: flex; gap: 8px; align-items: center;">
+                <select id="cup-mgr-select" class="white-select" onchange="onCupManagerChange()">
+                    <option value="All">All Managers</option>
+                </select>
+                <select id="cup-gw-select" class="white-select" onchange="onCupGwChange()">
+                    <option value="0">Cup GW</option>
+                </select>
+            </div>
         </div>
-        <div class="alert-box alert-info">🚧 Cup & Bucket module is queued for the next phase.</div>
+        <div class="sub-tabs">
+            <button class="sub-tab-btn active" id="cup-sub-live" onclick="switchCupSubTab('live')">🔴 Live Cup Matchday</button>
+            <button class="sub-tab-btn" id="cup-sub-standings" onclick="switchCupSubTab('standings')">📊 32 Team Group Standings</button>
+        </div>
+        <div id="cup-live-pane" style="width: 100%;">
+            <div class="list-container" id="cup-match-list"></div>
+        </div>
+        <div id="cup-standings-pane" style="width: 100%; display: none;">
+            <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 10px;">Combined 32 Team Group Standings (GW 6 to GW 20) • Tiebreakers: 1. Points → 2. Player Points (PF) → 3. Head to Head → 4. Best XI Player Score</p>
+            <div id="cup-standings-box" style="width: 100%;"></div>
+        </div>
     </div>
 
     <!-- SCREEN 7: SQUAD ANALYSER -->
@@ -705,6 +726,7 @@
             else if (screenId === 'scores') switchLeague(activeLeagueId);
             else if (screenId === 'epl') fetchEplScores("0");
             else if (screenId === 'standings') switchStandingsLeague(activeLeagueId);
+            else if (screenId === 'cup') initCupScreen();
             else if (screenId === 'squad') switchSquadLeague();
             else if (screenId === 'trade') switchTradeLeague();
             else if (screenId === 'gacs') switchGacsLeague(activeLeagueId);
@@ -1323,6 +1345,177 @@
                 <thead><tr><th>GW</th><th>Manager</th><th>YC</th><th>RC</th><th>Card Pts</th><th>Matchup</th><th>Result Changed?</th></tr></thead>
                 <tbody>${rows.map(r => `<tr><td>${r.gw}</td><td>${r.manager}</td><td>${r.yc}</td><td>${r.rc}</td><td>${r.card_pts}</td><td>${r.matchup}</td><td>${r.impact}</td></tr>`).join('')}</tbody>
             </table></div>`;
+        }
+
+        // ==========================================
+        // CUP & BUCKET SCREEN
+        // ==========================================
+        window.cupSubTab = 'live';
+
+        function initCupScreen() {
+            const mgrSel = document.getElementById('cup-mgr-select');
+            if (mgrSel) mgrSel.value = 'All';
+            const gwSel = document.getElementById('cup-gw-select');
+            if (gwSel) gwSel.style.display = 'block';
+            switchCupSubTab('live');
+        }
+
+        function refreshCupScreen() {
+            if (window.cupSubTab === 'standings') {
+                fetchCupStandings();
+            } else {
+                const gwVal = document.getElementById('cup-gw-select').value || "0";
+                const mgrVal = document.getElementById('cup-mgr-select').value || "All";
+                fetchCupMatches(gwVal, mgrVal);
+            }
+        }
+
+        function switchCupSubTab(tab) {
+            window.cupSubTab = tab;
+            document.getElementById('cup-sub-live').classList.toggle('active', tab === 'live');
+            document.getElementById('cup-sub-standings').classList.toggle('active', tab === 'standings');
+            document.getElementById('cup-live-pane').style.display = (tab === 'live') ? 'block' : 'none';
+            document.getElementById('cup-standings-pane').style.display = (tab === 'standings') ? 'block' : 'none';
+            document.getElementById('cup-filters-bar').style.display = (tab === 'live') ? 'flex' : 'none';
+
+            if (tab === 'live') {
+                const gwVal = document.getElementById('cup-gw-select').value || "0";
+                const mgrVal = document.getElementById('cup-mgr-select').value || "All";
+                fetchCupMatches(gwVal, mgrVal);
+            } else {
+                fetchCupStandings();
+            }
+        }
+
+        function onCupManagerChange() {
+            const mgrVal = document.getElementById('cup-mgr-select').value;
+            const gwSel = document.getElementById('cup-gw-select');
+            if (mgrVal !== 'All') {
+                gwSel.style.display = 'none';
+                fetchCupMatches("0", mgrVal);
+            } else {
+                gwSel.style.display = 'block';
+                fetchCupMatches(gwSel.value || "0", "All");
+            }
+        }
+
+        function onCupGwChange() {
+            const gwVal = document.getElementById('cup-gw-select').value;
+            const mgrSel = document.getElementById('cup-mgr-select');
+            if (mgrSel) mgrSel.value = 'All';
+            fetchCupMatches(gwVal, "All");
+        }
+
+        async function fetchCupMatches(gw = "0", manager = "All") {
+            const listEl = document.getElementById('cup-match-list');
+            listEl.innerHTML = "<p style='text-align:center; color:#94a3b8; grid-column: 1 / -1; padding: 20px;'>Loading 32-team inter-league Cup & Bucket scores...</p>";
+            try {
+                const res = await fetch(`/api/cup_matches?gw=${gw}&manager=${encodeURIComponent(manager)}`);
+                const json = await res.json();
+                if (!json.exists) {
+                    listEl.innerHTML = `<div class="alert-box alert-warn" style="grid-column: 1 / -1;">${json.message}</div>`;
+                    return;
+                }
+
+                const gwSel = document.getElementById('cup-gw-select');
+                if (json.all_cup_gws && json.all_cup_gws.length > 0) {
+                    gwSel.innerHTML = json.all_cup_gws.map(g => `<option value="${g}">Cup GW ${g}</option>`).join('');
+                    gwSel.value = String(json.gw);
+                }
+
+                const mgrSel = document.getElementById('cup-mgr-select');
+                if (json.managers && mgrSel) {
+                    mgrSel.innerHTML = `<option value="All">All Managers</option>` + json.managers.map(m => `<option value="${m}">${m}</option>`).join('');
+                    mgrSel.value = json.selected_manager || "All";
+                }
+
+                const isMgrMode = (json.selected_manager && json.selected_manager !== "All");
+                if (isMgrMode) {
+                    document.getElementById('cup-title').innerText = `🏆 Cup & Bucket (${json.selected_manager})`;
+                    gwSel.style.display = 'none';
+                } else {
+                    document.getElementById('cup-title').innerText = `🏆 Cup & Bucket (GW ${json.gw})`;
+                    gwSel.style.display = 'block';
+                }
+
+                window.currentMatches = json.matches || [];
+                listEl.innerHTML = "";
+
+                window.currentMatches.forEach((m, idx) => {
+                    let c1Class = "c-tie", c2Class = "c-tie", barColor = "#94a3b8";
+                    if (m.pr1 > m.pr2) { c1Class = "c1"; barColor = "#f59e0b"; }
+                    else if (m.pr2 > m.pr1) { c2Class = "c2"; barColor = "#38bdf8"; }
+
+                    const matchGw = m.gw || json.gw;
+                    const topLabel = isMgrMode ? `GW ${matchGw} • ${m.stage}` : m.stage;
+
+                    listEl.innerHTML += `
+                        <div class="match-card" onclick="openMatchModal(${idx}, ${matchGw})" style="cursor: pointer;">
+                            <div style="font-size:0.72rem; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:6px; border-bottom:1px solid #182030; padding-bottom:4px; display:flex; justify-content:space-between;">
+                                <span>${topLabel}</span>
+                                <span style="color:${m.is_fin ? '#94a3b8' : '#22c55e'};">${m.is_fin ? '✅ FINAL' : '🟢 LIVE'}</span>
+                            </div>
+                            <div class="m-header">
+                                <div class="m1-name">${m.m1} <span style="color:#94a3b8; font-size:0.75rem;">(${m.div1})</span></div>
+                                <div class="m2-name"><span style="color:#94a3b8; font-size:0.75rem;">(${m.div2})</span> ${m.m2}</div>
+                            </div>
+                            <div class="scores">
+                                <div class="score-box">
+                                    <div class="score-val">${m.s1}</div>
+                                    <div class="proj">Proj: ${m.p1.toFixed(1)} (${m.r1})</div>
+                                    <div class="bench">Bench: ${m.b1} pts | Opt: ${m.opt1} pts</div>
+                                </div>
+                                <div class="vs">vs</div>
+                                <div class="score-box right">
+                                    <div class="score-val">${m.s2}</div>
+                                    <div class="proj">Proj: ${m.p2.toFixed(1)} (${m.r2})</div>
+                                    <div class="bench">Bench: ${m.b2} pts | Opt: ${m.opt2} pts</div>
+                                </div>
+                            </div>
+                            <div class="progress-bg">
+                                <div class="progress-bar-1" style="width: ${m.pr1}%; background-color: ${barColor};"></div>
+                            </div>
+                            <div class="win-pct">
+                                <span class="${c1Class}">Win: ${m.pr1}%</span>
+                                <span class="${c2Class}">Win: ${m.pr2}%</span>
+                            </div>
+                        </div>
+                    `;
+                });
+            } catch (e) {
+                listEl.innerHTML = "<p style='color:#ef4444; text-align:center; grid-column: 1 / -1;'>Failed to load Cup & Bucket matches.</p>";
+            }
+        }
+
+        async function fetchCupStandings() {
+            const box = document.getElementById('cup-standings-box');
+            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Calculating 32-team group standings across all Cup matchdays...</p>";
+            try {
+                const res = await fetch('/api/cup_standings');
+                const data = await res.json();
+                const rows = data.rows || [];
+                if (!rows.length) {
+                    box.innerHTML = `<div class="alert-box alert-info">Group standings calculations unavailable.</div>`;
+                    return;
+                }
+                box.innerHTML = `<div class="table-wrap"><table class="clean-table">
+                    <thead><tr><th>Pos</th><th>Zone</th><th>Manager</th><th>Div</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th><th>Best XI</th></tr></thead>
+                    <tbody>${rows.map(r => `<tr>
+                        <td>${r.pos}</td>
+                        <td style="font-weight:700;">${r.zone}</td>
+                        <td style="color:#fff; font-weight:800;">${r.manager}</td>
+                        <td>${r.div}</td>
+                        <td>${r.w}</td>
+                        <td>${r.d}</td>
+                        <td>${r.l}</td>
+                        <td>${r.pf}</td>
+                        <td style="color:#f59e0b; font-weight:900;">${r.pts}</td>
+                        <td>${r.best_xi}</td>
+                    </tr>`).join('')}</tbody>
+                </table></div>`;
+            } catch (e) {
+                box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load Cup group standings.</p>";
+            }
         }
 
         // ==========================================

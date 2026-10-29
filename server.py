@@ -2367,6 +2367,340 @@ def download_power_rankings():
     return FileResponse(target_file, filename=target_file.name, media_type="application/octet-stream")
 
 # ==========================================
+# 11. CUP & BUCKET COMPETITION (32 TEAMS)
+# ==========================================
+@ttl_cache(300)
+def cached_32_teams_registry():
+    return engine.get_all_32_teams_registry()
+
+@ttl_cache(600)
+def load_cup_matches_df():
+    valid_exts = [".ods", ".xlsx", ".xls", ".csv"]
+    target_file = None
+    for folder in [assets_folder, base_dir]:
+        if folder.exists() and folder.is_dir():
+            for f in folder.iterdir():
+                if f.is_file() and f.suffix.lower() in valid_exts and "cupmatch" in f.name.lower().replace(" ", "").replace("_", ""):
+                    target_file = f
+                    break
+        if target_file:
+            break
+    if not target_file or not target_file.exists():
+        return None
+    ext = target_file.suffix.lower()
+    try:
+        if ext == ".csv":
+            df = pd.read_csv(target_file)
+        elif ext == ".ods":
+            df = pd.read_excel(target_file, engine="odf")
+        else:
+            df = pd.read_excel(target_file, sheet_name=0, engine="openpyxl")
+        df.columns = [str(c).strip().title() for c in df.columns]
+        df["Week"] = pd.to_numeric(df["Week"], errors="coerce").fillna(0).astype(int)
+        return df
+    except Exception:
+        return None
+
+@ttl_cache(60)
+def evaluate_cup_manager_gw(manager_alias: str, gw_num: int):
+    teams_reg = cached_32_teams_registry() or {}
+    static_data = cached_fpl_static()
+    all_fixtures = cached_all_fixtures()
+    t_info = teams_reg.get(str(manager_alias).strip().lower())
+    if not static_data or not t_info or not t_info.get("entry_id"):
+        return {
+            "score": 0, "proj": 0.0, "high_player": 0,
+            "s_recs": [], "b_recs": [], "act": [], "inact": [],
+            "in_play": 0, "ytp": 0, "bench_pts": 0, "opt": 0
+        }
+
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
+    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    element_lookup = {item["id"]: item for item in static_data["elements"]}
+
+    picks = cached_entry_event(t_info["entry_id"], gw_num)
+    live_data = cached_live_event(gw_num)
+    live_elements = live_data.get("elements", {}) if live_data else {}
+
+    club_minutes = {}
+    for elem_str_id, e_info in live_elements.items():
+        try:
+            c_id = element_lookup.get(int(elem_str_id), {}).get("team")
+            if c_id:
+                club_minutes[c_id] = club_minutes.get(c_id, 0) + safe_int(e_info.get("stats", {}).get("minutes", 0))
+        except Exception:
+            pass
+
+    s_recs, b_recs, live_score, proj_score, in_play, ytp, bench_pts, opt_score = full_evaluate_lineup(
+        picks, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_num, all_fixtures
+    )
+    act, inact = split_squad_records(s_recs, b_recs)
+    max_p = max([safe_int(p.get("Pts", 0)) for p in act], default=0)
+
+    return {
+        "score": safe_int(live_score),
+        "proj": float(proj_score),
+        "high_player": max_p,
+        "s_recs": s_recs,
+        "b_recs": b_recs,
+        "act": act,
+        "inact": inact,
+        "in_play": in_play,
+        "ytp": ytp,
+        "bench_pts": safe_int(bench_pts),
+        "opt": safe_int(opt_score)
+    }
+
+@app.get("/api/cup_matches")
+def get_cup_matches(gw: str = "0", manager: str = "All"):
+    cup_df = load_cup_matches_df()
+    if cup_df is None or cup_df.empty:
+        return {"exists": False, "message": "No 'cupmatches' spreadsheet found in your Assets folder."}
+
+    static_data = cached_fpl_static()
+    all_fixtures = cached_all_fixtures() or []
+    league_details, _ = cached_league_data(63)
+    current_gw, _ = detect_current_gw(league_details)
+    teams_reg = cached_32_teams_registry() or {}
+    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]} if static_data else {}
+
+    all_cup_gws = sorted([int(w) for w in cup_df["Week"].unique() if pd.notna(w) and int(w) > 0])
+    if current_gw in all_cup_gws:
+        default_cup_gw = current_gw
+    else:
+        past_gws = [w for w in all_cup_gws if w <= current_gw]
+        default_cup_gw = max(past_gws) if past_gws else (all_cup_gws[0] if all_cup_gws else 1)
+
+    try:
+        req_gw = int(gw)
+    except Exception:
+        req_gw = 0
+    selected_gw = req_gw if req_gw in all_cup_gws else default_cup_gw
+
+    unique_mgrs = set()
+    for _, r in cup_df.iterrows():
+        t1 = str(r.get("Team 1", "")).strip()
+        t2 = str(r.get("Team 2", "")).strip()
+        if t1 and t1.lower() != "nan": unique_mgrs.add(t1)
+        if t2 and t2.lower() != "nan": unique_mgrs.add(t2)
+    all_managers = sorted(list(unique_mgrs), key=lambda x: x.lower())
+
+    mgr_clean = str(manager).strip()
+    is_mgr_mode = bool(mgr_clean and mgr_clean.lower() != "all")
+
+    if is_mgr_mode:
+        filtered_df = cup_df[
+            (cup_df["Team 1"].astype(str).str.strip().str.lower() == mgr_clean.lower()) |
+            (cup_df["Team 2"].astype(str).str.strip().str.lower() == mgr_clean.lower())
+        ].copy()
+        filtered_df = filtered_df[filtered_df["Week"] > 0].sort_values(by="Week", ascending=False)
+    else:
+        filtered_df = cup_df[cup_df["Week"] == selected_gw].copy()
+
+    match_rows = []
+    pairs_to_eval = set()
+    for _, r in filtered_df.iterrows():
+        m1 = str(r.get("Team 1", "")).strip()
+        m2 = str(r.get("Team 2", "")).strip()
+        w_num = safe_int(r.get("Week", 0))
+        if not m1 or not m2 or m1.lower() == "nan" or m2.lower() == "nan" or w_num <= 0:
+            continue
+        match_rows.append((w_num, m1, m2, str(r.get("Stage", "")).strip(), str(r.get("Leg", "")).strip()))
+        pairs_to_eval.add((m1, w_num))
+        pairs_to_eval.add((m2, w_num))
+
+    eval_cache = {}
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = {ex.submit(evaluate_cup_manager_gw, m_alias, w_num): (m_alias, w_num) for (m_alias, w_num) in pairs_to_eval}
+        for fut in futures:
+            k = futures[fut]
+            try:
+                eval_cache[k] = fut.result()
+            except Exception:
+                eval_cache[k] = evaluate_cup_manager_gw("", 0)
+
+    def calc_win_prob(live1, proj1, to_play1, live2, proj2, to_play2, is_finished):
+        if is_finished:
+            return (100, 0) if live1 > live2 else ((0, 100) if live2 > live1 else (50, 50))
+        total_left = to_play1 + to_play2
+        if total_left == 0:
+            diff = abs(live1 - live2)
+            return ((99, 1) if diff <= 5 else (100, 0)) if live1 > live2 else (((1, 99) if diff <= 5 else (0, 100)) if live2 > live1 else (50, 50))
+        prob1 = 1.0 / (1.0 + math.exp(-(proj1 - proj2) / (max(6.0, total_left * 2.8) / 1.7)))
+        pct1 = max(1, min(99, int(round(prob1 * 100))))
+        return pct1, 100 - pct1
+
+    def fmt_rem(i, y):
+        if i > 0 and y > 0:
+            return f"{i} in play, {y} yet to play"
+        return f"{i} in play" if i > 0 else (f"{y} yet to play" if y > 0 else "0 to play")
+
+    matches_out = []
+    for w_num, m1, m2, stage, leg in match_rows:
+        r1 = eval_cache.get((m1, w_num))
+        r2 = eval_cache.get((m2, w_num))
+        div1 = str(teams_reg.get(m1.lower(), {}).get("league_key", "")).split(" ")[0]
+        div2 = str(teams_reg.get(m2.lower(), {}).get("league_key", "")).split(" ")[0]
+
+        gw_epl_fixes = [f for f in all_fixtures if f.get("event") == w_num]
+        gw_fin = all(f.get("finished", False) for f in gw_epl_fixes) if gw_epl_fixes else False
+        is_fin = gw_fin and (r1["in_play"] + r1["ytp"] + r2["in_play"] + r2["ytp"] == 0) and (r1["score"] > 0 or r2["score"] > 0)
+
+        pr1, pr2 = calc_win_prob(r1["score"], r1["proj"], r1["in_play"] + r1["ytp"], r2["score"], r2["proj"], r2["in_play"] + r2["ytp"], is_fin)
+        stage_tag = f"{stage} {leg}".strip()
+
+        matches_out.append({
+            "gw": w_num,
+            "stage": stage_tag,
+            "m1": m1, "div1": div1, "s1": r1["score"], "p1": r1["proj"], "r1": fmt_rem(r1["in_play"], r1["ytp"]), "pr1": pr1, "b1": r1["bench_pts"], "opt1": r1["opt"],
+            "m2": m2, "div2": div2, "s2": r2["score"], "p2": r2["proj"], "r2": fmt_rem(r2["in_play"], r2["ytp"]), "pr2": pr2, "b2": r2["bench_pts"], "opt2": r2["opt"],
+            "is_fin": is_fin,
+            "spotlight": {
+                "m1_meta": {"score": r1["score"], "bench": r1["bench_pts"], "opt": r1["opt"]},
+                "m2_meta": {"score": r2["score"], "bench": r2["bench_pts"], "opt": r2["opt"]},
+                "progression": make_progression_payload(m1, m2, r1["act"], r2["act"], gw_epl_fixes, team_map),
+                "pitch_m1": make_pitch_payload(r1["act"], r1["inact"]),
+                "pitch_m2": make_pitch_payload(r2["act"], r2["inact"]),
+                "table_m1": make_table_payload(r1["s_recs"], r1["b_recs"]),
+                "table_m2": make_table_payload(r2["s_recs"], r2["b_recs"])
+            }
+        })
+
+    return {
+        "exists": True,
+        "gw": selected_gw,
+        "default_gw": default_cup_gw,
+        "all_cup_gws": all_cup_gws,
+        "managers": all_managers,
+        "selected_manager": mgr_clean if is_mgr_mode else "All",
+        "matches": matches_out
+    }
+
+@ttl_cache(300)
+def compute_cup_group_standings():
+    cup_df = load_cup_matches_df()
+    if cup_df is None or cup_df.empty:
+        return []
+
+    teams_reg = cached_32_teams_registry() or {}
+    league_details, _ = cached_league_data(63)
+    current_gw, _ = detect_current_gw(league_details)
+
+    group_matches = cup_df[
+        (cup_df["Week"] <= 20) &
+        (cup_df["Week"] <= current_gw) &
+        (cup_df["Stage"].astype(str).str.lower().str.contains("group"))
+    ].copy()
+
+    unique_aliases = set()
+    for _, r in cup_df[(cup_df["Week"] <= 20) & (cup_df["Stage"].astype(str).str.lower().str.contains("group"))].iterrows():
+        m1 = str(r.get("Team 1", "")).strip()
+        m2 = str(r.get("Team 2", "")).strip()
+        if m1 and m1.lower() != "nan": unique_aliases.add(m1)
+        if m2 and m2.lower() != "nan": unique_aliases.add(m2)
+
+    pairs = set()
+    for _, r in group_matches.iterrows():
+        m1 = str(r.get("Team 1", "")).strip()
+        m2 = str(r.get("Team 2", "")).strip()
+        w_num = safe_int(r.get("Week", 0))
+        if m1 in unique_aliases and m2 in unique_aliases and w_num > 0:
+            pairs.add((m1, w_num))
+            pairs.add((m2, w_num))
+
+    score_cache = {}
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = {ex.submit(evaluate_cup_manager_gw, m, w): (m, w) for (m, w) in pairs}
+        for fut in futures:
+            k = futures[fut]
+            try:
+                res = fut.result()
+                score_cache[k] = (res["score"], res["high_player"])
+            except Exception:
+                score_cache[k] = (0, 0)
+
+    standings_dict = {
+        m: {
+            "Manager": m,
+            "Division": str(teams_reg.get(m.lower(), {}).get("league_key", "")).split(" ")[0],
+            "W": 0, "D": 0, "L": 0, "PF": 0, "Pts": 0, "High_Score": 0, "H2H": {}
+        }
+        for m in unique_aliases
+    }
+
+    for _, r in group_matches.iterrows():
+        m1 = str(r.get("Team 1", "")).strip()
+        m2 = str(r.get("Team 2", "")).strip()
+        gw = safe_int(r.get("Week", 0))
+        if m1 not in standings_dict or m2 not in standings_dict:
+            continue
+
+        s1, high1 = score_cache.get((m1, gw), (0, 0))
+        s2, high2 = score_cache.get((m2, gw), (0, 0))
+        if s1 == 0 and s2 == 0:
+            continue
+
+        standings_dict[m1]["PF"] += s1
+        standings_dict[m2]["PF"] += s2
+        standings_dict[m1]["High_Score"] = max(standings_dict[m1]["High_Score"], high1)
+        standings_dict[m2]["High_Score"] = max(standings_dict[m2]["High_Score"], high2)
+
+        if s1 > s2:
+            standings_dict[m1]["W"] += 1
+            standings_dict[m1]["Pts"] += 3
+            standings_dict[m2]["L"] += 1
+            standings_dict[m1]["H2H"][m2] = standings_dict[m1]["H2H"].get(m2, 0) + 3
+        elif s2 > s1:
+            standings_dict[m2]["W"] += 1
+            standings_dict[m2]["Pts"] += 3
+            standings_dict[m1]["L"] += 1
+            standings_dict[m2]["H2H"][m1] = standings_dict[m2]["H2H"].get(m1, 0) + 3
+        else:
+            standings_dict[m1]["D"] += 1
+            standings_dict[m1]["Pts"] += 1
+            standings_dict[m2]["D"] += 1
+            standings_dict[m2]["Pts"] += 1
+            standings_dict[m1]["H2H"][m2] = standings_dict[m1]["H2H"].get(m2, 0) + 1
+            standings_dict[m2]["H2H"][m1] = standings_dict[m2]["H2H"].get(m1, 0) + 1
+
+    def sort_tiebreakers(a, b):
+        if a["Pts"] != b["Pts"]:
+            return b["Pts"] - a["Pts"]
+        if a["PF"] != b["PF"]:
+            return b["PF"] - a["PF"]
+        h2h_a = a["H2H"].get(b["Manager"], 0)
+        h2h_b = b["H2H"].get(a["Manager"], 0)
+        if h2h_a != h2h_b:
+            return h2h_b - h2h_a
+        return b["High_Score"] - a["High_Score"]
+
+    sorted_rows = sorted(list(standings_dict.values()), key=functools.cmp_to_key(sort_tiebreakers))
+    display_table = []
+    for rank, item in enumerate(sorted_rows, 1):
+        short_zone = "🏆 Top 8" if rank <= 8 else ("⚔️ 9 - 24" if rank <= 24 else "🪣 25 - 32")
+        display_table.append({
+            "pos": rank,
+            "zone": short_zone,
+            "manager": item["Manager"],
+            "div": item["Division"],
+            "w": item["W"],
+            "d": item["D"],
+            "l": item["L"],
+            "pf": item["PF"],
+            "pts": item["Pts"],
+            "best_xi": item["High_Score"]
+        })
+    return display_table
+
+@app.get("/api/cup_standings")
+def get_cup_standings():
+    rows = compute_cup_group_standings()
+    return {"rows": rows}
+
+# ==========================================
+# PUSH NOTIFICATIONS & LIVE EVENT ENGINE
+# ==========================================
+# ==========================================
 # PUSH NOTIFICATIONS & LIVE EVENT ENGINE
 # ==========================================
 def upstash_get_json(key: str, default_val):
