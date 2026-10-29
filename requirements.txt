@@ -5,3 +5,6 @@ cryptography
 pandas
 requests
 openpyxl
+odfpy
+pypdfium2
+Pillow
