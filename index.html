@@ -1207,20 +1207,20 @@
             if (window.standingsSubTab === 'live') {
                 let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">Live Standings - Active Round (GW ${d.current_gw}) • Updated continuously with active points.</p>
                 <div class="table-wrap"><table class="clean-table">
-                    <thead><tr><th>Pos</th><th>Move</th><th>Team</th><th>Manager</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th></tr></thead>
+                    <thead><tr><th>Pos</th><th>Move</th><th>Manager</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th></tr></thead>
                     <tbody>`;
                 (d.live_table || []).forEach(r => {
-                    html += `<tr><td>${r.pos}</td><td>${r.move_html}</td><td style="text-align:left; color:#fff; font-weight:700;">${r.team}</td><td>${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#f59e0b;">${r.pts}</td></tr>`;
+                    html += `<tr><td>${r.pos}</td><td>${r.move_html}</td><td style="text-align:left; color:#fff; font-weight:700;">${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#f59e0b;">${r.pts}</td></tr>`;
                 });
                 html += `</tbody></table></div>`;
                 box.innerHTML = html;
             } else if (window.standingsSubTab === 'off') {
                 let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">Official Standings - Frozen Table (GW ${d.last_completed_gw})</p>
                 <div class="table-wrap"><table class="clean-table">
-                    <thead><tr><th>Pos</th><th>Team</th><th>Manager</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th></tr></thead>
+                    <thead><tr><th>Pos</th><th>Manager</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th></tr></thead>
                     <tbody>`;
                 (d.official_table || []).forEach(r => {
-                    html += `<tr><td>${r.pos}</td><td style="text-align:left; color:#fff; font-weight:700;">${r.team}</td><td>${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#fff;">${r.pts}</td></tr>`;
+                    html += `<tr><td>${r.pos}</td><td style="text-align:left; color:#fff; font-weight:700;">${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#fff;">${r.pts}</td></tr>`;
                 });
                 html += `</tbody></table></div>`;
                 box.innerHTML = html;
