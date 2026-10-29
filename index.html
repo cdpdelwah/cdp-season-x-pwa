@@ -968,17 +968,16 @@
                     else if (m.pr2 > m.pr1) { c2Class = "c2"; }
 
                     const matchGw = m.gw || json.gw;
-                    const topLabel = isMgrMode ? `GW ${matchGw} • ${m.stage}` : m.stage;
 
                     listEl.innerHTML += `
                         <div class="match-card" onclick="openMatchModal(${idx}, ${matchGw})" style="cursor: pointer;">
                             <div style="font-size:0.72rem; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:6px; border-bottom:1px solid #182030; padding-bottom:4px; display:flex; justify-content:space-between;">
-                                <span>${topLabel}</span>
+                                <span>GAMEWEEK ${matchGw}</span>
                                 <span style="color:${m.is_fin ? '#94a3b8' : '#22c55e'};">${m.is_fin ? '✅ FINAL' : '🟢 LIVE'}</span>
                             </div>
                             <div class="m-header">
-                                <div class="m1-name">${m.m1} <span style="color:#94a3b8; font-size:0.75rem;">(${m.div1})</span></div>
-                                <div class="m2-name"><span style="color:#94a3b8; font-size:0.75rem;">(${m.div2})</span> ${m.m2}</div>
+                                <div class="m1-name">${m.m1}</div>
+                                <div class="m2-name">${m.m2}</div>
                             </div>
                             <div class="scores">
                                 <div class="score-box">
@@ -1467,16 +1466,17 @@
                     else if (m.pr2 > m.pr1) { c2Class = "c2"; }
 
                     const matchGw = m.gw || json.gw;
+                    const topLabel = isMgrMode ? `GW ${matchGw} • ${m.stage}` : m.stage;
 
                     listEl.innerHTML += `
                         <div class="match-card" onclick="openMatchModal(${idx}, ${matchGw})" style="cursor: pointer;">
                             <div style="font-size:0.72rem; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:6px; border-bottom:1px solid #182030; padding-bottom:4px; display:flex; justify-content:space-between;">
-                                <span>GAMEWEEK ${matchGw}</span>
+                                <span>${topLabel}</span>
                                 <span style="color:${m.is_fin ? '#94a3b8' : '#22c55e'};">${m.is_fin ? '✅ FINAL' : '🟢 LIVE'}</span>
                             </div>
                             <div class="m-header">
-                                <div class="m1-name">${m.m1}</div>
-                                <div class="m2-name">${m.m2}</div>
+                                <div class="m1-name">${m.m1} <span style="color:#94a3b8; font-size:0.75rem;">(${m.div1})</span></div>
+                                <div class="m2-name"><span style="color:#94a3b8; font-size:0.75rem;">(${m.div2})</span> ${m.m2}</div>
                             </div>
                             <div class="scores">
                                 <div class="score-box">
@@ -2493,17 +2493,16 @@
                     alert("Notification permission was not granted. Check your browser/phone notification settings.");
                     return;
                 }
-                const existingSub = await registration.pushManager.getSubscription();
-                if (existingSub) await existingSub.unsubscribe();
-                
-                const subscription = await registration.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-                });
+                let subscription = await registration.pushManager.getSubscription();
+                if (!subscription) {
+                    subscription = await registration.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+                    });
+                }
                 
                 const activeAlias = savedAlias || localStorage.getItem("cdp_alias") || "Admin";
                 
-                // Catch database failures instead of failing silently
                 const response = await fetch("/api/save_subscription", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },

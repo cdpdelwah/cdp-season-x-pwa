@@ -2057,8 +2057,27 @@ def get_trade_hub(league_id: int = 63, alias: str = ""):
         "players": players_sorted
     }
 
+def broadcast_trade_alert(league_key, mgr_alias, p_name, p_club, p_pos, notes, player_id, league_aliases):
+    try:
+        subs_registry = upstash_get_json("cdp_push_subs_v2", {})
+        if subs_registry:
+            div_short = league_key.split(" ")[0]
+            unique_tag = f"trade-{player_id}-{int(time.time())}"
+            for other_mgr in league_aliases:
+                if other_mgr.lower() != mgr_alias.lower():
+                    send_push_to_manager(
+                        subs_registry,
+                        other_mgr,
+                        f"🤝 Transfer List: {mgr_alias} ({div_short})",
+                        f"{p_name} ({p_club} - {p_pos}) is on the block! Notes: {notes}",
+                        tag=unique_tag
+                    )
+            upstash_set_json("cdp_push_subs_v2", subs_registry)
+    except Exception as e:
+        print("Trade push error:", e)
+
 @app.post("/api/trade_hub/add")
-async def add_trade_hub_item(request: Request):
+async def add_trade_hub_item(request: Request, background_tasks: BackgroundTasks):
     body = await request.json()
     alias = str(body.get("alias", "")).strip()
     user_league_id = MANAGER_LEAGUES.get(alias, int(body.get("league_id", 63)))
@@ -2079,7 +2098,6 @@ async def add_trade_hub_item(request: Request):
     mgr_alias = alias
     league_aliases = []
     
-    # Loop through to find the active manager and build a list of all 8 division members
     for e in (league_details or {}).get("league_entries", []):
         m_a = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
         league_aliases.append(m_a)
@@ -2108,34 +2126,11 @@ async def add_trade_hub_item(request: Request):
     })
     save_trade_block_file(listings)
 
-    # Automatically alert the other 7 managers in the same division
-    try:
-        subs_registry = upstash_get_json("cdp_push_subs_v2", {})
-        if subs_registry:
-            div_short = league_key.split(" ")[0]
-            for other_mgr in league_aliases:
-                if other_mgr.lower() != mgr_alias.lower():
-                    send_push_to_manager(
-                        subs_registry,
-                        other_mgr,
-                        f"🤝 Transfer List: {mgr_alias} ({div_short})",
-                        f"{p_name} ({p_club} - {p_pos}) is on the block! Notes: {notes}",
-                        tag=f"trade-{player_id}"
-                    )
-            upstash_set_json("cdp_push_subs_v2", subs_registry)
-    except Exception as e:
-        print("Trade push error:", e)
+    background_tasks.add_task(
+        broadcast_trade_alert,
+        league_key, mgr_alias, p_name, p_club, p_pos, notes, player_id, league_aliases
+    )
 
-    return {"status": "ok"}
-
-@app.post("/api/trade_hub/remove")
-async def remove_trade_hub_item(request: Request):
-    body = await request.json()
-    alias = str(body.get("alias", "")).strip()
-    player_id = int(body.get("player_id", 0))
-    listings = load_trade_block_file()
-    listings = [t for t in listings if not (t.get("player_id") == player_id and t.get("manager_alias", "").lower() == alias.lower())]
-    save_trade_block_file(listings)
     return {"status": "ok"}
 
 # ==========================================
@@ -2832,26 +2827,65 @@ def upstash_set_json(key: str, val):
     except Exception:
         pass
 
+LAST_PUSH_LOGS = []
+
 def send_push_to_manager(subs_registry: dict, alias: str, title: str, body: str, tag: str = "cdp-alert"):
-    mgr_subs = subs_registry.get(alias, [])
+    if not isinstance(subs_registry, dict):
+        return 0
+
+    matched_key = next((k for k in subs_registry.keys() if k.lower() == str(alias).strip().lower()), None)
+    if not matched_key:
+        LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | SKIP {alias}: Not registered in Upstash")
+        return 0
+
+    mgr_subs = subs_registry.get(matched_key, [])
     if isinstance(mgr_subs, dict):
         mgr_subs = [mgr_subs]
     if not mgr_subs:
+        LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | SKIP {alias}: Empty device list")
         return 0
+
     payload = json.dumps({"title": title, "body": body, "tag": tag})
     sent = 0
     valid_subs = []
     for sub in mgr_subs:
         try:
-            webpush(subscription_info=sub, data=payload, vapid_private_key=VAPID_PRIVATE_KEY, vapid_claims=VAPID_CLAIMS)
+            # Fresh dictionary every call so pywebpush never mutates global 'aud' or 'exp' claims
+            fresh_claims = {"sub": "mailto:commissar@cdp.com"}
+            webpush(
+                subscription_info=sub,
+                data=payload,
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims=fresh_claims,
+                timeout=8
+            )
             valid_subs.append(sub)
             sent += 1
+            LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | ✅ SENT to {matched_key}: {title}")
         except Exception as e:
             err_str = str(e)
-            if "410" not in err_str and "404" not in err_str:
+            LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | ❌ ERR {matched_key}: {err_str[:90]}")
+            if "410" not in err_str:
                 valid_subs.append(sub)
-    subs_registry[alias] = valid_subs
+
+    subs_registry[matched_key] = valid_subs
+    del LAST_PUSH_LOGS[:-30]
     return sent
+
+@app.get("/api/debug_push")
+def debug_push_status():
+    subs_registry = upstash_get_json("cdp_push_subs_v2", {})
+    summary = {}
+    if isinstance(subs_registry, dict):
+        for mgr, dev_list in subs_registry.items():
+            if isinstance(dev_list, dict):
+                dev_list = [dev_list]
+            endpoints = [d.get("endpoint", "")[:40] + "..." for d in dev_list if isinstance(d, dict)]
+            summary[mgr] = {"devices": len(endpoints), "endpoints": endpoints}
+    return {
+        "registered_managers": summary,
+        "recent_push_logs": LAST_PUSH_LOGS
+    }
 
 def broadcast_push_to_all(subs_registry: dict, title: str, body: str, tag: str = "cdp-broadcast"):
     for alias in list(subs_registry.keys()):
