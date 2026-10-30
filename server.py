@@ -569,10 +569,18 @@ def make_progression_payload(a1, a2, t1_act, t2_act, gw_fixtures, team_map):
 
 def detect_current_gw(league_details):
     matches = league_details.get("matches", []) if league_details else []
-    all_gws = sorted(list({m["event"] for m in matches})) if matches else list(range(1, 39))
-    unplayed = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
-    detected_gw = unplayed[0] if unplayed else (all_gws[-1] if all_gws else 1)
-    return detected_gw, all_gws
+    if matches:
+        all_gws = sorted(list({m["event"] for m in matches}))
+        unplayed = sorted(list({m["event"] for m in matches if not m.get("finished", False)}))
+        detected_gw = unplayed[0] if unplayed else (all_gws[-1] if all_gws else 1)
+        return detected_gw, all_gws
+
+    # Fallback if league_details is temporarily locked during FPL waiver/lineup processing
+    static_data = cached_fpl_static() or {}
+    events_obj = static_data.get("events", {})
+    if isinstance(events_obj, dict) and events_obj.get("current"):
+        return int(events_obj["current"]), list(range(1, 39))
+    return 1, list(range(1, 39))
 
 # ==========================================
 # STATIC & AUTH ROUTES
@@ -747,11 +755,19 @@ def get_home_summary(league_id: int = 63):
         lineup_iso = ""
         waiver_iso = ""
 
+    gw_fixes_now = [f for f in (all_fixtures or []) if f.get("event") == current_gw]
+    gw_is_live = (
+        bool(gw_fixes_now)
+        and any(f.get("started", False) for f in gw_fixes_now)
+        and not all(f.get("finished", False) or f.get("finished_provisional", False) for f in gw_fixes_now)
+    )
+
     cbw_count, cbw_at_risk = compute_cbwcbw_tracker(current_gw)
     return {
         "current_gw": current_gw,
         "waiver_iso": waiver_iso,
         "lineup_iso": lineup_iso,
+        "gw_is_live": gw_is_live,
         "cbw_count": cbw_count,
         "cbw_at_risk": cbw_at_risk
     }
@@ -3017,16 +3033,43 @@ def run_automated_push_checks():
         if not subs_registry or not isinstance(subs_registry, dict):
             return
 
-        # 1. Check 1-Hour Waiver & Lineup Deadlines
-        home_info = get_home_summary(63)
-        current_gw = home_info.get("current_gw", 1)
-        waiver_iso = home_info.get("waiver_iso", "")
-        lineup_iso = home_info.get("lineup_iso", "")
+        # 1. Check Waiver & Lineup Deadlines (1h Warning + Deadline Passed)
+        static_data = cached_fpl_static()
+        league_details, _ = cached_league_data(63)
+        all_fixtures = cached_all_fixtures() or []
+        current_gw, _ = detect_current_gw(league_details)
+
+        events_list = static_data.get("events", []) if static_data else []
+        if isinstance(events_list, dict):
+            events_list = events_list.get("data", [])
+        target_ev = next((ev for ev in events_list if ev.get("id") == current_gw), None)
+        lineup_iso = target_ev.get("deadline_time") if target_ev else None
+
+        if not lineup_iso and all_fixtures:
+            gw_fixes_ko = [f for f in all_fixtures if f.get("event") == current_gw and f.get("kickoff_time")]
+            if gw_fixes_ko:
+                earliest_ko = sorted(gw_fixes_ko, key=lambda x: x.get("kickoff_time"))[0].get("kickoff_time")
+                try:
+                    lineup_iso = (pd.to_datetime(earliest_ko) - pd.Timedelta(minutes=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                except Exception:
+                    pass
+
+        waiver_iso = ""
+        if lineup_iso:
+            try:
+                waiver_iso = (pd.to_datetime(lineup_iso) - pd.Timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                waiver_iso = lineup_iso
 
         state_key = f"cdp_push_state_gw_{current_gw}"
-        gw_state = upstash_get_json(state_key, {"waiver_1h_sent": False, "lineup_1h_sent": False, "players": {}})
+        gw_state = upstash_get_json(state_key, {
+            "waiver_1h_sent": False,
+            "waiver_passed_sent": False,
+            "lineup_1h_sent": False,
+            "lineup_passed_sent": False,
+            "players": {}
+        })
         state_dirty = False
-
         now_utc = datetime.now(timezone.utc)
 
         if waiver_iso:
@@ -3034,7 +3077,6 @@ def run_automated_push_checks():
                 w_dt = datetime.fromisoformat(waiver_iso.replace("Z", "+00:00"))
                 secs_left = (w_dt - now_utc).total_seconds()
                 
-                # 1-Hour Warning
                 if not gw_state.get("waiver_1h_sent") and 0 < secs_left <= 3900:
                     broadcast_push_to_all(
                         subs_registry,
@@ -3045,8 +3087,7 @@ def run_automated_push_checks():
                     gw_state["waiver_1h_sent"] = True
                     state_dirty = True
 
-                # Deadline Passed Alert (triggers within 30 mins after the deadline)
-                if not gw_state.get("waiver_passed_sent") and -1800 <= secs_left <= 0:
+                if not gw_state.get("waiver_passed_sent") and -7200 <= secs_left <= 0:
                     broadcast_push_to_all(
                         subs_registry,
                         f"🚨 Waiver Deadline Passed (GW {current_gw})",
@@ -3058,11 +3099,12 @@ def run_automated_push_checks():
             except Exception:
                 pass
 
-        if lineup_iso and not gw_state.get("lineup_1h_sent"):
+        if lineup_iso:
             try:
                 l_dt = datetime.fromisoformat(lineup_iso.replace("Z", "+00:00"))
                 secs_left = (l_dt - now_utc).total_seconds()
-                if 0 < secs_left <= 3900:
+                
+                if not gw_state.get("lineup_1h_sent") and 0 < secs_left <= 3900:
                     broadcast_push_to_all(
                         subs_registry,
                         f"🔒 1 Hour to Lineup Lock (GW {current_gw})",
@@ -3070,6 +3112,16 @@ def run_automated_push_checks():
                         tag=f"lineup-1h-gw{current_gw}"
                     )
                     gw_state["lineup_1h_sent"] = True
+                    state_dirty = True
+
+                if not gw_state.get("lineup_passed_sent") and -7200 <= secs_left <= 0:
+                    broadcast_push_to_all(
+                        subs_registry,
+                        f"Gameweek {current_gw} Locked and Loaded 🔫",
+                        f"Gameweek {current_gw} lineups are now locked! Head to the app to scout your opponent's starting XI.",
+                        tag=f"lineup-passed-gw{current_gw}"
+                    )
+                    gw_state["lineup_passed_sent"] = True
                     state_dirty = True
             except Exception:
                 pass

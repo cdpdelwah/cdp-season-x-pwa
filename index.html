@@ -834,6 +834,11 @@
                 const res = await fetch(`/api/home_summary?league_id=${activeLeagueId}`);
                 const data = await res.json();
 
+                const scoresBtnSpan = document.querySelector(".home-menu button[onclick=\"navigate('scores')\"] span");
+                if (scoresBtnSpan) {
+                    scoresBtnSpan.innerText = data.gw_is_live ? "🟢 Scores" : "🔴 Scores";
+                }
+
                 document.getElementById("home-waiver-gw").innerText = `GW ${data.current_gw}`;
                 document.getElementById("home-lineup-gw").innerText = `GW ${data.current_gw}`;
 
@@ -2033,6 +2038,24 @@
                 const res = await fetch(`/api/player_hub?league_id=${leagueId}`);
                 const data = await res.json();
                 window.playerHubData = data.players || [];
+
+                const viewSel = document.getElementById('ph-view');
+                if (viewSel) {
+                    const prevVal = viewSel.value || "Free Agent";
+                    const owners = [...new Set(window.playerHubData.map(p => p.owner).filter(o => o && o !== "Free Agent"))].sort();
+                    viewSel.innerHTML = `
+                        <option value="Free Agent">🟢 Free Agents (Available)</option>
+                        <option value="All">🌍 All Players</option>
+                        <option value="Owned">🔒 All Owned Players</option>
+                        ${owners.map(o => `<option value="MGR:${o}">👤 ${o}'s Squad</option>`).join('')}
+                    `;
+                    if ([...viewSel.options].some(opt => opt.value === prevVal)) {
+                        viewSel.value = prevVal;
+                    } else {
+                        viewSel.value = "Free Agent";
+                    }
+                }
+
                 renderPlayerHubTable();
             } catch (e) {
                 box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load players.</p>";
@@ -2056,6 +2079,7 @@
                 if (posF !== "All" && p.pos !== posF) return false;
                 if (viewF === "Free Agent" && p.owner !== "Free Agent") return false;
                 if (viewF === "Owned" && p.owner === "Free Agent") return false;
+                if (viewF.startsWith("MGR:") && p.owner !== viewF.slice(4)) return false;
                 return true;
             });
 
