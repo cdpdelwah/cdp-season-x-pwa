@@ -2133,6 +2133,34 @@ async def add_trade_hub_item(request: Request, background_tasks: BackgroundTasks
 
     return {"status": "ok"}
 
+
+@app.post("/api/trade_hub/remove")
+async def remove_trade_hub_item(request: Request):
+    body = await request.json()
+    alias = str(body.get("alias", "")).strip().lower()
+    player_id = str(body.get("player_id", "")).strip()
+    
+    listings = load_trade_block_file()
+    kept_listings = []
+    
+    for t in listings:
+        t_pid = str(t.get("player_id", "")).strip()
+        t_alias = str(t.get("manager_alias", "")).strip().lower()
+        
+        # If the IDs and Aliases match, skip this one to permanently remove it
+        if t_pid == player_id and t_alias == alias:
+            continue
+            
+        kept_listings.append(t)
+        
+    save_trade_block_file(kept_listings)
+    return {"status": "ok"}
+
+
+# ==========================================
+# 7. GACS (GOALS, ASSISTS & CLEAN SHEETS)
+# ==========================================
+
 # ==========================================
 # 7. GACS (GOALS, ASSISTS & CLEAN SHEETS)
 # ==========================================

@@ -1650,11 +1650,12 @@
             });
         }
 
-        async function fetchTradeHub() {
+        aasync function fetchTradeHub() {
             const homeLid = parseInt(localStorage.getItem("cdp_league")) || 63;
             document.getElementById('trade-browse-table').innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading Trade Hub...</p>";
             try {
-                const res = await fetch(`/api/trade_hub?league_id=${homeLid}&alias=${encodeURIComponent(savedAlias)}`);
+                // Appended Date.now() cache-buster to prevent mobile browsers from showing stale data
+                const res = await fetch(`/api/trade_hub?league_id=${homeLid}&alias=${encodeURIComponent(savedAlias)}&t=${Date.now()}`);
                 window.tradeHubData = await res.json();
                 renderTradeBrowseTable();
                 renderTradeManagePane();
