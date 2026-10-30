@@ -2157,9 +2157,51 @@ async def remove_trade_hub_item(request: Request):
     return {"status": "ok"}
 
 
-# ==========================================
-# 7. GACS (GOALS, ASSISTS & CLEAN SHEETS)
-# ==========================================
+@app.get("/api/player_hub")
+def get_player_hub(league_id: int = 63):
+    static_data = cached_fpl_static()
+    league_details, element_status = cached_league_data(league_id)
+    all_fixtures = cached_all_fixtures()
+
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
+    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+
+    entries = league_details.get("league_entries", []) if league_details else []
+    entry_alias_map = {}
+    for e in entries:
+        eid = e["entry_id"]
+        m_alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
+        entry_alias_map[eid] = m_alias
+
+    def get_next_3(tid):
+        if not all_fixtures or not tid: return ""
+        up = sorted([f for f in all_fixtures if not f.get("finished", False) and (f.get("team_h") == tid or f.get("team_a") == tid)], key=lambda x: (x.get("event") or 99, x.get("kickoff_time") or ""))[:3]
+        if not up: return ""
+        return " • ".join([f"{team_map.get(f.get('team_a'), 'OPP')} (H)" if f.get("team_h") == tid else f"{team_map.get(f.get('team_h'), 'OPP')} (A)" for f in up])
+
+    owner_map = {item["element"]: item.get("owner") for item in (element_status or {}).get("element_status", [])}
+    
+    players = []
+    for raw_elem in static_data.get("elements", []):
+        eid = raw_elem["id"]
+        owner = owner_map.get(eid)
+        tid = raw_elem.get("team")
+        pos_str = pos_map.get(raw_elem.get("element_type", 1), "MID")
+        
+        players.append({
+            "id": eid,
+            "name": str(raw_elem.get("web_name", "Unknown")),
+            "pos": pos_str,
+            "club": str(team_map.get(tid, "PL")).upper(),
+            "pts": safe_int(raw_elem.get("total_points", 0)),
+            "form": round(float(raw_elem.get("form") or 0.0), 1),
+            "ppg": round(float(raw_elem.get("points_per_game") or 0.0), 1),
+            "next_3": get_next_3(tid),
+            "owner": entry_alias_map.get(owner, "Free Agent") if owner else "Free Agent",
+            "status": get_health_label(raw_elem)
+        })
+
+    return {"league_id": league_id, "players": players}
 
 # ==========================================
 # 7. GACS (GOALS, ASSISTS & CLEAN SHEETS)
