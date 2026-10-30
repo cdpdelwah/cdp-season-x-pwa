@@ -2730,13 +2730,38 @@
             const pts1 = fixtures.map((f, i) => `${getX(i)},${getY(f.m1.pts)}`).join(" ");
             const pts2 = fixtures.map((f, i) => `${getX(i)},${getY(f.m2.pts)}`).join(" ");
 
-            svg += `<polyline fill="none" stroke="#f59e0b" stroke-width="2.5" points="${pts1}" />`;
-            svg += `<polyline fill="none" stroke="#38bdf8" stroke-width="2.5" points="${pts2}" />`;
+            svg += `
+                <style>
+                    @keyframes drawProgLine {
+                        from { stroke-dashoffset: 1000; }
+                        to { stroke-dashoffset: 0; }
+                    }
+                    @keyframes popProgDot {
+                        0% { opacity: 0; transform: scale(0); }
+                        70% { opacity: 1; transform: scale(1.25); }
+                        100% { opacity: 1; transform: scale(1); }
+                    }
+                    .prog-line-anim {
+                        stroke-dasharray: 1000;
+                        stroke-dashoffset: 1000;
+                        animation: drawProgLine 1.15s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+                    }
+                    .vis-dot {
+                        opacity: 0;
+                        transform-box: fill-box;
+                        transform-origin: center;
+                        animation: popProgDot 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+                    }
+                </style>
+                <polyline class="prog-line-anim" pathLength="1000" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${pts1}" />
+                <polyline class="prog-line-anim" pathLength="1000" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${pts2}" />
+            `;
 
             fixtures.forEach((f, i) => {
                 const x = getX(i);
-                svg += `<circle id="vdot-${i}-m2" class="vis-dot" cx="${x}" cy="${getY(f.m2.pts)}" r="5" fill="#38bdf8" />`;
-                svg += `<circle id="vdot-${i}-m1" class="vis-dot" cx="${x}" cy="${getY(f.m1.pts)}" r="5" fill="#f59e0b" />`;
+                const delayMs = Math.round((i / Math.max(1, n - 1)) * 900);
+                svg += `<circle id="vdot-${i}-m2" class="vis-dot" style="animation-delay:${delayMs}ms;" cx="${x}" cy="${getY(f.m2.pts)}" r="5" fill="#38bdf8" />`;
+                svg += `<circle id="vdot-${i}-m1" class="vis-dot" style="animation-delay:${delayMs}ms;" cx="${x}" cy="${getY(f.m1.pts)}" r="5" fill="#f59e0b" />`;
             });
 
             fixtures.forEach((f, i) => {
