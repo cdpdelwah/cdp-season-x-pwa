@@ -3029,11 +3029,13 @@ def run_automated_push_checks():
 
         now_utc = datetime.now(timezone.utc)
 
-        if waiver_iso and not gw_state.get("waiver_1h_sent"):
+        if waiver_iso:
             try:
                 w_dt = datetime.fromisoformat(waiver_iso.replace("Z", "+00:00"))
                 secs_left = (w_dt - now_utc).total_seconds()
-                if 0 < secs_left <= 3900:
+                
+                # 1-Hour Warning
+                if not gw_state.get("waiver_1h_sent") and 0 < secs_left <= 3900:
                     broadcast_push_to_all(
                         subs_registry,
                         f"⚡ 1 Hour to Waiver Deadline (GW {current_gw})",
@@ -3041,6 +3043,17 @@ def run_automated_push_checks():
                         tag=f"waiver-1h-gw{current_gw}"
                     )
                     gw_state["waiver_1h_sent"] = True
+                    state_dirty = True
+
+                # Deadline Passed Alert (triggers within 30 mins after the deadline)
+                if not gw_state.get("waiver_passed_sent") and -1800 <= secs_left <= 0:
+                    broadcast_push_to_all(
+                        subs_registry,
+                        f"🚨 Waiver Deadline Passed (GW {current_gw})",
+                        f"Gameweek {current_gw} waivers are now locked and processing! Free agency is open.",
+                        tag=f"waiver-passed-gw{current_gw}"
+                    )
+                    gw_state["waiver_passed_sent"] = True
                     state_dirty = True
             except Exception:
                 pass
