@@ -317,6 +317,131 @@
         .prog-tooltip td.k { color: #94a3b8; font-weight: 600; text-align: right; width: 42%; white-space: nowrap; }
         .prog-tooltip td.v { color: #f8fafc; font-weight: 700; text-align: left; }
         .vis-dot.active { r: 8px; stroke: #ffffff; stroke-width: 2.5px; }
+
+        /* Hero Crest Banner */
+        .hero-banner {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            background: linear-gradient(145deg, rgba(20, 28, 46, 0.92) 0%, rgba(9, 12, 19, 0.98) 100%);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 10px 26px rgba(0, 0, 0, 0.6);
+            border-radius: 14px;
+            padding: 12px 14px;
+            margin-bottom: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        .hero-crest {
+            width: 72px;
+            height: 72px;
+            object-fit: cover;
+            border-radius: 10px;
+            border: 1.5px solid rgba(245, 158, 11, 0.6);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7);
+            flex-shrink: 0;
+        }
+        .hero-text-col {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 0;
+        }
+        .hero-top-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .user-pill {
+            font-size: 0.74rem;
+            color: #f59e0b;
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+
+        /* 2-Column Bento Grid Dashboard */
+        .home-menu {
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .home-menu .menu-btn {
+            padding: 16px 14px;
+            min-height: 64px;
+            font-size: 0.94rem;
+            border-radius: 12px;
+        }
+        .home-menu .menu-btn:first-child {
+            grid-column: span 2;
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.95) 0%, rgba(15, 23, 42, 0.98) 100%);
+            border: 1px solid rgba(245, 158, 11, 0.45);
+            padding: 18px 18px;
+            font-size: 1.12rem;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 8px 22px rgba(0, 0, 0, 0.6);
+        }
+        .home-menu .menu-btn:last-child {
+            grid-column: span 2;
+        }
+
+        /* Sticky Frosted Glass Bottom Dock */
+        .app-screen { padding-bottom: 90px; }
+        .bottom-dock {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 64px;
+            background: rgba(9, 12, 19, 0.88);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: none;
+            justify-content: space-around;
+            align-items: center;
+            z-index: 900;
+            padding: 0 6px env(safe-area-inset-bottom, 0px) 6px;
+            box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.75);
+        }
+        .dock-btn {
+            flex: 1;
+            background: none;
+            border: none;
+            color: #64748b;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            font-size: 0.68rem;
+            font-weight: 800;
+            cursor: pointer;
+            padding: 6px 0;
+            transition: all 0.15s ease;
+        }
+        .dock-btn .dock-icon { font-size: 1.15rem; line-height: 1; }
+        .dock-btn.active { color: #f59e0b; transform: translateY(-1px); }
+
+        /* Shimmer Skeleton Loaders */
+        @keyframes shimmerSweep {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+        .skel-block {
+            background: linear-gradient(90deg, rgba(17, 24, 39, 0.9) 25%, rgba(30, 41, 59, 0.95) 50%, rgba(17, 24, 39, 0.9) 75%);
+            background-size: 200% 100%;
+            animation: shimmerSweep 1.4s infinite linear;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+        }
     </style>
 </head>
 <body>
@@ -351,13 +476,15 @@
 
     <!-- SCREEN 2: HOME DASHBOARD -->
     <div id="screen-home" class="app-screen" style="max-width: 620px;">
-        <div style="width: 100%; display: flex; flex-direction: column; align-items: flex-start; margin-bottom: 12px;">
-            <img src="/api/logo" alt="Season X" onerror="this.style.display='none'" style="width: 120px; height: auto; margin-bottom: 10px; border-radius: 8px;">
-            <div style="width: 100%; display: flex; justify-content: space-between; align-items: baseline;">
-                <h1 style="font-size: 1.75rem; font-weight: 900; letter-spacing: -0.5px; color: #fff;">CDP App - Season X</h1>
-                <span id="welcome-msg" style="font-size: 0.8rem; color: #f59e0b; font-weight: 800;"></span>
+        <div class="hero-banner">
+            <img src="/api/logo" alt="Season X" class="hero-crest" onerror="this.style.display='none'">
+            <div class="hero-text-col">
+                <div class="hero-top-row">
+                    <h1 style="font-size: 1.35rem; font-weight: 900; letter-spacing: -0.4px; color: #fff;">CDP App • Season X</h1>
+                    <span id="welcome-msg" class="user-pill"></span>
+                </div>
+                <p style="color: #94a3b8; font-size: 0.78rem; margin-top: 4px; line-height: 1.3;">Dellarverse HQ: Central Draft Intelligence, Live Projections & Official Publications</p>
             </div>
-            <p style="color: #94a3b8; font-size: 0.86rem; margin-top: 3px; line-height: 1.35;">Dellarverse HQ: Central Draft Intelligence, Live Projections and Official Publications</p>
         </div>
 
         <!-- PUSH NOTIFICATION PROMPT BANNER -->
@@ -907,11 +1034,61 @@
             });
         }
 
+        function ensureBottomDock() {
+            let dock = document.getElementById('cdp-bottom-dock');
+            if (!dock) {
+                dock = document.createElement('div');
+                dock.id = 'cdp-bottom-dock';
+                dock.className = 'bottom-dock';
+                dock.innerHTML = `
+                    <button class="dock-btn" data-scr="home" onclick="navigate('home')"><span class="dock-icon">🏠</span><span>Home</span></button>
+                    <button class="dock-btn" data-scr="scores" onclick="navigate('scores')"><span class="dock-icon">🔴</span><span>Scores</span></button>
+                    <button class="dock-btn" data-scr="epl" onclick="navigate('epl')"><span class="dock-icon">⚽</span><span>EPL</span></button>
+                    <button class="dock-btn" data-scr="standings" onclick="navigate('standings')"><span class="dock-icon">🏆</span><span>Table</span></button>
+                    <button class="dock-btn" data-scr="players" onclick="navigate('players')"><span class="dock-icon">🔍</span><span>Players</span></button>
+                `;
+                document.body.appendChild(dock);
+            }
+            return dock;
+        }
+
+        // Automatically upgrade plain loading text into Shimmer Skeletons
+        const skelObserver = new MutationObserver((mutations) => {
+            mutations.forEach(m => {
+                m.addedNodes.forEach(node => {
+                    if (node.nodeType === 1 && node.tagName === 'P' && node.innerText.includes('...')) {
+                        const parent = node.parentElement;
+                        if (!parent) return;
+                        if (parent.classList.contains('list-container')) {
+                            parent.innerHTML = Array(4).fill('<div class="skel-block" style="height: 148px; width: 100%;"></div>').join('');
+                        } else {
+                            parent.innerHTML = `
+                                <div style="display:flex; flex-direction:column; gap:8px; width:100%; padding:6px 0;">
+                                    <div class="skel-block" style="height: 38px; width: 100%;"></div>
+                                    <div class="skel-block" style="height: 52px; width: 100%;"></div>
+                                    <div class="skel-block" style="height: 52px; width: 100%;"></div>
+                                    <div class="skel-block" style="height: 52px; width: 100%;"></div>
+                                </div>`;
+                        }
+                    }
+                });
+            });
+        });
+        window.addEventListener('DOMContentLoaded', () => {
+            skelObserver.observe(document.body, { childList: true, subtree: true });
+        });
+
         function navigate(screenId, addToHistory = true) {
             document.querySelectorAll('.app-screen').forEach(s => s.classList.remove('active'));
             const target = document.getElementById(`screen-${screenId}`);
             if (target) target.classList.add('active');
             window.scrollTo(0, 0);
+
+            const dock = ensureBottomDock();
+            dock.style.display = (screenId === 'login') ? 'none' : 'flex';
+            dock.querySelectorAll('.dock-btn').forEach(b => {
+                b.classList.toggle('active', b.getAttribute('data-scr') === screenId);
+            });
 
             // Tell the browser history we moved to a new screen
             if (addToHistory) {
