@@ -1650,7 +1650,7 @@
             });
         }
 
-        aasync function fetchTradeHub() {
+        async function fetchTradeHub() {
             const homeLid = parseInt(localStorage.getItem("cdp_league")) || 63;
             document.getElementById('trade-browse-table').innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading Trade Hub...</p>";
             try {
