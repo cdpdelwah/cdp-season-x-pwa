@@ -442,6 +442,84 @@
             border: 1px solid rgba(255, 255, 255, 0.06);
             border-radius: 12px;
         }
+/* Pitch Rollout, Live Sonar, YTP Dimming & Haul Animations */
+        @keyframes pitchCardDrop {
+            0% { opacity: 0; transform: translateY(18px) scale(0.75); }
+            70% { opacity: 1; transform: translateY(-3px) scale(1.04); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes sonarRipple {
+            0% { transform: scale(1); opacity: 0.9; }
+            100% { transform: scale(1.7); opacity: 0; }
+        }
+        @keyframes haulShimmer {
+            0%, 100% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.65), inset 0 0 6px rgba(245, 158, 11, 0.35); }
+            50% { box-shadow: 0 0 18px rgba(250, 204, 21, 0.95), inset 0 0 10px rgba(250, 204, 21, 0.55); }
+        }
+        @keyframes statPopupSpring {
+            0% { opacity: 0; transform: scale(0.84) translateY(12px); }
+            100% { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .player-card {
+            opacity: 0;
+            animation: pitchCardDrop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+            transition: transform 0.15s ease, filter 0.2s ease;
+        }
+        .player-card:active { transform: scale(0.92); }
+
+        /* Yet To Play (Slightly Greyed Out Once GW Has Begun) */
+        .player-card.ytp-dimmed .club-token {
+            filter: grayscale(65%) brightness(0.75);
+            opacity: 0.78;
+        }
+        .player-card.ytp-dimmed .player-name-pill,
+        .player-card.ytp-dimmed .player-opp-pill,
+        .player-card.ytp-dimmed .player-pts-pill {
+            opacity: 0.75;
+        }
+
+        /* Subbed Off / DNP Ghosting */
+        .player-card.subbed-off-card .club-token,
+        .player-card.subbed-off-card .player-name-pill,
+        .player-card.subbed-off-card .player-opp-pill,
+        .player-card.subbed-off-card .player-pts-pill {
+            filter: grayscale(85%) brightness(0.6);
+            opacity: 0.55;
+        }
+
+        /* In Play Pulsing Green Sonar Ring */
+        .club-token { z-index: 2; }
+        .club-token.live-sonar {
+            box-shadow: 0 0 12px rgba(34, 197, 94, 0.65), inset 0 2px 4px rgba(255, 255, 255, 0.35);
+        }
+        .club-token.live-sonar::after {
+            content: "";
+            position: absolute;
+            top: -4px; left: -4px; right: -4px; bottom: -4px;
+            border-radius: 50%;
+            border: 2.5px solid #22c55e;
+            animation: sonarRipple 1.5s infinite ease-out;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        /* 10+ Point Double-Digit Haul Gold Aura */
+        .club-token.haul-token {
+            border-color: #fde047 !important;
+            animation: haulShimmer 2.2s infinite ease-in-out;
+        }
+        .player-pts-pill.haul-pill {
+            background: linear-gradient(135deg, #422006 0%, #000000 100%) !important;
+            border-color: #fde047 !important;
+            color: #fde047 !important;
+            box-shadow: 0 0 10px rgba(250, 204, 21, 0.5);
+        }
+
+        /* Spring Physics Stat Popup */
+        .stat-popup-card {
+            animation: statPopupSpring 0.24s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
     </style>
 </head>
 <body>
@@ -2788,7 +2866,24 @@
                     <rect x="135" y="475" width="90" height="30" fill="none" stroke="#ffffff" stroke-width="2"/>
                 </svg>`;
 
-            function makeCardHtml(p, pillColor) {
+            // Detect if the first match of the Gameweek has kicked off
+            let gwHasStarted = false;
+            if (!showProjPill) {
+                const hasActiveOrFin = (arr) => (arr || []).some(p => p.state && p.state !== 'YTP');
+                const checkPitchObj = (po) => po && ((po.pitch || []).some(r => hasActiveOrFin(r)) || hasActiveOrFin(po.subs));
+                if (checkPitchObj(data)) {
+                    gwHasStarted = true;
+                } else if (window.activeSpotlightData && window.activeSpotlightData.data) {
+                    if (checkPitchObj(window.activeSpotlightData.data.pitch_m1) || checkPitchObj(window.activeSpotlightData.data.pitch_m2)) {
+                        gwHasStarted = true;
+                    }
+                }
+                if (!gwHasStarted && Array.isArray(window.currentMatches)) {
+                    gwHasStarted = window.currentMatches.some(m => m.spotlight && (checkPitchObj(m.spotlight.pitch_m1) || checkPitchObj(m.spotlight.pitch_m2)));
+                }
+            }
+
+            function makeCardHtml(p, pillColor, delayMs = 0) {
                 const pKey = `${elementId}_${p.name.replace(/[^a-zA-Z0-9]/g, '')}`;
                 window.pitchPlayersRegistry[pKey] = p;
 
@@ -2802,25 +2897,44 @@
                 if (p.sub_action === 'Subbed On') subTag = '<span style="position:absolute; top:-3px; left:-3px; background:#22c55e; color:#000; font-size:0.55rem; font-weight:800; padding:1px 3px; border-radius:3px;">ON</span>';
                 else if (p.sub_action === 'Subbed Off') subTag = '<span style="position:absolute; top:-3px; left:-3px; background:#ef4444; color:#fff; font-size:0.55rem; font-weight:800; padding:1px 3px; border-radius:3px;">OFF</span>';
 
+                const isLive = (p.state === 'LIVE');
+                const isYtpDimmed = (gwHasStarted && p.state === 'YTP');
+                const isHaul = (!showProjPill && Number(p.pts) >= 10);
+                const isSubOff = (p.sub_action === 'Subbed Off');
+
+                const cardClasses = ['player-card'];
+                if (isSubOff) cardClasses.push('subbed-off-card');
+                else if (isYtpDimmed) cardClasses.push('ytp-dimmed');
+
+                const tokenClasses = ['club-token'];
+                if (isLive) tokenClasses.push('live-sonar');
+                if (isHaul) tokenClasses.push('haul-token');
+
+                const pillClasses = ['player-pts-pill'];
+                if (isHaul) pillClasses.push('haul-pill');
+
                 const ev = p.events ? ` <span style="margin-left:2px;">${p.events}</span>` : '';
                 const pillText = p.pill_text ? p.pill_text : (showProjPill ? `${p.proj} pts` : (p.state === 'YTP' ? '⏳ YTP' : `${p.pts} pts`));
                 const oppHtml = p.fixture ? `<div class="player-opp-pill">${p.fixture}</div>` : '';
 
                 return `
-                    <div class="player-card" onclick="showPlayerStatsModal('${pKey}', '${accentColor}')" style="cursor:pointer;">
-                        <div class="club-token" style="background:${p.bg}; color:${p.text}; border-color:${p.border};">
+                    <div class="${cardClasses.join(' ')}" onclick="showPlayerStatsModal('${pKey}', '${accentColor}')" style="cursor:pointer; animation-delay:${delayMs}ms;">
+                        <div class="${tokenClasses.join(' ')}" style="background:${p.bg}; color:${p.text}; border-color:${p.border};">
                             ${p.club}${flagHtml}${subTag}
                         </div>
                         <div class="player-name-pill">${p.name}</div>
                         ${oppHtml}
-                        <div class="player-pts-pill" style="border-color:${pillColor}; color:${pillColor};">${pillText}${ev}</div>
+                        <div class="${pillClasses.join(' ')}" style="border-color:${pillColor}; color:${pillColor};">${pillText}${ev}</div>
                     </div>`;
             }
             
-            (data.pitch || []).forEach(row => {
+            (data.pitch || []).forEach((row, rIdx) => {
                 const rowDiv = document.createElement('div');
                 rowDiv.className = 'pitch-row';
-                row.forEach(p => { rowDiv.innerHTML += makeCardHtml(p, accentColor); });
+                row.forEach((p, cIdx) => {
+                    const delay = (rIdx * 75) + (cIdx * 25);
+                    rowDiv.innerHTML += makeCardHtml(p, accentColor, delay);
+                });
                 pitchDiv.appendChild(rowDiv);
             });
             container.appendChild(pitchDiv);
@@ -2836,9 +2950,12 @@
                     const mid = Math.ceil(subsList.length / 2);
                     subRows = [subsList.slice(0, mid), subsList.slice(mid)];
                 }
-                subRows.forEach(sRow => {
+                subRows.forEach((sRow, srIdx) => {
                     subsHtml += `<div class="dugout-row">`;
-                    sRow.forEach(p => { subsHtml += makeCardHtml(p, accentColor); });
+                    sRow.forEach((p, cIdx) => {
+                        const delay = 320 + (srIdx * 60) + (cIdx * 25);
+                        subsHtml += makeCardHtml(p, accentColor, delay);
+                    });
                     subsHtml += `</div>`;
                 });
 
@@ -2905,7 +3022,7 @@
 
             const oppText = p.fixture ? ` • vs ${p.fixture}` : '';
             modalEl.innerHTML = `
-                <div style="background:#090c13; border:2px solid ${accentColor}; border-radius:12px; width:92%; max-width:340px; padding:16px 18px; box-shadow:0 10px 30px rgba(0,0,0,0.95); position:relative;">
+                <div class="stat-popup-card" style="background:#090c13; border:2px solid ${accentColor}; border-radius:12px; width:92%; max-width:340px; padding:16px 18px; box-shadow:0 10px 30px rgba(0,0,0,0.95); position:relative;">
                     <span onclick="document.getElementById('player-stat-popup').style.display='none'" style="position:absolute; top:10px; right:14px; color:#94a3b8; font-size:1.3rem; font-weight:bold; cursor:pointer;">✕</span>
                     <div style="font-size:1.25rem; font-weight:800; color:#fff; margin-right:24px;">${p.name}</div>
                     <div style="font-size:0.85rem; color:#94a3b8; margin-bottom:12px; font-weight:600;">${p.pos} • ${p.club}${oppText} (${p.state})</div>
