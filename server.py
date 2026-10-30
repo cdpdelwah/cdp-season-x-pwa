@@ -2563,6 +2563,400 @@ def download_power_rankings():
     return FileResponse(target_file, filename=target_file.name, media_type="application/octet-stream")
 
 # ==========================================
+# 10.5 ASTERISK* MASTER ARCHIVES
+# ==========================================
+_ASTERISK_CACHE = {"mtime": 0, "data": None}
+
+def find_asterisk_file():
+    valid_exts = [".xlsx", ".xls", ".ods"]
+    for folder in [base_dir, assets_folder]:
+        if folder.exists() and folder.is_dir():
+            for f in folder.iterdir():
+                if f.is_file() and f.suffix.lower() in valid_exts and "asterisk" in f.name.lower():
+                    return f
+    return None
+
+def _clean_ast_val(v):
+    if v is None or pd.isna(v):
+        return ""
+    s = str(v).strip()
+    if s.lower() in ["nan", "none", ""]:
+        return ""
+    try:
+        f = float(s.replace(",", ""))
+        if math.isnan(f) or math.isinf(f):
+            return ""
+        if f % 1 == 0:
+            return str(int(round(f)))
+        return f"{f:.2f}".rstrip("0").rstrip(".")
+    except Exception:
+        return s
+
+def _compute_mgr_streaks(lg_seq):
+    best_w, best_l, best_unb, best_wless = (0, "", ""), (0, "", ""), (0, "", ""), (0, "", "")
+    cur_w, cur_l, cur_unb, cur_wless = [0, "", ""], [0, "", ""], [0, "", ""], [0, "", ""]
+    for lbl, res in lg_seq:
+        if res == "W":
+            if cur_w[0] == 0: cur_w[1] = lbl
+            cur_w[0] += 1; cur_w[2] = lbl
+            if cur_w[0] > best_w[0]: best_w = tuple(cur_w)
+        else:
+            cur_w = [0, "", ""]
+
+        if res == "L":
+            if cur_l[0] == 0: cur_l[1] = lbl
+            cur_l[0] += 1; cur_l[2] = lbl
+            if cur_l[0] > best_l[0]: best_l = tuple(cur_l)
+        else:
+            cur_l = [0, "", ""]
+
+        if res in ["W", "D"]:
+            if cur_unb[0] == 0: cur_unb[1] = lbl
+            cur_unb[0] += 1; cur_unb[2] = lbl
+            if cur_unb[0] > best_unb[0]: best_unb = tuple(cur_unb)
+        else:
+            cur_unb = [0, "", ""]
+
+        if res in ["D", "L"]:
+            if cur_wless[0] == 0: cur_wless[1] = lbl
+            cur_wless[0] += 1; cur_wless[2] = lbl
+            if cur_wless[0] > best_wless[0]: best_wless = tuple(cur_wless)
+        else:
+            cur_wless = [0, "", ""]
+
+    return {
+        "max_w": best_w[0], "max_w_span": f"{best_w[1]} → {best_w[2]}" if best_w[0] else "-", "cur_w": cur_w[0],
+        "max_l": best_l[0], "max_l_span": f"{best_l[1]} → {best_l[2]}" if best_l[0] else "-", "cur_l": cur_l[0],
+        "max_unb": best_unb[0], "max_unb_span": f"{best_unb[1]} → {best_unb[2]}" if best_unb[0] else "-", "cur_unb": cur_unb[0],
+        "max_wless": best_wless[0], "max_wless_span": f"{best_wless[1]} → {best_wless[2]}" if best_wless[0] else "-", "cur_wless": cur_wless[0]
+    }
+
+def build_asterisk_payload(target_file: Path):
+    xls = pd.ExcelFile(target_file)
+    sheet_names = set(xls.sheet_names)
+
+    # 1. Trophies & Finishes from qPlayerProfiles / qPlayerSeasonFinishes
+    trophies_map = {}
+    if "qPlayerProfiles" in sheet_names:
+        df_prof = pd.read_excel(xls, sheet_name="qPlayerProfiles")
+        for _, r in df_prof.iterrows():
+            p = _clean_ast_val(r.get("Player"))
+            if not p: continue
+            trophies_map[p] = {
+                "all_league_titles": safe_int(r.get("AllLeagueTitles")),
+                "cdp_titles": safe_int(r.get("CDPLeagueTitles")),
+                "sdm_titles": safe_int(r.get("SDMLeagueTitles")),
+                "bdr_titles": safe_int(r.get("BDRLeagueTitles")),
+                "lde_titles": safe_int(r.get("LDELeagueTitles")),
+                "cup_titles": safe_int(r.get("CupTitles")),
+                "bucket_titles": safe_int(r.get("BucketTitles")),
+                "promotions": safe_int(r.get("Promotions")),
+                "relegations": safe_int(r.get("Relegations"))
+            }
+
+    finishes_map = {}
+    season_cols = ["S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10"]
+    if "qPlayerSeasonFinishes" in sheet_names:
+        df_fin = pd.read_excel(xls, sheet_name="qPlayerSeasonFinishes")
+        season_cols = [c for c in df_fin.columns if str(c).startswith("S")]
+        for _, r in df_fin.iterrows():
+            p = _clean_ast_val(r.get("Player"))
+            if not p: continue
+            finishes_map[p] = {
+                sc: (safe_int(r[sc]) if pd.notna(r[sc]) and str(r[sc]).strip() != "" else None)
+                for sc in season_cols
+            }
+
+    # 2. Live Calculation from Matches Tab
+    mgr_stats = {}
+    compact_matches = []
+    if "Matches" in sheet_names:
+        df_m = pd.read_excel(xls, sheet_name="Matches")
+        played = df_m[df_m["Score1"].notna() & df_m["Score2"].notna()].copy()
+        played["GW_num"] = pd.to_numeric(played["GW"], errors="coerce").fillna(0).astype(int)
+        played = played.sort_values(by=["Season", "GW_num", "MatchID"])
+
+        def init_mgr(name):
+            if name not in mgr_stats:
+                mgr_stats[name] = {
+                    "player": name, "seasons": set(),
+                    "all_gp": 0, "all_w": 0, "all_d": 0, "all_l": 0, "all_pf": 0, "all_pa": 0,
+                    "all_g": 0, "all_a": 0, "all_cs": 0, "all_high": 0, "all_low": 999, "all_big_win": 0,
+                    "lg_gp": 0, "lg_w": 0, "lg_d": 0, "lg_l": 0, "lg_pf": 0, "lg_pa": 0, "lg_pts": 0,
+                    "lg_g": 0, "lg_a": 0, "lg_cs": 0, "lg_high": 0, "lg_big_win": 0,
+                    "cup_gp": 0, "cup_w": 0, "cup_d": 0, "cup_l": 0,
+                    "bucket_gp": 0, "bucket_w": 0, "bucket_d": 0, "bucket_l": 0,
+                    "opp_all": {}, "opp_lg": {}, "lg_seq": []
+                }
+
+        for _, r in played.iterrows():
+            p1 = _clean_ast_val(r.get("Player1"))
+            p2 = _clean_ast_val(r.get("Player2"))
+            if not p1 or not p2: continue
+            s1, s2 = safe_int(r.get("Score1")), safe_int(r.get("Score2"))
+            season = _clean_ast_val(r.get("Season"))
+            gw = safe_int(r.get("GW_num"))
+            comp = _clean_ast_val(r.get("Comp"))
+            div = _clean_ast_val(r.get("Division")) or _clean_ast_val(r.get("Stage"))
+            g1, a1, cs1 = safe_int(r.get("Goals1")), safe_int(r.get("Assists1")), safe_int(r.get("CS1"))
+            g2, a2, cs2 = safe_int(r.get("Goals2")), safe_int(r.get("Assists2")), safe_int(r.get("CS2"))
+
+            compact_matches.append([season, gw, comp, div, p1, p2, s1, s2])
+
+            for me, opp, ms, os_val, mg, ma, mcs in [(p1, p2, s1, s2, g1, a1, cs1), (p2, p1, s2, s1, g2, a2, cs2)]:
+                init_mgr(me)
+                st = mgr_stats[me]
+                st["seasons"].add(season)
+                st["all_gp"] += 1; st["all_pf"] += ms; st["all_pa"] += os_val
+                st["all_g"] += mg; st["all_a"] += ma; st["all_cs"] += mcs
+                if ms > st["all_high"]: st["all_high"] = ms
+                if ms < st["all_low"]: st["all_low"] = ms
+                if ms > os_val:
+                    st["all_w"] += 1
+                    if (ms - os_val) > st["all_big_win"]: st["all_big_win"] = ms - os_val
+                    res = "W"
+                elif ms < os_val:
+                    st["all_l"] += 1; res = "L"
+                else:
+                    st["all_d"] += 1; res = "D"
+
+                oa = st["opp_all"].setdefault(opp, {"w": 0, "d": 0, "l": 0})
+                oa[res.lower()] += 1
+
+                if comp.lower() == "league":
+                    st["lg_gp"] += 1; st["lg_pf"] += ms; st["lg_pa"] += os_val
+                    st["lg_g"] += mg; st["lg_a"] += ma; st["lg_cs"] += mcs
+                    if ms > st["lg_high"]: st["lg_high"] = ms
+                    if res == "W":
+                        st["lg_w"] += 1; st["lg_pts"] += 3
+                        if (ms - os_val) > st["lg_big_win"]: st["lg_big_win"] = ms - os_val
+                    elif res == "D":
+                        st["lg_d"] += 1; st["lg_pts"] += 1
+                    else:
+                        st["lg_l"] += 1
+                    ol = st["opp_lg"].setdefault(opp, {"w": 0, "d": 0, "l": 0})
+                    ol[res.lower()] += 1
+                    st["lg_seq"].append((f"{season} GW{gw}", res))
+                elif comp.lower() == "cup":
+                    st["cup_gp"] += 1
+                    if res == "W": st["cup_w"] += 1
+                    elif res == "D": st["cup_d"] += 1
+                    else: st["cup_l"] += 1
+                elif comp.lower() in ["bucket", "plate"]:
+                    st["bucket_gp"] += 1
+                    if res == "W": st["bucket_w"] += 1
+                    elif res == "D": st["bucket_d"] += 1
+                    else: st["bucket_l"] += 1
+
+    profiles_out = {}
+    streaks_list = []
+    for p_name in sorted(mgr_stats.keys(), key=lambda x: x.lower()):
+        st = mgr_stats[p_name]
+        s_list = sorted(list(st["seasons"]))
+        strk = _compute_mgr_streaks(st["lg_seq"])
+        streaks_list.append({"player": p_name, **strk})
+
+        bunny_all = max(st["opp_all"].items(), key=lambda x: (x[1]["w"], -x[1]["l"]), default=("-", {"w": 0}))
+        nem_all = max(st["opp_all"].items(), key=lambda x: (x[1]["l"], -x[1]["w"]), default=("-", {"l": 0}))
+        bunny_lg = max(st["opp_lg"].items(), key=lambda x: (x[1]["w"], -x[1]["l"]), default=("-", {"w": 0}))
+        nem_lg = max(st["opp_lg"].items(), key=lambda x: (x[1]["l"], -x[1]["w"]), default=("-", {"l": 0}))
+
+        t_info = trophies_map.get(p_name, {
+            "all_league_titles": 0, "cdp_titles": 0, "sdm_titles": 0, "bdr_titles": 0, "lde_titles": 0,
+            "cup_titles": 0, "bucket_titles": 0, "promotions": 0, "relegations": 0
+        })
+
+        profiles_out[p_name] = {
+            "player": p_name,
+            "seasons_played": len(s_list),
+            "first_season": s_list[0] if s_list else "-",
+            "all_gp": st["all_gp"], "all_w": st["all_w"], "all_d": st["all_d"], "all_l": st["all_l"],
+            "all_win_pct": round((st["all_w"] / max(1, st["all_gp"])) * 100, 1),
+            "all_pf": st["all_pf"], "all_pa": st["all_pa"], "all_diff": st["all_pf"] - st["all_pa"],
+            "all_avg": round(st["all_pf"] / max(1, st["all_gp"]), 2),
+            "all_high": st["all_high"], "all_low": (st["all_low"] if st["all_low"] < 999 else 0),
+            "all_big_win": st["all_big_win"],
+            "all_g": st["all_g"], "all_a": st["all_a"], "all_cs": st["all_cs"],
+            "lg_gp": st["lg_gp"], "lg_w": st["lg_w"], "lg_d": st["lg_d"], "lg_l": st["lg_l"],
+            "lg_win_pct": round((st["lg_w"] / max(1, st["lg_gp"])) * 100, 1),
+            "lg_pf": st["lg_pf"], "lg_pa": st["lg_pa"], "lg_diff": st["lg_pf"] - st["lg_pa"],
+            "lg_pts": st["lg_pts"], "lg_avg": round(st["lg_pf"] / max(1, st["lg_gp"]), 2),
+            "lg_high": st["lg_high"], "lg_big_win": st["lg_big_win"],
+            "lg_g": st["lg_g"], "lg_a": st["lg_a"], "lg_cs": st["lg_cs"],
+            "cup_gp": st["cup_gp"], "cup_w": st["cup_w"], "cup_d": st["cup_d"], "cup_l": st["cup_l"],
+            "bucket_gp": st["bucket_gp"], "bucket_w": st["bucket_w"], "bucket_d": st["bucket_d"], "bucket_l": st["bucket_l"],
+            "bunny_all": f"{bunny_all[0]} ({bunny_all[1]['w']}W)" if bunny_all[1].get("w", 0) > 0 else "-",
+            "nemesis_all": f"{nem_all[0]} ({nem_all[1]['l']}L)" if nem_all[1].get("l", 0) > 0 else "-",
+            "bunny_lg": f"{bunny_lg[0]} ({bunny_lg[1]['w']}W)" if bunny_lg[1].get("w", 0) > 0 else "-",
+            "nemesis_lg": f"{nem_lg[0]} ({nem_lg[1]['l']}L)" if nem_lg[1].get("l", 0) > 0 else "-",
+            "streaks": strk,
+            "trophies": t_info,
+            "finishes": finishes_map.get(p_name, {sc: None for sc in season_cols})
+        }
+
+    streaks_list = sorted(streaks_list, key=lambda x: (-x["max_w"], x["player"].lower()))
+
+    # 3. Palmares & Records
+    honours_rows, awards_rows = [], []
+    if "Palmares & Records" in sheet_names:
+        df_pal = pd.read_excel(xls, sheet_name="Palmares & Records", header=None)
+        for idx in range(1, min(39, len(df_pal))):
+            row = df_pal.iloc[idx]
+            cat = _clean_ast_val(row[0])
+            if not cat: continue
+            vals = [_clean_ast_val(row[c]) for c in range(1, 10)]
+            honours_rows.append({"is_section": not any(vals), "category": cat, "values": vals})
+
+        for idx in range(0, min(10, len(df_pal))):
+            row = df_pal.iloc[idx]
+            aw = _clean_ast_val(row[11]) if len(row) > 11 else ""
+            if not aw or aw.lower() == "award": continue
+            vals = [_clean_ast_val(row[c]) for c in range(12, min(20, len(row)))]
+            awards_rows.append({"award": aw, "values": vals})
+
+    # 4. Coefficient Model
+    coef_rolling, coef_raw, coef_leaders = [], [], []
+    if "Coefficient Model" in sheet_names:
+        df_cm = pd.read_excel(xls, sheet_name="Coefficient Model", header=None)
+        if len(df_cm) > 7:
+            coef_leaders = [_clean_ast_val(df_cm.iloc[7, c]) for c in range(2, 11)]
+        for idx in range(9, min(49, len(df_cm))):
+            row = df_cm.iloc[idx]
+            player = _clean_ast_val(row[1])
+            if not player: continue
+            coef_rolling.append({
+                "rank": _clean_ast_val(row[0]),
+                "player": player,
+                "seasons": [_clean_ast_val(row[c]) for c in range(2, 11)],
+                "latest": _clean_ast_val(row[11]),
+                "status": _clean_ast_val(row[12]) if len(row) > 12 else ""
+            })
+        for idx in range(52, min(93, len(df_cm))):
+            row = df_cm.iloc[idx]
+            player = _clean_ast_val(row[0])
+            if not player or player.lower() in ["player", "editable rules"]:
+                if player.lower() == "editable rules": break
+                continue
+            coef_raw.append({
+                "player": player,
+                "seasons": [_clean_ast_val(row[c]) for c in range(1, 10)]
+            })
+
+    # 5. Draft Archive & Draft Positions
+    draft_boards = {}
+    if "Draft Archive" in sheet_names:
+        df_da = pd.read_excel(xls, sheet_name="Draft Archive", header=None)
+        for base_r in [0, 40, 80, 120, 160]:
+            if base_r >= len(df_da): continue
+            s_label = _clean_ast_val(df_da.iloc[base_r, 0])
+            if not s_label: continue
+            draft_boards[s_label] = {}
+            for div_offset, col_offset in [(1, 0), (1, 10), (20, 0), (20, 10)]:
+                r_div = base_r + div_offset
+                if r_div + 17 >= len(df_da): continue
+                div_name = _clean_ast_val(df_da.iloc[r_div, col_offset])
+                if not div_name: continue
+                mgrs = [_clean_ast_val(df_da.iloc[r_div + 2, col_offset + c]) for c in range(1, 9)]
+                rounds = []
+                for rd in range(1, 16):
+                    r_idx = r_div + 2 + rd
+                    picks = [_clean_ast_val(df_da.iloc[r_idx, col_offset + c]) for c in range(1, 9)]
+                    rounds.append({"round": rd, "picks": picks})
+                draft_boards[s_label][div_name] = {"managers": mgrs, "rounds": rounds}
+
+    draft_pos = []
+    if "Draft Positions" in sheet_names:
+        df_dp = pd.read_excel(xls, sheet_name="Draft Positions", header=None)
+        for idx in range(3, len(df_dp)):
+            row = df_dp.iloc[idx]
+            p = _clean_ast_val(row[0])
+            if not p: continue
+            draft_pos.append({
+                "player": p,
+                "s6": _clean_ast_val(row[1]), "s7": _clean_ast_val(row[2]), "s8": _clean_ast_val(row[3]),
+                "s9": _clean_ast_val(row[4]), "s10": _clean_ast_val(row[5]),
+                "earliest": _clean_ast_val(row[6]), "latest": _clean_ast_val(row[7]), "avg": _clean_ast_val(row[8])
+            })
+
+    # 6. Season Bios, HoF & Archive Narratives
+    bios, hof_list, narratives = [], [], []
+    if "Season Bios" in sheet_names:
+        df_sb = pd.read_excel(xls, sheet_name="Season Bios", header=None)
+        for idx in range(len(df_sb)):
+            row = df_sb.iloc[idx]
+            s_title = _clean_ast_val(row[0])
+            s_yr = _clean_ast_val(row[1])
+            s_txt = str(row[2]).strip() if len(row) > 2 and pd.notna(row[2]) else ""
+            if s_title and s_txt:
+                bios.append({"season": s_title, "years": s_yr, "text": s_txt})
+
+    if "HoF" in sheet_names:
+        df_hof = pd.read_excel(xls, sheet_name="HoF")
+        for _, r in df_hof.iterrows():
+            p = _clean_ast_val(r.get("Player"))
+            if p:
+                hof_list.append({
+                    "season": _clean_ast_val(r.get("Season")),
+                    "player": p,
+                    "contributor": _clean_ast_val(r.get("Contributor")),
+                    "moment": _clean_ast_val(r.get("Moment"))
+                })
+
+    if "Archive Narratives" in sheet_names:
+        df_nar = pd.read_excel(xls, sheet_name="Archive Narratives")
+        for _, r in df_nar.iterrows():
+            txt = _clean_ast_val(r.get("Narrative"))
+            if txt:
+                narratives.append({
+                    "num": _clean_ast_val(r.get("No.")),
+                    "category": _clean_ast_val(r.get("Category")),
+                    "text": txt
+                })
+
+    return {
+        "exists": True,
+        "filename": target_file.name,
+        "managers": sorted(list(profiles_out.keys()), key=lambda x: x.lower()),
+        "season_cols": season_cols,
+        "profiles": profiles_out,
+        "matches": compact_matches,
+        "streaks": streaks_list,
+        "honours": honours_rows,
+        "awards": awards_rows,
+        "coef_leaders": coef_leaders,
+        "coef_rolling": coef_rolling,
+        "coef_raw": coef_raw,
+        "draft_boards": draft_boards,
+        "draft_positions": draft_pos,
+        "bios": bios,
+        "hof": hof_list,
+        "narratives": narratives
+    }
+
+@app.get("/api/asterisk")
+def get_asterisk_archive():
+    target_file = find_asterisk_file()
+    if not target_file:
+        return {"exists": False, "message": "Asterisk.xlsx not found in root or Assets folder."}
+    try:
+        mtime = target_file.stat().st_mtime
+        if _ASTERISK_CACHE["data"] is not None and _ASTERISK_CACHE["mtime"] == mtime:
+            return _ASTERISK_CACHE["data"]
+        payload = build_asterisk_payload(target_file)
+        _ASTERISK_CACHE["mtime"] = mtime
+        _ASTERISK_CACHE["data"] = payload
+        return payload
+    except Exception as e:
+        return {"exists": False, "message": f"Error reading {target_file.name}: {str(e)}"}
+
+@app.get("/api/asterisk/download")
+def download_asterisk_archive():
+    target_file = find_asterisk_file()
+    if not target_file:
+        return Response(status_code=404)
+    return FileResponse(target_file, filename=target_file.name, media_type="application/octet-stream")
+
+# ==========================================
 # 11. CUP & BUCKET COMPETITION (32 TEAMS)
 # ==========================================
 @ttl_cache(300)

@@ -1067,16 +1067,66 @@
         <div id="power-content" style="width: 100%;"></div>
     </div>
 
-    <!-- SCREEN 13: ASTERISK* (PLACEHOLDER FOR NOW) -->
+    <!-- SCREEN 13: ASTERISK* MASTER LEAGUE ARCHIVES -->
     <div id="screen-asterisk" class="app-screen">
         <div class="top-nav-bar">
             <button class="back-home-btn" onclick="navigate('home')">← Home</button>
+            <button class="refresh-btn" onclick="fetchAsterisk(true)">🔄 Refresh</button>
         </div>
-        <div class="header">
-            <h1>📜 Asterisk* — Master League Archives</h1>
-            <p>10 Seasons of Power Query data, manager profiles, historical records and season chronicles</p>
+        <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h1>📜 Asterisk* — Master League Archives</h1>
+                <p>10 Seasons of Dellarverse history, live career dossiers, Head to Head rivalries, coefficients, draft boards & chronicles</p>
+            </div>
+            <a id="asterisk-download-btn" href="/api/asterisk/download" style="display: none; background: #f59e0b; color: #000; padding: 8px 14px; border-radius: 8px; font-size: 0.82rem; font-weight: 800; text-decoration: none;">📥 Download Workbook</a>
         </div>
-        <div class="alert-box alert-info">🚧 Asterisk* historical archives module is queued for the next phase.</div>
+
+        <div class="sub-tabs">
+            <button class="sub-tab-btn active" id="ast-tab-profiles" onclick="switchAsteriskTab('profiles')">👤 Manager Dossiers & H2H</button>
+            <button class="sub-tab-btn" id="ast-tab-palmares" onclick="switchAsteriskTab('palmares')">🏛️ Palmares & Streaks</button>
+            <button class="sub-tab-btn" id="ast-tab-coef" onclick="switchAsteriskTab('coef')">📈 CDP Coefficient</button>
+            <button class="sub-tab-btn" id="ast-tab-draft" onclick="switchAsteriskTab('draft')">🎯 Draft Vault</button>
+            <button class="sub-tab-btn" id="ast-tab-lore" onclick="switchAsteriskTab('lore')">📖 Chronicles & Lore</button>
+        </div>
+
+        <div id="asterisk-status-box" style="width: 100%; display: none;"></div>
+
+        <!-- PANE 1: MANAGER DOSSIERS & H2H -->
+        <div id="ast-pane-profiles" style="width: 100%; display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; background: #090c13; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+                <span style="font-size: 0.9rem; font-weight: 800; color: #f59e0b;">👤 Select Manager Dossier:</span>
+                <select id="ast-mgr-select" class="white-select" style="min-width: 180px;" onchange="renderAsteriskProfile(this.value)"></select>
+            </div>
+            <div id="ast-profile-body" style="width: 100%;"></div>
+
+            <!-- HEAD TO HEAD RIVALRY ANALYSER -->
+            <div style="background: linear-gradient(145deg, rgba(17,24,39,0.9) 0%, rgba(9,12,19,0.98) 100%); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px 16px; margin-top: 18px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px;">
+                    <div>
+                        <div style="font-size: 1.05rem; font-weight: 800; color: #fff;">⚔️ Head to Head Rivalry Lookup</div>
+                        <div style="font-size: 0.78rem; color: #94a3b8;">Compare lifetime records and every historical meeting between any two managers</div>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        <select id="ast-h2h-m1" class="white-select" onchange="renderAsteriskH2H()"></select>
+                        <span style="font-weight: 900; color: #64748b; font-size: 0.85rem;">VS</span>
+                        <select id="ast-h2h-m2" class="white-select" onchange="renderAsteriskH2H()"></select>
+                    </div>
+                </div>
+                <div id="ast-h2h-body" style="width: 100%;"></div>
+            </div>
+        </div>
+
+        <!-- PANE 2: PALMARES, AWARDS & STREAKS -->
+        <div id="ast-pane-palmares" style="width: 100%; display: none;"></div>
+
+        <!-- PANE 3: CDP COEFFICIENT -->
+        <div id="ast-pane-coef" style="width: 100%; display: none;"></div>
+
+        <!-- PANE 4: DRAFT VAULT -->
+        <div id="ast-pane-draft" style="width: 100%; display: none;"></div>
+
+        <!-- PANE 5: CHRONICLES & LORE -->
+        <div id="ast-pane-lore" style="width: 100%; display: none;"></div>
     </div>
 
     <!-- MATCH SPOTLIGHT MODAL -->
@@ -1276,6 +1326,7 @@
             else if (screenId === 'disc') switchDiscLeague(activeLeagueId);
             else if (screenId === 'news') fetchNewsletter('league');
             else if (screenId === 'power') fetchPowerRankings();
+            else if (screenId === 'asterisk') fetchAsterisk();
         }
 
         async function attemptLogin() {
@@ -2697,6 +2748,504 @@
                 <thead><tr>${s.columns.map(c => `<th>${c}</th>`).join('')}</tr></thead>
                 <tbody>${s.rows.map(r => `<tr>${r.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('')}</tbody>
             </table></div>`;
+        }
+
+        // ==========================================
+        // ASTERISK* MASTER ARCHIVES
+        // ==========================================
+        window.asteriskData = null;
+        window.activeAsteriskTab = 'profiles';
+        window.activeCoefMode = 'rolling';
+
+        function switchAsteriskTab(tab) {
+            window.activeAsteriskTab = tab;
+            ['profiles', 'palmares', 'coef', 'draft', 'lore'].forEach(t => {
+                const btn = document.getElementById(`ast-tab-${t}`);
+                const pane = document.getElementById(`ast-pane-${t}`);
+                if (btn) btn.classList.toggle('active', t === tab);
+                if (pane) pane.style.display = (t === tab && window.asteriskData && window.asteriskData.exists) ? 'block' : 'none';
+            });
+        }
+
+        async function fetchAsterisk(forceRefresh = false) {
+            const statusBox = document.getElementById('asterisk-status-box');
+            if (!window.asteriskData || forceRefresh) {
+                statusBox.style.display = 'block';
+                statusBox.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading 10 seasons of Asterisk* archive data...</p>";
+                ['profiles', 'palmares', 'coef', 'draft', 'lore'].forEach(t => {
+                    const p = document.getElementById(`ast-pane-${t}`);
+                    if (p) p.style.display = 'none';
+                });
+                try {
+                    const res = await fetch(`/api/asterisk?t=${Date.now()}`);
+                    window.asteriskData = await res.json();
+                } catch (e) {
+                    statusBox.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load Asterisk* archive.</p>";
+                    return;
+                }
+            }
+
+            const d = window.asteriskData;
+            if (!d || !d.exists) {
+                statusBox.style.display = 'block';
+                statusBox.innerHTML = `<div class="alert-box alert-warn">${(d && d.message) || "Asterisk.xlsx not found in root folder."}</div>`;
+                return;
+            }
+
+            statusBox.style.display = 'none';
+            const dlBtn = document.getElementById('asterisk-download-btn');
+            if (dlBtn) {
+                dlBtn.style.display = 'inline-block';
+                dlBtn.innerText = `📥 Download (${d.filename})`;
+            }
+
+            const mgrs = d.managers || [];
+            const mgrSel = document.getElementById('ast-mgr-select');
+            const h2hM1 = document.getElementById('ast-h2h-m1');
+            const h2hM2 = document.getElementById('ast-h2h-m2');
+            const optsHtml = mgrs.map(m => `<option value="${m}">${m}</option>`).join('');
+
+            const defMgr = mgrs.includes(savedAlias) ? savedAlias : (mgrs.includes('Andy') ? 'Andy' : (mgrs[0] || ''));
+            if (mgrSel && !mgrSel.innerHTML) {
+                mgrSel.innerHTML = optsHtml;
+                mgrSel.value = defMgr;
+            }
+            if (h2hM1 && !h2hM1.innerHTML) {
+                h2hM1.innerHTML = optsHtml;
+                h2hM2.innerHTML = optsHtml;
+                h2hM1.value = defMgr;
+                const defOpp = mgrs.find(m => m !== defMgr && m === 'Phil') || mgrs.find(m => m !== defMgr) || defMgr;
+                h2hM2.value = defOpp;
+            }
+
+            renderAsteriskProfile(mgrSel ? mgrSel.value : defMgr);
+            renderAsteriskH2H();
+            renderAsteriskPalmares();
+            renderAsteriskCoefficient();
+            renderAsteriskDraft();
+            renderAsteriskChronicles();
+            switchAsteriskTab(window.activeAsteriskTab || 'profiles');
+        }
+
+        function renderAsteriskProfile(mgrName) {
+            const d = window.asteriskData;
+            const box = document.getElementById('ast-profile-body');
+            if (!d || !d.profiles || !box) return;
+            const p = d.profiles[mgrName];
+            if (!p) return;
+
+            const h2hM1 = document.getElementById('ast-h2h-m1');
+            if (h2hM1 && h2hM1.value !== mgrName) {
+                h2hM1.value = mgrName;
+                renderAsteriskH2H();
+            }
+
+            const t = p.trophies || {};
+            const strk = p.streaks || {};
+
+            // Trophy Pills
+            const pills = [];
+            if (t.cdp_titles > 0) pills.push(`<span style="background:rgba(245,158,11,0.18); border:1px solid #f59e0b; color:#fde047; padding:4px 10px; border-radius:999px; font-size:0.78rem; font-weight:800;">🏆 ${t.cdp_titles}x CDP Champion</span>`);
+            if (t.sdm_titles > 0) pills.push(`<span style="background:rgba(56,189,248,0.15); border:1px solid #38bdf8; color:#bae6fd; padding:4px 10px; border-radius:999px; font-size:0.78rem; font-weight:800;">🥈 ${t.sdm_titles}x SDM Champion</span>`);
+            if (t.bdr_titles > 0) pills.push(`<span style="background:rgba(34,197,94,0.15); border:1px solid #22c55e; color:#86efac; padding:4px 10px; border-radius:999px; font-size:0.78rem; font-weight:800;">🥉 ${t.bdr_titles}x BDR Champion</span>`);
+            if (t.lde_titles > 0) pills.push(`<span style="background:rgba(168,85,247,0.15); border:1px solid #a855f7; color:#e9d5ff; padding:4px 10px; border-radius:999px; font-size:0.78rem; font-weight:800;">🏅 ${t.lde_titles}x LDE Champion</span>`);
+            if (t.cup_titles > 0) pills.push(`<span style="background:rgba(245,158,11,0.18); border:1px solid #f59e0b; color:#fcd34d; padding:4px 10px; border-radius:999px; font-size:0.78rem; font-weight:800;">🏆 ${t.cup_titles}x Cup Winner</span>`);
+            if (t.bucket_titles > 0) pills.push(`<span style="background:rgba(148,163,184,0.15); border:1px solid #94a3b8; color:#e2e8f0; padding:4px 10px; border-radius:999px; font-size:0.78rem; font-weight:800;">🪣 ${t.bucket_titles}x Bucket Winner</span>`);
+            if (t.promotions > 0) pills.push(`<span style="background:rgba(34,197,94,0.12); border:1px solid rgba(34,197,94,0.4); color:#86efac; padding:4px 10px; border-radius:999px; font-size:0.76rem; font-weight:700;">▲ ${t.promotions} Promotions</span>`);
+            if (t.relegations > 0) pills.push(`<span style="background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.4); color:#fca5a5; padding:4px 10px; border-radius:999px; font-size:0.76rem; font-weight:700;">▼ ${t.relegations} Relegations</span>`);
+
+            const trophyRowHtml = pills.length
+                ? `<div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px;">${pills.join('')}</div>`
+                : `<div style="font-size:0.8rem; color:#64748b; margin-bottom:12px;">No major silverware or divisional movement recorded yet.</div>`;
+
+            box.innerHTML = `
+                <div style="background:linear-gradient(145deg, rgba(20,28,46,0.92) 0%, rgba(9,12,19,0.98) 100%); border:1px solid rgba(245,158,11,0.3); border-radius:12px; padding:14px 16px; margin-bottom:12px;">
+                    <div style="display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                        <div style="font-size:1.4rem; font-weight:900; color:#fff;">${p.player}</div>
+                        <div style="font-size:0.8rem; color:#94a3b8; font-weight:700;">Debut: <span style="color:#f59e0b;">${p.first_season}</span> • Seasons: <span style="color:#fff;">${p.seasons_played}</span></div>
+                    </div>
+                    ${trophyRowHtml}
+                    <div class="metric-grid" style="margin: 8px 0 0 0;">
+                        <div class="metric-card">
+                            <div class="metric-label">All-Comp Record</div>
+                            <div class="metric-val" style="font-size:1.2rem;">${p.all_w}W - ${p.all_d}D - ${p.all_l}L</div>
+                            <div class="metric-delta">${p.all_gp} GP • ${p.all_win_pct}% Win Rate</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">League Record</div>
+                            <div class="metric-val" style="font-size:1.2rem;">${p.lg_w}W - ${p.lg_d}D - ${p.lg_l}L</div>
+                            <div class="metric-delta">${p.lg_pts} League Pts (${p.lg_win_pct}%)</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Player Points (All)</div>
+                            <div class="metric-val" style="font-size:1.2rem;">${p.all_pf.toLocaleString()}</div>
+                            <div class="metric-delta">Avg ${p.all_avg} • Diff ${p.all_diff >= 0 ? '+' : ''}${p.all_diff}</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Peak & Margin</div>
+                            <div class="metric-val" style="font-size:1.2rem;">${p.all_high} pts</div>
+                            <div class="metric-delta">Low ${p.all_low} • Best Win +${p.all_big_win}</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Career G / A / CS</div>
+                            <div class="metric-val" style="font-size:1.2rem;">${p.all_g} / ${p.all_a} / ${p.all_cs}</div>
+                            <div class="metric-delta">⚽ Goals • 🎯 Assists • 🛡️ CS</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Cup & Bucket</div>
+                            <div class="metric-val" style="font-size:1.2rem;">${p.cup_w}W / ${p.bucket_w}W</div>
+                            <div class="metric-delta">Cup ${p.cup_w}-${p.cup_d}-${p.cup_l} • Bucket ${p.bucket_w}-${p.bucket_d}-${p.bucket_l}</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Favourite Bunny</div>
+                            <div class="metric-val" style="font-size:1.1rem; color:#22c55e;">${p.bunny_all}</div>
+                            <div class="metric-delta">League: ${p.bunny_lg}</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-label">Biggest Nemesis</div>
+                            <div class="metric-val" style="font-size:1.1rem; color:#ef4444;">${p.nemesis_all}</div>
+                            <div class="metric-delta">League: ${p.nemesis_lg}</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 10-SEASON PYRAMID TRAJECTORY CHART -->
+                <div style="background:#090c13; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:14px 16px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                        <div>
+                            <div style="font-size:1rem; font-weight:800; color:#fff;">📈 10-Season Pyramid Trajectory (1st to 32nd)</div>
+                            <div style="font-size:0.76rem; color:#94a3b8;">Overall Dellarverse finishing position across CDP (1-8), SDM (9-16), BDR (17-24) & LDE (25-32)</div>
+                        </div>
+                        <div style="font-size:0.76rem; color:#cbd5e1; font-weight:700;">
+                            Best Win Streak: <span style="color:#22c55e;">${strk.max_w || 0}</span> (${strk.max_w_span || '-'}) • Worst Losing Run: <span style="color:#ef4444;">${strk.max_l || 0}</span>
+                        </div>
+                    </div>
+                    <div style="width:100%; height:220px; position:relative;">
+                        <svg id="ast-finish-svg" style="width:100%; height:100%; display:block; overflow:visible;"></svg>
+                    </div>
+                </div>
+            `;
+
+            requestAnimationFrame(() => {
+                drawFinishChartSvg(p.finishes || {}, d.season_cols || []);
+            });
+        }
+
+        function drawFinishChartSvg(finishes, seasonCols) {
+            const svgEl = document.getElementById('ast-finish-svg');
+            if (!svgEl || !seasonCols.length) return;
+            const W = svgEl.clientWidth || 340;
+            const H = svgEl.clientHeight || 220;
+            svgEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+            const padL = 42, padR = 18, padT = 18, padB = 30;
+            const plotW = Math.max(100, W - padL - padR);
+            const plotH = Math.max(80, H - padT - padB);
+            const n = seasonCols.length;
+            const getX = (i) => n === 1 ? padL + plotW / 2 : padL + (i / (n - 1)) * plotW;
+            const getY = (pos) => padT + ((pos - 1) / 31) * plotH;
+
+            let svg = '';
+            // Tier background bands
+            const bands = [
+                { label: 'CDP', y1: getY(1), y2: getY(8.5), color: 'rgba(245, 158, 11, 0.08)' },
+                { label: 'SDM', y1: getY(8.5), y2: getY(16.5), color: 'rgba(56, 189, 248, 0.07)' },
+                { label: 'BDR', y1: getY(16.5), y2: getY(24.5), color: 'rgba(34, 197, 94, 0.06)' },
+                { label: 'LDE', y1: getY(24.5), y2: getY(32), color: 'rgba(168, 85, 247, 0.06)' }
+            ];
+            bands.forEach(b => {
+                svg += `<rect x="${padL}" y="${b.y1}" width="${plotW}" height="${Math.max(0, b.y2 - b.y1)}" fill="${b.color}" />`;
+                svg += `<text x="${padL - 6}" y="${(b.y1 + b.y2) / 2 + 4}" fill="#64748b" font-size="10" font-weight="800" text-anchor="end">${b.label}</text>`;
+            });
+
+            [1, 8, 16, 24, 32].forEach(pos => {
+                const y = getY(pos);
+                svg += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="rgba(255,255,255,0.08)" stroke-dasharray="3,3" stroke-width="1" />`;
+            });
+
+            const validPts = [];
+            seasonCols.forEach((sc, i) => {
+                const x = getX(i);
+                svg += `<text x="${x}" y="${H - 8}" fill="#94a3b8" font-size="10.5" font-weight="700" text-anchor="middle">${sc}</text>`;
+                const val = finishes[sc];
+                if (val !== null && val !== undefined && val > 0) {
+                    validPts.push({ sc, x, y: getY(val), val });
+                }
+            });
+
+            if (validPts.length > 1) {
+                const polyPts = validPts.map(pt => `${pt.x},${pt.y}`).join(' ');
+                svg += `<polyline class="prog-line-anim" pathLength="1000" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${polyPts}" />`;
+            }
+
+            validPts.forEach((pt, idx) => {
+                const delay = idx * 80;
+                svg += `<circle class="vis-dot" style="animation-delay:${delay}ms;" cx="${pt.x}" cy="${pt.y}" r="5" fill="#f59e0b" stroke="#000" stroke-width="1.5" />`;
+                svg += `<text x="${pt.x}" y="${pt.y - 8}" fill="#ffffff" font-size="10.5" font-weight="800" text-anchor="middle">#${pt.val}</text>`;
+            });
+
+            svgEl.innerHTML = svg;
+        }
+
+        function renderAsteriskH2H() {
+            const d = window.asteriskData;
+            const box = document.getElementById('ast-h2h-body');
+            if (!d || !d.matches || !box) return;
+            const m1 = document.getElementById('ast-h2h-m1').value;
+            const m2 = document.getElementById('ast-h2h-m2').value;
+            if (!m1 || !m2 || m1 === m2) {
+                box.innerHTML = `<div class="alert-box alert-info">Select two different managers above to compare their Head to Head history.</div>`;
+                return;
+            }
+
+            const meetings = [];
+            let w1 = 0, w2 = 0, draws = 0, pf1 = 0, pf2 = 0;
+            d.matches.forEach(row => {
+                const [season, gw, comp, div, p1, p2, s1, s2] = row;
+                if ((p1 === m1 && p2 === m2) || (p1 === m2 && p2 === m1)) {
+                    const myS = (p1 === m1) ? s1 : s2;
+                    const oppS = (p1 === m1) ? s2 : s1;
+                    pf1 += myS; pf2 += oppS;
+                    if (myS > oppS) w1++;
+                    else if (oppS > myS) w2++;
+                    else draws++;
+                    meetings.push({ season, gw, comp, div, s1: myS, s2: oppS });
+                }
+            });
+
+            if (!meetings.length) {
+                box.innerHTML = `<div class="alert-box alert-info">No recorded matches found between <b>${m1}</b> and <b>${m2}</b>.</div>`;
+                return;
+            }
+
+            meetings.reverse();
+            const tot = w1 + w2 + draws;
+            const pct1 = Math.round((w1 / tot) * 100);
+            const pct2 = Math.round((w2 / tot) * 100);
+
+            box.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <div style="font-size:1.1rem; font-weight:900; color:#f59e0b;">${m1}: ${w1}W (${pf1} pts)</div>
+                    <div style="font-size:0.85rem; font-weight:800; color:#94a3b8;">${draws} Draws • ${tot} Played</div>
+                    <div style="font-size:1.1rem; font-weight:900; color:#38bdf8; text-align:right;">${m2}: ${w2}W (${pf2} pts)</div>
+                </div>
+                <div class="progress-bg" style="height:10px; margin:8px 0 14px 0;">
+                    <div style="width:${pct1}%; background:#f59e0b;"></div>
+                    <div style="width:${100 - pct1 - pct2}%; background:#475569;"></div>
+                    <div style="width:${pct2}%; background:#38bdf8;"></div>
+                </div>
+                <div class="table-wrap" style="max-height:280px; overflow-y:auto; margin-bottom:0;">
+                    <table class="clean-table">
+                        <thead><tr><th>Season</th><th>GW</th><th>Comp</th><th>${m1}</th><th>Scoreline</th><th>${m2}</th><th>Winner</th></tr></thead>
+                        <tbody>${meetings.map(m => {
+                            const winTag = m.s1 > m.s2 ? `<span style="color:#f59e0b; font-weight:800;">${m1}</span>` : (m.s2 > m.s1 ? `<span style="color:#38bdf8; font-weight:800;">${m2}</span>` : `<span style="color:#94a3b8;">Draw</span>`);
+                            return `<tr><td>${m.season}</td><td>GW ${m.gw}</td><td>${m.comp}${m.div ? ` (${m.div})` : ''}</td><td style="font-weight:800; color:#f59e0b;">${m.s1}</td><td style="font-weight:900; color:#fff;">${m.s1} - ${m.s2}</td><td style="font-weight:800; color:#38bdf8;">${m.s2}</td><td>${winTag}</td></tr>`;
+                        }).join('')}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        function renderAsteriskPalmares() {
+            const d = window.asteriskData;
+            const pane = document.getElementById('ast-pane-palmares');
+            if (!d || !pane) return;
+
+            let honHtml = `<div style="font-size:1.1rem; font-weight:800; color:#fff; margin-bottom:8px;">🏆 Roll of Honour & Seasonal Records (S01 to S09)</div>
+            <div class="table-wrap"><table class="clean-table">
+                <thead><tr><th>Category</th><th>S01</th><th>S02</th><th>S03</th><th>S04</th><th>S05</th><th>S06</th><th>S07</th><th>S08</th><th>S09</th></tr></thead>
+                <tbody>`;
+            (d.honours || []).forEach(r => {
+                if (r.is_section) {
+                    honHtml += `<tr><td colspan="10" style="background:#131b2e; color:#f59e0b; font-weight:900; text-align:left; letter-spacing:0.6px; padding:8px 12px;">${r.category}</td></tr>`;
+                } else {
+                    honHtml += `<tr><td style="font-weight:800; color:#fff;">${r.category}</td>${r.values.map(v => `<td>${v || '-'}</td>`).join('')}</tr>`;
+                }
+            });
+            honHtml += `</tbody></table></div>`;
+
+            let awHtml = '';
+            if (d.awards && d.awards.length) {
+                awHtml = `<div style="font-size:1.1rem; font-weight:800; color:#fff; margin:16px 0 8px 0;">🎭 End of Season Awards (S03 to S10)</div>
+                <div class="table-wrap"><table class="clean-table">
+                    <thead><tr><th>Award</th><th>S03</th><th>S04</th><th>S05</th><th>S06</th><th>S07</th><th>S08</th><th>S09</th><th>S10</th></tr></thead>
+                    <tbody>${d.awards.map(a => `<tr><td style="font-weight:800; color:#f59e0b;">${a.award}</td>${a.values.map(v => `<td>${v || '-'}</td>`).join('')}</tr>`).join('')}</tbody>
+                </table></div>`;
+            }
+
+            let strkHtml = `<div style="font-size:1.1rem; font-weight:800; color:#fff; margin:16px 0 8px 0;">🔥 All-Time League Streaks (Live from Matches)</div>
+            <div class="table-wrap"><table class="clean-table">
+                <thead><tr><th>Manager</th><th>Max Win Streak</th><th>Win Span</th><th>Max Unbeaten</th><th>Max Losing Run</th><th>Max Winless</th><th>Active W / L</th></tr></thead>
+                <tbody>${(d.streaks || []).map(s => `<tr>
+                    <td style="font-weight:800; color:#fff;">${s.player}</td>
+                    <td style="color:#22c55e; font-weight:900;">${s.max_w}</td>
+                    <td style="font-size:0.74rem; color:#94a3b8;">${s.max_w_span}</td>
+                    <td style="color:#38bdf8; font-weight:800;">${s.max_unb}</td>
+                    <td style="color:#ef4444; font-weight:800;">${s.max_l}</td>
+                    <td>${s.max_wless}</td>
+                    <td>${s.cur_w > 0 ? `<span style="color:#22c55e; font-weight:800;">${s.cur_w}W</span>` : (s.cur_l > 0 ? `<span style="color:#ef4444; font-weight:800;">${s.cur_l}L</span>` : '-')}</td>
+                </tr>`).join('')}</tbody>
+            </table></div>`;
+
+            pane.innerHTML = honHtml + awHtml + strkHtml;
+        }
+
+        function renderAsteriskCoefficient(mode = window.activeCoefMode) {
+            window.activeCoefMode = mode;
+            const d = window.asteriskData;
+            const pane = document.getElementById('ast-pane-coef');
+            if (!d || !pane) return;
+
+            const isRoll = (mode === 'rolling');
+            let tblHtml = '';
+            if (isRoll) {
+                tblHtml = `<div class="table-wrap"><table class="clean-table">
+                    <thead><tr><th>Rank</th><th>Manager</th><th>Latest</th><th>S01</th><th>S02</th><th>S03</th><th>S04</th><th>S05</th><th>S06</th><th>S07</th><th>S08</th><th>S09</th></tr></thead>
+                    <tbody>${(d.coef_rolling || []).map(r => `<tr>
+                        <td style="font-weight:800;">${r.rank}</td>
+                        <td style="font-weight:800; color:#fff;">${r.player}</td>
+                        <td style="font-weight:900; color:#f59e0b;">${r.latest}</td>
+                        ${r.seasons.map(v => `<td>${v}</td>`).join('')}
+                    </tr>`).join('')}</tbody>
+                </table></div>`;
+            } else {
+                tblHtml = `<div class="table-wrap"><table class="clean-table">
+                    <thead><tr><th>Manager</th><th>S01</th><th>S02</th><th>S03</th><th>S04</th><th>S05</th><th>S06</th><th>S07</th><th>S08</th><th>S09</th></tr></thead>
+                    <tbody>${(d.coef_raw || []).map(r => `<tr>
+                        <td style="font-weight:800; color:#fff;">${r.player}</td>
+                        ${r.seasons.map(v => `<td>${v}</td>`).join('')}
+                    </tr>`).join('')}</tbody>
+                </table></div>`;
+            }
+
+            pane.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+                    <div>
+                        <div style="font-size:1.05rem; font-weight:800; color:#fff;">📈 5-Season Rolling CDP Coefficient Standings</div>
+                        <div style="font-size:0.78rem; color:#94a3b8;">Weighted across the last 5 completed seasons (20% / 40% / 60% / 80% / 100%)</div>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <button class="refresh-btn" style="border-color:${isRoll ? '#f59e0b' : 'rgba(255,255,255,0.12)'}; color:${isRoll ? '#f59e0b' : '#fff'};" onclick="renderAsteriskCoefficient('rolling')">🏆 Rolling Standings</button>
+                        <button class="refresh-btn" style="border-color:${!isRoll ? '#f59e0b' : 'rgba(255,255,255,0.12)'}; color:${!isRoll ? '#f59e0b' : '#fff'};" onclick="renderAsteriskCoefficient('raw')">📊 Raw Season Totals</button>
+                    </div>
+                </div>
+                ${tblHtml}
+            `;
+        }
+
+        function renderAsteriskDraft() {
+            const d = window.asteriskData;
+            const pane = document.getElementById('ast-pane-draft');
+            if (!d || !pane) return;
+            const seasons = Object.keys(d.draft_boards || {});
+            const selSeason = window.astDraftSeason || seasons[0] || 'Season X';
+            const divs = Object.keys((d.draft_boards && d.draft_boards[selSeason]) || {});
+            const selDiv = window.astDraftDiv || divs[0] || 'CDP';
+
+            const board = ((d.draft_boards || {})[selSeason] || {})[selDiv];
+            let boardHtml = `<div class="alert-box alert-info">No draft board data for ${selSeason} ${selDiv}.</div>`;
+            if (board) {
+                boardHtml = `<div class="table-wrap"><table class="clean-table">
+                    <thead>
+                        <tr><th>Pick</th>${board.managers.map((_, i) => `<th>#${i + 1}</th>`).join('')}</tr>
+                        <tr><th>Round</th>${board.managers.map(m => `<th style="color:#fff; font-size:0.8rem;">${m}</th>`).join('')}</tr>
+                    </thead>
+                    <tbody>${board.rounds.map(r => `<tr><td style="font-weight:900; color:#f59e0b;">R${r.round}</td>${r.picks.map(pk => `<td>${pk}</td>`).join('')}</tr>`).join('')}</tbody>
+                </table></div>`;
+            }
+
+            let posHtml = '';
+            if (d.draft_positions && d.draft_positions.length) {
+                posHtml = `<div style="font-size:1.05rem; font-weight:800; color:#fff; margin:16px 0 8px 0;">🎲 Historical Draft Slot Positions (S06 to S10)</div>
+                <div class="table-wrap"><table class="clean-table">
+                    <thead><tr><th>Manager</th><th>S06</th><th>S07</th><th>S08</th><th>S09</th><th>S10</th><th>Earliest</th><th>Latest</th><th>Average Slot</th></tr></thead>
+                    <tbody>${d.draft_positions.map(p => `<tr>
+                        <td style="font-weight:800; color:#fff;">${p.player}</td>
+                        <td>${p.s6 || '-'}</td><td>${p.s7 || '-'}</td><td>${p.s8 || '-'}</td><td>${p.s9 || '-'}</td><td>${p.s10 || '-'}</td>
+                        <td style="color:#22c55e; font-weight:700;">${p.earliest}</td>
+                        <td style="color:#ef4444; font-weight:700;">${p.latest}</td>
+                        <td style="color:#f59e0b; font-weight:900;">${p.avg}</td>
+                    </tr>`).join('')}</tbody>
+                </table></div>`;
+            }
+
+            pane.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+                    <div style="font-size:1.05rem; font-weight:800; color:#fff;">🎯 Complete 15-Round Draft Boards (${selSeason} • ${selDiv})</div>
+                    <div style="display:flex; gap:8px;">
+                        <select class="white-select" onchange="window.astDraftSeason=this.value; renderAsteriskDraft();">
+                            ${seasons.map(s => `<option value="${s}" ${s === selSeason ? 'selected' : ''}>${s}</option>`).join('')}
+                        </select>
+                        <select class="white-select" onchange="window.astDraftDiv=this.value; renderAsteriskDraft();">
+                            ${['CDP', 'SDM', 'BDR', 'LDE'].map(dv => `<option value="${dv}" ${dv === selDiv ? 'selected' : ''}>${dv}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+                ${boardHtml}
+                ${posHtml}
+            `;
+        }
+
+        function renderAsteriskChronicles() {
+            const d = window.asteriskData;
+            const pane = document.getElementById('ast-pane-lore');
+            if (!d || !pane) return;
+
+            const hofHtml = (d.hof && d.hof.length) ? `
+                <div style="font-size:1.1rem; font-weight:800; color:#f59e0b; margin-bottom:8px;">🏛️ CDP Hall of Fame Inductees</div>
+                <div class="metric-grid" style="margin-top:0; margin-bottom:16px;">
+                    ${d.hof.map(h => `
+                        <div class="metric-card" style="border-color:rgba(245,158,11,0.4);">
+                            <div class="metric-label">Inducted ${h.season || 'HoF'}</div>
+                            <div class="metric-val" style="font-size:1.3rem; color:#f59e0b;">👑 ${h.player}</div>
+                            <div class="metric-delta" style="color:#cbd5e1;">${h.moment ? `Moment: ${h.moment}` : 'Dellarverse Legend'}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            ` : '';
+
+            const biosHtml = (d.bios || []).map((b, idx) => {
+                const paras = b.text.split(/\n+/).filter(Boolean).map(p => `<p style="font-size:0.86rem; color:#cbd5e1; line-height:1.55; margin-bottom:10px;">${p}</p>`).join('');
+                return `
+                    <div class="exp-card">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <div style="font-size:1.1rem; font-weight:900; color:#fff;">📜 ${b.season} <span style="color:#f59e0b; font-size:0.88rem;">(${b.years})</span></div>
+                        </div>
+                        <button class="exp-toggle" onclick="document.getElementById('ast-bio-${idx}').classList.toggle('open')">
+                            <span>📖 Read ${b.season} Official Chronicle</span><span>▼</span>
+                        </button>
+                        <div class="exp-body ${idx === (d.bios.length - 1) ? 'open' : ''}" id="ast-bio-${idx}">
+                            ${paras}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            const cats = ['All', ...new Set((d.narratives || []).map(n => n.category).filter(Boolean))];
+            const selCat = window.astNarCat || 'All';
+            const filteredNars = (d.narratives || []).filter(n => selCat === 'All' || n.category === selCat);
+
+            const narHtml = `
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin:18px 0 10px 0;">
+                    <div style="font-size:1.1rem; font-weight:800; color:#fff;">💎 Archive Stat Nuggets & Trivia (${filteredNars.length})</div>
+                    <select class="white-select" onchange="window.astNarCat=this.value; renderAsteriskChronicles();">
+                        ${cats.map(c => `<option value="${c}" ${c === selCat ? 'selected' : ''}>Category: ${c}</option>`).join('')}
+                    </select>
+                </div>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:10px;">
+                    ${filteredNars.map(n => `
+                        <div style="background:#090c13; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:12px 14px;">
+                            <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
+                                <span style="font-size:0.72rem; font-weight:800; color:#f59e0b; text-transform:uppercase;">${n.category}</span>
+                                <span style="font-size:0.72rem; color:#64748b; font-weight:700;">#${n.num}</span>
+                            </div>
+                            <div style="font-size:0.84rem; color:#e2e8f0; line-height:1.45; font-weight:600;">${n.text}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            pane.innerHTML = hofHtml + `<div style="font-size:1.1rem; font-weight:800; color:#fff; margin-bottom:10px;">📖 Season by Season Chronicles (2017 to 2026)</div>` + biosHtml + narHtml;
         }
 
         // ==========================================
