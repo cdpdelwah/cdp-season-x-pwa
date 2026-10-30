@@ -268,7 +268,6 @@
             <button class="menu-btn" onclick="navigate('cup')"><span>🪣 Cup & Bucket</span> <span>➔</span></button>
             <button class="menu-btn" onclick="navigate('squad')"><span>🧠 Squad Analyser</span> <span>➔</span></button>
             <button class="menu-btn" onclick="navigate('trade')"><span>🤝 Trade Hub</span> <span>➔</span></button>
-            <button class="menu-btn" onclick="navigate('players')"><span>🔍 Player Hub</span> <span>➔</span></button>
             <button class="menu-btn" onclick="navigate('gacs')"><span>🎯 GACS</span> <span>➔</span></button>
             <button class="menu-btn" onclick="navigate('disc')"><span>🟨🟥 Disciplinary</span> <span>➔</span></button>
             <button class="menu-btn" onclick="navigate('news')"><span>📰 Newsletters</span> <span>➔</span></button>
@@ -493,47 +492,7 @@
             <div id="tr-calc-results" style="width: 100%;"></div>
         </div>
     </div>
-    <!-- SCREEN 8.5: PLAYER HUB -->
-    <div id="screen-players" class="app-screen">
-        <div class="top-nav-bar">
-            <button class="back-home-btn" onclick="navigate('home')">← Home</button>
-            <button class="refresh-btn" onclick="fetchPlayerHub(activeLeagueId)">🔄 Refresh</button>
-        </div>
-        <div class="header">
-            <h1 id="ph-title">🔍 Player Hub</h1>
-            <p>Scout the entire player universe, filter by availability, and track upcoming fixtures.</p>
-        </div>
-        <div class="league-tabs">
-            <button class="tab-btn ph-l-tab" data-lid="63" onclick="switchPlayerHubLeague(63)">CDP</button>
-            <button class="tab-btn ph-l-tab" data-lid="320" onclick="switchPlayerHubLeague(320)">SDM</button>
-            <button class="tab-btn ph-l-tab" data-lid="378" onclick="switchPlayerHubLeague(378)">BDR</button>
-            <button class="tab-btn ph-l-tab" data-lid="240" onclick="switchPlayerHubLeague(240)">LDE</button>
-        </div>
-        
-        <div style="width: 100%; display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; background: #090c13; padding: 12px; border-radius: 8px; border: 1px solid #182030;">
-            <input type="text" id="ph-search" class="dark-input" placeholder="🔍 Search by player name..." onkeyup="renderPlayerHubTable()">
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <select id="ph-view" class="white-select" style="flex: 1; min-width: 100px;" onchange="renderPlayerHubTable()">
-                    <option value="All">All Players</option>
-                    <option value="Free Agent">Free Agents</option>
-                    <option value="Owned">Owned</option>
-                </select>
-                <select id="ph-pos" class="white-select" style="flex: 1; min-width: 100px;" onchange="renderPlayerHubTable()">
-                    <option value="All">All Positions</option>
-                    <option value="GKP">GKP</option>
-                    <option value="DEF">DEF</option>
-                    <option value="MID">MID</option>
-                    <option value="FWD">FWD</option>
-                </select>
-                <select id="ph-sort" class="white-select" style="flex: 1; min-width: 100px;" onchange="renderPlayerHubTable()">
-                    <option value="pts">Sort: Total Pts</option>
-                    <option value="form">Sort: Form</option>
-                    <option value="ppg">Sort: PPG</option>
-                </select>
-            </div>
-        </div>
-        <div id="ph-table-container" style="width: 100%;"></div>
-    </div>
+
     <!-- SCREEN 9: GACS -->
     <div id="screen-gacs" class="app-screen">
         <div class="top-nav-bar">
@@ -770,7 +729,6 @@
             else if (screenId === 'cup') initCupScreen();
             else if (screenId === 'squad') switchSquadLeague();
             else if (screenId === 'trade') switchTradeLeague();
-            else if (screenId === 'players') switchPlayerHubLeague(activeLeagueId);
             else if (screenId === 'gacs') switchGacsLeague(activeLeagueId);
             else if (screenId === 'disc') switchDiscLeague(activeLeagueId);
             else if (screenId === 'news') fetchNewsletter('league');
@@ -2010,100 +1968,6 @@
                 <thead><tr><th>GW</th><th>Manager</th><th>YC</th><th>RC</th><th>Card Pts</th><th>Matchup</th><th>Result Changed?</th></tr></thead>
                 <tbody>${rows.map(r => `<tr><td>${r.gw}</td><td>${r.manager}</td><td>${r.yc}</td><td>${r.rc}</td><td>${r.card_pts}</td><td>${r.matchup}</td><td>${r.impact}</td></tr>`).join('')}</tbody>
             </table></div>`;
-        }
-
-        // ==========================================
-        // PLAYER HUB
-        // ==========================================
-        window.playerHubData = [];
-        
-        function switchPlayerHubLeague(leagueId) {
-            activeLeagueId = leagueId;
-            highlightLeagueButtons('.ph-l-tab', leagueId);
-            document.getElementById('ph-title').innerText = `🔍 Player Hub - ${LEAGUE_NAMES[leagueId]}`;
-            fetchPlayerHub(leagueId);
-        }
-
-        async function fetchPlayerHub(leagueId) {
-            const box = document.getElementById('ph-table-container');
-            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading FPL player database...</p>";
-            try {
-                const res = await fetch(`/api/player_hub?league_id=${leagueId}`);
-                const data = await res.json();
-                window.playerHubData = data.players || [];
-                renderPlayerHubTable();
-            } catch (e) {
-                box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load players.</p>";
-            }
-        }
-
-        function renderPlayerHubTable() {
-            const box = document.getElementById('ph-table-container');
-            if (!window.playerHubData || !window.playerHubData.length) {
-                box.innerHTML = "";
-                return;
-            }
-
-            const searchQ = document.getElementById('ph-search').value.toLowerCase();
-            const viewF = document.getElementById('ph-view').value;
-            const posF = document.getElementById('ph-pos').value;
-            const sortF = document.getElementById('ph-sort').value;
-
-            let filtered = window.playerHubData.filter(p => {
-                if (searchQ && !p.name.toLowerCase().includes(searchQ)) return false;
-                if (posF !== "All" && p.pos !== posF) return false;
-                if (viewF === "Free Agent" && p.owner !== "Free Agent") return false;
-                if (viewF === "Owned" && p.owner === "Free Agent") return false;
-                return true;
-            });
-
-            filtered.sort((a, b) => {
-                if (sortF === "pts") return b.pts - a.pts;
-                if (sortF === "form") return b.form - a.form;
-                if (sortF === "ppg") return b.ppg - a.ppg;
-                return 0;
-            });
-
-            const displayList = filtered.slice(0, 150);
-
-            if (!displayList.length) {
-                box.innerHTML = `<div class="alert-box alert-info">No players match your search criteria.</div>`;
-                return;
-            }
-
-            let html = `<div class="table-wrap"><table class="clean-table">
-                <thead><tr><th>Player</th><th>Club</th><th>Pos</th><th>Pts</th><th>Form</th><th>Next 3</th><th>Status</th><th>Owner</th></tr></thead>
-                <tbody>`;
-            
-            displayList.forEach(p => {
-                const ownerHtml = p.owner === "Free Agent" 
-                    ? `<span style="color:#22c55e; font-weight:800;">Free Agent</span>` 
-                    : `<span style="color:#f59e0b; font-weight:800;">${p.owner}</span>`;
-                    
-                let statusHtml = p.status;
-                if (p.status.includes("Injured") || p.status.includes("Suspended") || p.status.includes("Unavailable")) {
-                    statusHtml = `<span style="color:#ef4444; font-weight:700;">${p.status}</span>`;
-                } else if (p.status.includes("Doubtful")) {
-                    statusHtml = `<span style="color:#f59e0b; font-weight:700;">${p.status}</span>`;
-                }
-                    
-                html += `<tr>
-                    <td style="font-weight:800; color:#fff;">${p.name}</td>
-                    <td>${p.club}</td>
-                    <td>${p.pos}</td>
-                    <td style="font-weight:900; color:#fff;">${p.pts}</td>
-                    <td>${p.form}</td>
-                    <td style="font-size:0.75rem;">${p.next_3}</td>
-                    <td>${statusHtml}</td>
-                    <td>${ownerHtml}</td>
-                </tr>`;
-            });
-            html += `</tbody></table></div>`;
-            
-            if (filtered.length > 150) {
-                html += `<p style="text-align:center; font-size:0.8rem; color:#94a3b8; margin-top:10px;">Showing top 150 results. Use search or filters to narrow down.</p>`;
-            }
-            box.innerHTML = html;
         }
 
         // ==========================================
