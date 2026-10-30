@@ -1202,6 +1202,79 @@
             240: "LDE (Liger Del Eager)"
         };
 
+        // ==========================================
+        // INSTANT CACHE & BACKGROUND PREFETCH ENGINE
+        // ==========================================
+        window.cdpSwrCache = {};
+        window.cdpForceFresh = false;
+        const _origFetch = window.fetch.bind(window);
+        const _SWR_PATHS = [
+            '/api/live_scores', '/api/cup_matches', '/api/cup_standings',
+            '/api/standings', '/api/epl_scores', '/api/squad_analyser',
+            '/api/player_hub', '/api/gacs', '/api/disciplinary'
+        ];
+
+        document.addEventListener('click', (e) => {
+            if (e.target && e.target.closest && e.target.closest('.refresh-btn')) {
+                window.cdpForceFresh = true;
+            }
+        }, true);
+
+        window.fetch = async function(input, init) {
+            const url = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+            const method = (init && init.method) ? init.method.toUpperCase() : 'GET';
+            const isCacheable = method === 'GET' && _SWR_PATHS.some(p => url.startsWith(p));
+
+            if (!isCacheable) {
+                return _origFetch(input, init);
+            }
+
+            const forceNow = window.cdpForceFresh;
+            window.cdpForceFresh = false;
+            const cached = window.cdpSwrCache[url];
+
+            if (!forceNow && cached) {
+                if (Date.now() - cached.ts > 25000) {
+                    _origFetch(input, init).then(r => r.ok ? r.text() : null).then(txt => {
+                        if (txt) window.cdpSwrCache[url] = { text: txt, ts: Date.now() };
+                    }).catch(() => {});
+                }
+                return new Response(cached.text, {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+
+            const res = await _origFetch(input, init);
+            if (res.ok) {
+                const cloneTxt = await res.clone().text();
+                window.cdpSwrCache[url] = { text: cloneTxt, ts: Date.now() };
+            }
+            return res;
+        };
+
+        function prefetchCoreScreens() {
+            if (!savedAlias) return;
+            const lid = activeLeagueId || 63;
+            const urls = [
+                `/api/live_scores?league_id=${lid}&gw=0&manager=All`,
+                `/api/cup_matches?gw=0&manager=All`,
+                `/api/cup_standings`,
+                `/api/standings?league_id=${lid}`,
+                `/api/epl_scores?gw=0`,
+                `/api/squad_analyser?league_id=${lid}&alias=${encodeURIComponent(savedAlias)}&target_gw=0&focus=${encodeURIComponent('Squad Needs (Auto)')}`
+            ];
+            urls.forEach((u, idx) => {
+                setTimeout(() => {
+                    if (!window.cdpSwrCache[u]) {
+                        _origFetch(u).then(r => r.ok ? r.text() : null).then(txt => {
+                            if (txt) window.cdpSwrCache[u] = { text: txt, ts: Date.now() };
+                        }).catch(() => {});
+                    }
+                }, 800 + (idx * 350));
+            });
+        }
+
         window.onload = () => {
             savedAlias = localStorage.getItem("cdp_alias") || "";
             if (savedAlias) {
@@ -1211,6 +1284,7 @@
                 // Initialize the history stack so the phone knows we are in the app
                 history.replaceState({ screen: 'home' }, '', '#home');
                 navigate('home', false);
+                prefetchCoreScreens();
                 
                 if ("Notification" in window && Notification.permission !== "granted") {
                     const btn = document.getElementById("enable-btn");

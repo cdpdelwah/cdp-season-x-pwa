@@ -152,7 +152,7 @@ def cached_all_fixtures():
 def cached_live_event(gw: int):
     return engine.fetch_live_event(gw)
 
-@ttl_cache(45)
+@ttl_cache(600)
 def cached_entry_event(entry_id: int, gw: int):
     return engine.fetch_entry_event(entry_id, gw)
 
@@ -3099,6 +3099,10 @@ def get_cup_matches(gw: str = "0", manager: str = "All"):
         pairs_to_eval.add((m1, w_num))
         pairs_to_eval.add((m2, w_num))
 
+    cached_32_teams_registry()
+    for w_warm in {w_num for (_, w_num) in pairs_to_eval}:
+        cached_live_event(w_warm)
+
     eval_cache = {}
     with ThreadPoolExecutor(max_workers=10) as ex:
         futures = {ex.submit(evaluate_cup_manager_gw, m_alias, w_num): (m_alias, w_num) for (m_alias, w_num) in pairs_to_eval}
@@ -3197,6 +3201,10 @@ def compute_cup_group_standings():
         if m1 in unique_aliases and m2 in unique_aliases and w_num > 0:
             pairs.add((m1, w_num))
             pairs.add((m2, w_num))
+
+    cached_32_teams_registry()
+    for w_warm in {w for (_, w) in pairs}:
+        cached_live_event(w_warm)
 
     score_cache = {}
     with ThreadPoolExecutor(max_workers=10) as ex:
@@ -3537,15 +3545,21 @@ def run_automated_push_checks():
 
         # 2. Check Live EPL Player Events Across All 4 Leagues
         static_data = cached_fpl_static()
+        for k in list(_MEMORY_CACHE.keys()):
+            if k[0] in ("cached_live_event", "cached_all_fixtures", "cached_epl_fixtures", "compute_cbwcbw_tracker", "evaluate_cup_manager_gw"):
+                _MEMORY_CACHE.pop(k, None)
+
         all_fixtures = cached_all_fixtures() or []
         gw_fixtures = [f for f in all_fixtures if f.get("event") == current_gw]
         if not static_data or not any(f.get("started", False) for f in gw_fixtures):
+            if not gw_state.get("players"):
+                gw_state["players"] = {"_seeded": True}
+                state_dirty = True
             if state_dirty:
                 upstash_set_json(state_key, gw_state)
                 upstash_set_json("cdp_push_subs_v2", subs_registry)
             return
 
-        _MEMORY_CACHE.clear()
         live_data = cached_live_event(current_gw)
         live_elements = live_data.get("elements", {}) if live_data else {}
         if not live_elements:
@@ -3571,7 +3585,8 @@ def run_automated_push_checks():
                 pass
 
         prev_players = gw_state.get("players", {})
-        is_first_baseline = (len(prev_players) == 0)
+        already_mid_match = any(safe_int(f.get("minutes", 0)) > 10 or f.get("finished", False) for f in gw_fixtures)
+        is_first_baseline = (len(prev_players) == 0 and already_mid_match)
         curr_players = {}
         player_new_events = {}
 
@@ -3609,8 +3624,8 @@ def run_automated_push_checks():
             }
             curr_players[str(eid)] = snap
 
-            if not is_first_baseline and str(eid) in prev_players:
-                old = prev_players[str(eid)]
+            if not is_first_baseline:
+                old = prev_players.get(str(eid), {}) if isinstance(prev_players.get(str(eid)), dict) else {}
                 evs = []
                 if g > old.get("g", 0):
                     evs.append(("⚽ GOAL!", f"{p_name} ({club_short}) scored a goal!"))
