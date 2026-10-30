@@ -527,11 +527,11 @@
     <!-- BROADCAST SPLASH SCREEN -->
     <div id="cdp-splash">
         <div class="splash-stage splash-stage-1">
-            <img src="/api/logo" alt="Season X Crest" class="splash-img" onerror="this.style.display='none'">
+            <img src="/api/logo" alt="Season X Crest" class="splash-img-1" onerror="this.style.display='none'">
             <div class="splash-tag">CDP • Season X</div>
         </div>
         <div class="splash-stage splash-stage-2">
-            <img src="/api/logo_secondary" alt="Dellarverse Productions" class="splash-img" onerror="this.src='/icon.png'">
+            <img src="/api/logo_secondary" alt="Dellarverse Productions" class="splash-img-2" onerror="this.src='/icon.png'">
             <div class="splash-tag" style="color: #38bdf8;">Dellarverse HQ</div>
         </div>
     </div>
@@ -543,7 +543,7 @@
                 sp.style.display = 'none';
             } else {
                 sessionStorage.setItem('cdp_splash_played', '1');
-                setTimeout(() => { sp.style.display = 'none'; }, 3650);
+                setTimeout(() => { sp.style.display = 'none'; }, 5850);
             }
         })();
     </script>
@@ -2777,20 +2777,14 @@
                         animation: popProgDot 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
                     }
 /* Two-Stage Broadcast Splash Screen */
-        @keyframes splashStage1 {
-            0% { opacity: 0; transform: scale(0.82); filter: drop-shadow(0 0 0px rgba(245, 158, 11, 0)); }
-            22% { opacity: 1; transform: scale(1); filter: drop-shadow(0 0 28px rgba(245, 158, 11, 0.55)); }
-            78% { opacity: 1; transform: scale(1.04); filter: drop-shadow(0 0 36px rgba(245, 158, 11, 0.7)); }
-            100% { opacity: 0; transform: scale(1.12); filter: drop-shadow(0 0 0px rgba(245, 158, 11, 0)); }
-        }
-        @keyframes splashStage2 {
-            0% { opacity: 0; transform: scale(0.84); filter: drop-shadow(0 0 0px rgba(56, 189, 248, 0)); }
-            25% { opacity: 1; transform: scale(1); filter: drop-shadow(0 0 28px rgba(56, 189, 248, 0.55)); }
-            78% { opacity: 1; transform: scale(1.04); filter: drop-shadow(0 0 36px rgba(245, 158, 11, 0.65)); }
-            100% { opacity: 0; transform: scale(1.1); filter: drop-shadow(0 0 0px rgba(245, 158, 11, 0)); }
+        @keyframes splashFadeSteady {
+            0% { opacity: 0; transform: translateY(4px) scale(0.97); }
+            20% { opacity: 1; transform: translateY(0) scale(1); }
+            80% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-2px) scale(1); }
         }
         @keyframes splashOverlayOut {
-            0%, 86% { opacity: 1; visibility: visible; }
+            0%, 91% { opacity: 1; visibility: visible; }
             100% { opacity: 0; visibility: hidden; }
         }
 
@@ -2806,7 +2800,7 @@
             justify-content: center;
             align-items: center;
             pointer-events: all;
-            animation: splashOverlayOut 3.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            animation: splashOverlayOut 5.8s ease-in-out forwards;
         }
         .splash-stage {
             position: absolute;
@@ -2816,29 +2810,40 @@
             justify-content: center;
             text-align: center;
             opacity: 0;
-            padding: 20px;
+            padding: 24px;
         }
         .splash-stage-1 {
-            animation: splashStage1 1.75s cubic-bezier(0.22, 1, 0.36, 1) 0.1s forwards;
+            animation: splashFadeSteady 2.7s ease-in-out 0.2s forwards;
         }
         .splash-stage-2 {
-            animation: splashStage2 1.65s cubic-bezier(0.22, 1, 0.36, 1) 1.85s forwards;
+            animation: splashFadeSteady 2.3s ease-in-out 3.15s forwards;
         }
-        .splash-img {
-            width: 155px;
-            height: 155px;
+        .splash-img-1 {
+            width: 135px;
+            height: 135px;
             object-fit: contain;
-            border-radius: 18px;
+            border-radius: 16px;
             margin-bottom: 14px;
+            filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.8));
+        }
+        .splash-img-2 {
+            max-width: 110px;
+            max-height: 85px;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            border-radius: 10px;
+            margin-bottom: 12px;
+            filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.8));
         }
         .splash-tag {
-            font-size: 0.78rem;
+            font-size: 0.76rem;
             font-weight: 800;
             letter-spacing: 2.5px;
             text-transform: uppercase;
             color: #f59e0b;
         }
-                </style>
+    </style>
                 <polyline class="prog-line-anim" pathLength="1000" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${pts1}" />
                 <polyline class="prog-line-anim" pathLength="1000" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${pts2}" />
             `;
