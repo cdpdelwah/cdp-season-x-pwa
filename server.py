@@ -658,13 +658,18 @@ def ping(background_tasks: BackgroundTasks):
 # 1. HOME SUMMARY (TIMERS & CBWCBW TRACKER)
 # ==========================================
 @ttl_cache(60)
+@ttl_cache(90)
 def compute_cbwcbw_tracker(gw_num: int):
     static_data = cached_fpl_static()
-    all_fixtures = cached_all_fixtures()
-    live_data = cached_live_event(gw_num)
+    all_fixtures = cached_all_fixtures() or []
     if not static_data:
         return 32, []
 
+    gw_fixtures = [f for f in all_fixtures if f.get("event") == gw_num]
+    if not gw_fixtures or not any(f.get("started", False) for f in gw_fixtures):
+        return 32, []
+
+    live_data = cached_live_event(gw_num)
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data.get("element_types", [])}
     team_map = {item["id"]: item["short_name"] for item in static_data.get("teams", [])}
     element_lookup = {item["id"]: item for item in static_data.get("elements", [])}
@@ -680,8 +685,10 @@ def compute_cbwcbw_tracker(gw_num: int):
             pass
 
     unique_teams = []
-    for l_key, l_id in LEAGUE_PRESETS.items():
-        ld, _ = cached_league_data(l_id)
+    with ThreadPoolExecutor(max_workers=4) as l_ex:
+        league_results = list(l_ex.map(lambda item: (item[0], cached_league_data(item[1])[0]), LEAGUE_PRESETS.items()))
+
+    for l_key, ld in league_results:
         if ld:
             for e in ld.get("league_entries", []):
                 alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))

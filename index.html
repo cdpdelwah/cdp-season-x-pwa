@@ -1209,7 +1209,7 @@
         window.cdpForceFresh = false;
         const _origFetch = window.fetch.bind(window);
         const _SWR_PATHS = [
-            '/api/live_scores', '/api/cup_matches', '/api/cup_standings',
+            '/api/home_summary', '/api/live_scores', '/api/cup_matches', '/api/cup_standings',
             '/api/standings', '/api/epl_scores', '/api/squad_analyser',
             '/api/player_hub', '/api/gacs', '/api/disciplinary'
         ];
@@ -1453,71 +1453,84 @@
         // ==========================================
         // HOME SUMMARY: TIMERS & CBWCBW TRACKER
         // ==========================================
+        function applyHomeSummaryData(data) {
+            if (!data || !data.current_gw) return;
+
+            const scoresBtnSpan = document.querySelector(".home-menu button[onclick=\"navigate('scores')\"] span");
+            if (scoresBtnSpan) {
+                scoresBtnSpan.innerText = data.gw_is_live ? "🟢 Scores" : "🔴 Scores";
+            }
+
+            document.getElementById("home-waiver-gw").innerText = `GW ${data.current_gw}`;
+            document.getElementById("home-lineup-gw").innerText = `GW ${data.current_gw}`;
+
+            window.waiverTargetMs = data.waiver_iso ? new Date(data.waiver_iso).getTime() : NaN;
+            window.lineupTargetMs = data.lineup_iso ? new Date(data.lineup_iso).getTime() : NaN;
+
+            const opts = { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' };
+            if (!isNaN(window.waiverTargetMs)) {
+                document.getElementById("waiver-sub").textContent = new Date(window.waiverTargetMs).toLocaleDateString(undefined, opts) + " (24h before KO)";
+            }
+            if (!isNaN(window.lineupTargetMs)) {
+                document.getElementById("lineup-sub").textContent = new Date(window.lineupTargetMs).toLocaleDateString(undefined, opts) + " (90m before KO)";
+            }
+            updateHomeClocks();
+
+            const cbwCount = data.cbw_count;
+            const cbwValEl = document.getElementById("cbw-banner-val");
+            const cbwWrapper = document.getElementById("cbw-wrapper").firstElementChild;
+            const detailsBox = document.getElementById("cbw-details-box");
+
+            cbwValEl.innerText = `${cbwCount} / 32 In Danger`;
+            if (cbwCount > 10) {
+                cbwWrapper.style.backgroundColor = "#1f1305";
+                cbwWrapper.style.borderColor = "#f59e0b";
+                cbwValEl.style.color = "#f59e0b";
+                detailsBox.innerHTML = "";
+            } else if (cbwCount > 0) {
+                cbwWrapper.style.backgroundColor = "#2a0d0d";
+                cbwWrapper.style.borderColor = "#ef4444";
+                cbwValEl.style.color = "#ef4444";
+
+                let chips = "";
+                (data.cbw_at_risk || []).forEach(item => {
+                    let badge = "<span style='color:#94a3b8;'>0 to play</span>";
+                    if (item.is_locked) badge = "<span style='color:#ef4444; font-weight:900;'>💀 LOCKED IN</span>";
+                    else if (item.rem > 0) badge = `<span style='color:#f59e0b; font-weight:700;'>⏳ ${item.rem} to play</span>`;
+
+                    chips += `<div style="display:inline-flex; align-items:center; gap:6px; background:#0c101a; border:1px solid #202b3d; border-radius:6px; padding:4px 8px; font-size:0.78rem;">
+                        <span style="color:#fff; font-weight:800;">${item.alias}</span>
+                        <span style="color:#64748b; font-size:0.7rem; font-weight:700;">(${item.div})</span>
+                        ${badge}
+                    </div>`;
+                });
+                detailsBox.innerHTML = `<div style="background:#090c13; border:1px solid #ef4444; border-radius:8px; padding:8px 12px;">
+                    <div style="font-size:0.72rem; font-weight:800; color:#ef4444; text-transform:uppercase; margin-bottom:6px;">⚠️ CBWCBW Danger Zone (Zero returns registered across Starting XI)</div>
+                    <div style="display:flex; flex-wrap:wrap; gap:6px;">${chips}</div>
+                </div>`;
+            } else {
+                cbwWrapper.style.backgroundColor = "#052210";
+                cbwWrapper.style.borderColor = "#22c55e";
+                cbwValEl.style.color = "#22c55e";
+                detailsBox.innerHTML = `<div style="background:#052210; border:1px solid #22c55e; border-radius:6px; padding:6px 10px; text-align:center; font-size:0.78rem; font-weight:700; color:#22c55e;">
+                    🎉 Miraculously, all 32 managers registered a positive contribution. Nobody pulled a Will this week!
+                </div>`;
+            }
+        }
+
         async function fetchHomeSummary() {
+            try {
+                const cachedStr = localStorage.getItem("cdp_home_summary_cache");
+                if (cachedStr) {
+                    applyHomeSummaryData(JSON.parse(cachedStr));
+                }
+            } catch (e) {}
+
             try {
                 const res = await fetch(`/api/home_summary?league_id=${activeLeagueId}`);
                 const data = await res.json();
-
-                const scoresBtnSpan = document.querySelector(".home-menu button[onclick=\"navigate('scores')\"] span");
-                if (scoresBtnSpan) {
-                    scoresBtnSpan.innerText = data.gw_is_live ? "🟢 Scores" : "🔴 Scores";
-                }
-
-                document.getElementById("home-waiver-gw").innerText = `GW ${data.current_gw}`;
-                document.getElementById("home-lineup-gw").innerText = `GW ${data.current_gw}`;
-
-                window.waiverTargetMs = data.waiver_iso ? new Date(data.waiver_iso).getTime() : NaN;
-                window.lineupTargetMs = data.lineup_iso ? new Date(data.lineup_iso).getTime() : NaN;
-
-                const opts = { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' };
-                if (!isNaN(window.waiverTargetMs)) {
-                    document.getElementById("waiver-sub").textContent = new Date(window.waiverTargetMs).toLocaleDateString(undefined, opts) + " (24h before KO)";
-                }
-                if (!isNaN(window.lineupTargetMs)) {
-                    document.getElementById("lineup-sub").textContent = new Date(window.lineupTargetMs).toLocaleDateString(undefined, opts) + " (90m before KO)";
-                }
-                updateHomeClocks();
-
-                const cbwCount = data.cbw_count;
-                const cbwValEl = document.getElementById("cbw-banner-val");
-                const cbwWrapper = document.getElementById("cbw-wrapper").firstElementChild;
-                const detailsBox = document.getElementById("cbw-details-box");
-
-                cbwValEl.innerText = `${cbwCount} / 32 In Danger`;
-                if (cbwCount > 10) {
-                    cbwWrapper.style.backgroundColor = "#1f1305";
-                    cbwWrapper.style.borderColor = "#f59e0b";
-                    cbwValEl.style.color = "#f59e0b";
-                    detailsBox.innerHTML = "";
-                } else if (cbwCount > 0) {
-                    cbwWrapper.style.backgroundColor = "#2a0d0d";
-                    cbwWrapper.style.borderColor = "#ef4444";
-                    cbwValEl.style.color = "#ef4444";
-
-                    let chips = "";
-                    (data.cbw_at_risk || []).forEach(item => {
-                        let badge = "<span style='color:#94a3b8;'>0 to play</span>";
-                        if (item.is_locked) badge = "<span style='color:#ef4444; font-weight:900;'>💀 LOCKED IN</span>";
-                        else if (item.rem > 0) badge = `<span style='color:#f59e0b; font-weight:700;'>⏳ ${item.rem} to play</span>`;
-
-                        chips += `<div style="display:inline-flex; align-items:center; gap:6px; background:#0c101a; border:1px solid #202b3d; border-radius:6px; padding:4px 8px; font-size:0.78rem;">
-                            <span style="color:#fff; font-weight:800;">${item.alias}</span>
-                            <span style="color:#64748b; font-size:0.7rem; font-weight:700;">(${item.div})</span>
-                            ${badge}
-                        </div>`;
-                    });
-                    detailsBox.innerHTML = `<div style="background:#090c13; border:1px solid #ef4444; border-radius:8px; padding:8px 12px;">
-                        <div style="font-size:0.72rem; font-weight:800; color:#ef4444; text-transform:uppercase; margin-bottom:6px;">⚠️ CBWCBW Danger Zone (Zero returns registered across Starting XI)</div>
-                        <div style="display:flex; flex-wrap:wrap; gap:6px;">${chips}</div>
-                    </div>`;
-                } else {
-                    cbwWrapper.style.backgroundColor = "#052210";
-                    cbwWrapper.style.borderColor = "#22c55e";
-                    cbwValEl.style.color = "#22c55e";
-                    detailsBox.innerHTML = `<div style="background:#052210; border:1px solid #22c55e; border-radius:6px; padding:6px 10px; text-align:center; font-size:0.78rem; font-weight:700; color:#22c55e;">
-                        🎉 Miraculously, all 32 managers registered a positive contribution. Nobody pulled a Will this week!
-                    </div>`;
-                }
+                localStorage.setItem("cdp_home_summary_cache", JSON.stringify(data));
+                applyHomeSummaryData(data);
             } catch (e) {
                 console.error("Failed loading home summary:", e);
             }
