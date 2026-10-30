@@ -615,13 +615,28 @@ def serve_manifest():
 def serve_icon():
     return FileResponse(base_dir / "icon.png", media_type="image/png")
 
-@app.get("/api/logo")
-def serve_logo():
+@app.get("/api/logo_secondary")
+def serve_secondary_logo():
     candidates = [
-        assets_folder / "SeasonX_Logo_Master.jpg",
-        base_dir / "Assets" / "SeasonX_Logo_Master.jpg",
-        base_dir / "assets" / "SeasonX_Logo_Master.jpg",
-        base_dir / "SeasonX_Logo_Master.jpg",
+        base_dir / "Splash_Logo_2.png",
+        base_dir / "Splash_Logo_2.jpg",
+        base_dir / "Splash_Logo_2.jpeg",
+        assets_folder / "Splash_Logo_2.png",
+        assets_folder / "Splash_Logo_2.jpg",
+        base_dir / "icon.png"
+    ]
+    for p in candidates:
+        if p.exists() and p.is_file():
+            return FileResponse(p)
+    return Response(status_code=404)
+
+@app.get("/api/logo_secondary")
+def serve_secondary_logo():
+    candidates = [
+        assets_folder / "Splash_Logo_2.png",
+        assets_folder / "Splash_Logo_2.jpg",
+        base_dir / "Assets" / "Splash_Logo_2.png",
+        base_dir / "Assets" / "Splash_Logo_2.jpg",
         base_dir / "icon.png"
     ]
     for p in candidates:

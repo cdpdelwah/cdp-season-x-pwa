@@ -524,6 +524,30 @@
 </head>
 <body>
 
+    <!-- BROADCAST SPLASH SCREEN -->
+    <div id="cdp-splash">
+        <div class="splash-stage splash-stage-1">
+            <img src="/api/logo" alt="Season X Crest" class="splash-img" onerror="this.style.display='none'">
+            <div class="splash-tag">CDP • Season X</div>
+        </div>
+        <div class="splash-stage splash-stage-2">
+            <img src="/api/logo_secondary" alt="Dellarverse Productions" class="splash-img" onerror="this.src='/icon.png'">
+            <div class="splash-tag" style="color: #38bdf8;">Dellarverse HQ</div>
+        </div>
+    </div>
+    <script>
+        (function() {
+            const sp = document.getElementById('cdp-splash');
+            if (!sp) return;
+            if (sessionStorage.getItem('cdp_splash_played')) {
+                sp.style.display = 'none';
+            } else {
+                sessionStorage.setItem('cdp_splash_played', '1');
+                setTimeout(() => { sp.style.display = 'none'; }, 3650);
+            }
+        })();
+    </script>
+
     <!-- SCREEN 1: LOGIN VAULT -->
     <div id="screen-login" class="app-screen active" style="margin-top: 8vh; max-width: 420px; text-align: center;">
         <img src="/api/logo" alt="Season X" onerror="this.style.display='none'" style="width: 110px; height: auto; margin-bottom: 12px; border-radius: 10px;">
@@ -2752,6 +2776,68 @@
                         transform-origin: center;
                         animation: popProgDot 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
                     }
+/* Two-Stage Broadcast Splash Screen */
+        @keyframes splashStage1 {
+            0% { opacity: 0; transform: scale(0.82); filter: drop-shadow(0 0 0px rgba(245, 158, 11, 0)); }
+            22% { opacity: 1; transform: scale(1); filter: drop-shadow(0 0 28px rgba(245, 158, 11, 0.55)); }
+            78% { opacity: 1; transform: scale(1.04); filter: drop-shadow(0 0 36px rgba(245, 158, 11, 0.7)); }
+            100% { opacity: 0; transform: scale(1.12); filter: drop-shadow(0 0 0px rgba(245, 158, 11, 0)); }
+        }
+        @keyframes splashStage2 {
+            0% { opacity: 0; transform: scale(0.84); filter: drop-shadow(0 0 0px rgba(56, 189, 248, 0)); }
+            25% { opacity: 1; transform: scale(1); filter: drop-shadow(0 0 28px rgba(56, 189, 248, 0.55)); }
+            78% { opacity: 1; transform: scale(1.04); filter: drop-shadow(0 0 36px rgba(245, 158, 11, 0.65)); }
+            100% { opacity: 0; transform: scale(1.1); filter: drop-shadow(0 0 0px rgba(245, 158, 11, 0)); }
+        }
+        @keyframes splashOverlayOut {
+            0%, 86% { opacity: 1; visibility: visible; }
+            100% { opacity: 0; visibility: hidden; }
+        }
+
+        #cdp-splash {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            background: radial-gradient(circle at 50% 45%, #111a2e 0%, #05070b 55%, #000000 100%);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: all;
+            animation: splashOverlayOut 3.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+        }
+        .splash-stage {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            opacity: 0;
+            padding: 20px;
+        }
+        .splash-stage-1 {
+            animation: splashStage1 1.75s cubic-bezier(0.22, 1, 0.36, 1) 0.1s forwards;
+        }
+        .splash-stage-2 {
+            animation: splashStage2 1.65s cubic-bezier(0.22, 1, 0.36, 1) 1.85s forwards;
+        }
+        .splash-img {
+            width: 155px;
+            height: 155px;
+            object-fit: contain;
+            border-radius: 18px;
+            margin-bottom: 14px;
+        }
+        .splash-tag {
+            font-size: 0.78rem;
+            font-weight: 800;
+            letter-spacing: 2.5px;
+            text-transform: uppercase;
+            color: #f59e0b;
+        }
                 </style>
                 <polyline class="prog-line-anim" pathLength="1000" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${pts1}" />
                 <polyline class="prog-line-anim" pathLength="1000" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${pts2}" />
