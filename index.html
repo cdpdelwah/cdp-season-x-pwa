@@ -1768,37 +1768,19 @@
                 (data.fixtures || []).forEach(f => {
                     const fid = f.id;
                     if (f.lineups && f.lineups.has_lineups) {
-                        const tagEplSubs = (pitchObj, startersList, subsUsedList) => {
+                        const prepEplPitch = (pitchObj) => {
                             if (!pitchObj) return pitchObj;
-                            const sUsedTxt = (subsUsedList || []).join(' ');
-                            const sStartList = startersList || [];
-                            let subsCameOn = 0;
-
                             (pitchObj.subs || []).forEach(p => {
-                                if (Number(p.mins) > 0 || sUsedTxt.includes(p.name)) {
-                                    p.sub_action = 'Subbed On';
-                                    subsCameOn++;
-                                } else if (f.is_started || f.is_finished) {
+                                if (p.sub_action !== 'Subbed On' && Number(p.mins) === 0 && (f.is_started || f.is_finished)) {
                                     p.state = 'YTP';
                                 }
-                            });
-
-                            (pitchObj.pitch || []).forEach(row => {
-                                (row || []).forEach(p => {
-                                    const stLine = sStartList.find(s => s.includes(p.name)) || '';
-                                    const flaggedOff = stLine.includes('▼') || stLine.toLowerCase().includes('off') || stLine.toLowerCase().includes('sub');
-                                    const earlyExit = (f.is_finished && Number(p.mins) > 0 && Number(p.mins) < 90 && Number(p.rc || 0) === 0 && subsCameOn > 0);
-                                    if (flaggedOff || earlyExit) {
-                                        p.sub_action = 'Subbed Off';
-                                    }
-                                });
                             });
                             return pitchObj;
                         };
 
                         window.eplPitchStore[fid] = {
-                            h: tagEplSubs(f.lineups.pitch_h, f.lineups.h_starters, f.lineups.h_subs_used),
-                            a: tagEplSubs(f.lineups.pitch_a, f.lineups.a_starters, f.lineups.a_subs_used)
+                            h: prepEplPitch(f.lineups.pitch_h),
+                            a: prepEplPitch(f.lineups.pitch_a)
                         };
                     }
 

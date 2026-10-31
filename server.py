@@ -1095,7 +1095,14 @@ def _fetch_espn_lineup_backup(home_short, away_short):
             raw_num = entry.get("jersey") or ath.get("jersey")
             num_str = f"#{raw_num} " if raw_num and str(raw_num).strip() not in ["-", "None", ""] else ""
             pos_raw = str(entry.get("position", {}).get("abbreviation", "M")).upper()
-            clean_pos = "GKP" if "G" in pos_raw else ("DEF" if "D" in pos_raw else ("FWD" if "F" in pos_raw else "MID"))
+            if "G" in pos_raw:
+                clean_pos = "GKP"
+            elif any(k in pos_raw for k in ["D", "B", "CB", "LB", "RB", "WB"]):
+                clean_pos = "DEF"
+            elif any(k in pos_raw for k in ["F", "ST", "CF", "LW", "RW"]):
+                clean_pos = "FWD"
+            else:
+                clean_pos = "MID"
             capt = " (C)" if entry.get("captain", False) else ""
             if entry.get("starter", False):
                 sub_tag = " <span style='color:#f43f5e; font-weight:700;'>▼</span>" if entry.get("subbedOut", False) else ""
@@ -1122,15 +1129,15 @@ def _fetch_espn_lineup_backup(home_short, away_short):
 
 def build_epl_pitch_payload_from_lists(starters_list, subs_used_list, subs_unused_list, club_short, team_id, live_elements, element_lookup):
     club_fpl_players = []
-    if live_elements and element_lookup and team_id:
-        for elem_str_id, e_info in live_elements.items():
-            try:
-                eid = int(elem_str_id)
-                raw_elem = element_lookup.get(eid, {})
-                if raw_elem.get("team") == team_id:
-                    club_fpl_players.append((raw_elem, e_info))
-            except Exception:
-                pass
+    if element_lookup and team_id:
+        for eid, raw_elem in element_lookup.items():
+            if raw_elem.get("team") == team_id:
+                e_info = (live_elements or {}).get(str(eid)) or (live_elements or {}).get(eid) or {}
+                club_fpl_players.append((raw_elem, e_info))
+
+    def _norm_str(s):
+        import unicodedata
+        return "".join(c for c in unicodedata.normalize("NFD", str(s).lower()) if unicodedata.category(c) != "Mn")
 
     def parse_entry(entry_str, is_sub=False, sub_action=""):
         clean = re.sub(r"<[^>]*>", "", str(entry_str)).strip()
@@ -1152,46 +1159,58 @@ def build_epl_pitch_payload_from_lists(starters_list, subs_used_list, subs_unuse
         if name.startswith("#"):
             parts_num = name.split(" ", 1)
             name = parts_num[1] if len(parts_num) > 1 else parts_num[0]
-        name = name.replace("**", "").replace("(C)", "").strip()
+        name = re.sub(r"[▼▲].*$", "", name).replace("**", "").replace("(C)", "").strip()
 
         rec = {
             "Player": name, "Pos": pos, "Club": club_short, "Opp": "",
-            "Pts": 0, "Proj": 0.0, "Mins": 90 if not is_sub else 0, "State": "FT",
+            "Pts": 0, "Proj": 0.0, "Mins": 0, "State": "FT",
             "G": 0, "A": 0, "CS": 0, "GC": 0, "Bonus": 0, "Saves": 0,
             "Penalties_Saved": 0, "Penalties_Missed": 0, "YC": 0, "RC": 0,
             "DEFCON_Achieved": False, "sub_action": sub_action, "status": "a", "chance_of_playing_next_round": 100
         }
 
-        name_low = name.lower()
+        name_norm = _norm_str(name)
+        name_last = name_norm.split()[-1] if name_norm else ""
+        matched_pair = None
         for raw_elem, e_info in club_fpl_players:
-            wn = str(raw_elem.get("web_name", "")).lower()
-            ln = str(raw_elem.get("second_name", "")).lower()
-            if wn and (wn == name_low or wn in name_low or name_low in wn or (ln and ln in name_low)):
-                st_dict = e_info.get("stats", {}) if isinstance(e_info, dict) else {}
-                exp_raw = e_info.get("explain", []) if isinstance(e_info, dict) else []
-                p_type = raw_elem.get("element_type", 3)
-                rec.update({
-                    "Pts": safe_int(st_dict.get("total_points", 0)),
-                    "Mins": safe_int(st_dict.get("minutes", 0)),
-                    "G": safe_int(st_dict.get("goals_scored", 0)),
-                    "A": safe_int(st_dict.get("assists", 0)),
-                    "CS": safe_int(st_dict.get("clean_sheets", 0)),
-                    "GC": safe_int(st_dict.get("goals_conceded", 0)),
-                    "Bonus": safe_int(st_dict.get("bonus", 0)),
-                    "Saves": safe_int(st_dict.get("saves", 0)),
-                    "YC": safe_int(st_dict.get("yellow_cards", 0)),
-                    "RC": safe_int(st_dict.get("red_cards", 0)),
-                    "Penalties_Saved": safe_int(st_dict.get("penalties_saved", 0)),
-                    "Penalties_Missed": safe_int(st_dict.get("penalties_missed", 0)),
-                    "DEFCON_Achieved": extract_defcon_flag(st_dict, exp_raw, p_type)
-                })
+            wn = _norm_str(raw_elem.get("web_name", ""))
+            fn = _norm_str(f"{raw_elem.get('first_name', '')} {raw_elem.get('second_name', '')}")
+            ln = _norm_str(raw_elem.get("second_name", ""))
+            if wn and (wn == name_norm or wn == name_last or wn in name_norm or name_norm in fn or (ln and ln == name_last)):
+                matched_pair = (raw_elem, e_info)
                 break
+
+        if matched_pair:
+            raw_elem, e_info = matched_pair
+            st_dict = e_info.get("stats", {}) if isinstance(e_info, dict) else {}
+            exp_raw = e_info.get("explain", []) if isinstance(e_info, dict) else []
+            p_type = raw_elem.get("element_type", 3)
+            fpl_pos = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}.get(p_type, pos)
+            rec.update({
+                "Player": str(raw_elem.get("web_name", name)),
+                "Pos": fpl_pos,
+                "Pts": safe_int(st_dict.get("total_points", 0)),
+                "Mins": safe_int(st_dict.get("minutes", 0)),
+                "G": safe_int(st_dict.get("goals_scored", 0)),
+                "A": safe_int(st_dict.get("assists", 0)),
+                "CS": safe_int(st_dict.get("clean_sheets", 0)),
+                "GC": safe_int(st_dict.get("goals_conceded", 0)),
+                "Bonus": safe_int(st_dict.get("bonus", 0)),
+                "Saves": safe_int(st_dict.get("saves", 0)),
+                "YC": safe_int(st_dict.get("yellow_cards", 0)),
+                "RC": safe_int(st_dict.get("red_cards", 0)),
+                "Penalties_Saved": safe_int(st_dict.get("penalties_saved", 0)),
+                "Penalties_Missed": safe_int(st_dict.get("penalties_missed", 0)),
+                "DEFCON_Achieved": extract_defcon_flag(st_dict, exp_raw, p_type)
+            })
         return rec
 
     s_recs = [parse_entry(s, is_sub=False, sub_action=("Subbed Off" if "▼" in str(s) else "")) for s in starters_list]
     b_recs = [parse_entry(su, is_sub=True, sub_action="Subbed On") for su in subs_used_list] + [parse_entry(sun, is_sub=True, sub_action="") for sun in subs_unused_list]
-    act, inact = split_squad_records(s_recs, b_recs)
-    return make_pitch_payload(act, inact)
+    b_recs = sorted(b_recs, key=lambda x: (0 if x.get("sub_action") == "Subbed On" else 1, POS_ORDER.get(str(x.get("Pos", "")), 99)))
+
+    # Keep all 11 starters on the pitch (with OFF badge if subbed) and all substitutes in the dugout (with ON badge if subbed on)
+    return make_pitch_payload(s_recs, b_recs)
 
 def fetch_epl_match_lineup(f_obj, home_short, away_short, live_elements, element_lookup, event_num):
     is_started = f_obj.get("started", False)
