@@ -1036,26 +1036,27 @@ def fetch_pulse_fixture_details(pulse_id):
         pass
     return None
 
-@ttl_cache(60)
+@ttl_cache(120)
 def get_espn_scoreboard():
     try:
-        sb_resp = requests.get("https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard", timeout=4)
+        sb_resp = requests.get("https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/scoreboard", timeout=2.5)
         if sb_resp.status_code == 200:
             return sb_resp.json().get("events", [])
     except Exception:
         pass
     return []
 
-@ttl_cache(60)
+@ttl_cache(180)
 def fetch_espn_fixture_summary(event_id):
     try:
-        sum_resp = requests.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/summary?event={event_id}", timeout=4)
+        sum_resp = requests.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/eng.1/summary?event={event_id}", timeout=2.5)
         if sum_resp.status_code == 200:
             return sum_resp.json()
     except Exception:
         pass
     return None
 
+@ttl_cache(120)
 def _fetch_espn_lineup_backup(home_short, away_short):
     pos_order_map = {"GKP": 1, "DEF": 2, "MID": 3, "FWD": 4}
     events = get_espn_scoreboard()
@@ -1182,7 +1183,6 @@ def build_epl_pitch_payload_from_lists(starters_list, subs_used_list, subs_unuse
     return make_pitch_payload(act, inact)
 
 def fetch_epl_match_lineup(f_obj, home_short, away_short, live_elements, element_lookup, event_num):
-    pos_order_map = {"GK": 1, "GKP": 1, "G": 1, "DEF": 2, "D": 2, "MID": 3, "M": 3, "FWD": 4, "F": 4}
     is_started = f_obj.get("started", False)
     is_finished = f_obj.get("finished", False) or f_obj.get("finished_provisional", False)
     kickoff_time = f_obj.get("kickoff_time")
@@ -1204,59 +1204,10 @@ def fetch_epl_match_lineup(f_obj, home_short, away_short, live_elements, element
         return {"has_lineups": False}
 
     raw_lineup = None
+    base_espn = _fetch_espn_lineup_backup(home_short, away_short)
+    if base_espn and base_espn.get("has_lineups"):
+        raw_lineup = dict(base_espn)
 
-    # 1. PulseLive
-    pulse_id = get_pulse_fixture_id(home_short, away_short, event_num)
-    if pulse_id:
-        data = fetch_pulse_fixture_details(pulse_id)
-        if data and len(data.get("teamLists", [])) >= 2:
-            h_sheet, a_sheet = data["teamLists"][0], data["teamLists"][1]
-            if len(h_sheet.get("lineup", [])) >= 11 or len(a_sheet.get("lineup", [])) >= 11:
-                sub_events = {}
-                for ev in data.get("events", []):
-                    if ev.get("type") in ["substitution", "sub"]:
-                        min_str = ev.get("time", {}).get("label", "")
-                        off_id = ev.get("subOff", {}).get("id") or ev.get("personId")
-                        on_id = ev.get("subOn", {}).get("id")
-                        if off_id: sub_events[off_id] = ("OFF", min_str)
-                        if on_id: sub_events[on_id] = ("ON", min_str)
-
-                def format_official_sheet(sheet):
-                    starters, subs_used, subs_unused = [], [], []
-                    for p in sheet.get("lineup", []):
-                        p_id = p.get("id")
-                        raw_num = p.get("matchShirtNumber") or p.get("shirtNum")
-                        num_str = f"#{raw_num} " if raw_num and str(raw_num).strip() not in ["-", "None", ""] else ""
-                        name = p.get("name", {}).get("display", "Unknown")
-                        capt = " (C)" if p.get("captain", False) else ""
-                        raw_pos = str(p.get("matchPosition", "MID")).upper()
-                        clean_pos = "GKP" if "G" in raw_pos else ("DEF" if "D" in raw_pos else ("FWD" if "F" in raw_pos else "MID"))
-                        sub_tag = f" <span style='color:#f43f5e; font-weight:700;'>▼ {sub_events[p_id][1]}</span>" if (p_id in sub_events and sub_events[p_id][0] == "OFF") else ""
-                        starters.append((pos_order_map.get(clean_pos, 3), f"{num_str}<b>{name}</b>{capt} • <i>{clean_pos}</i>{sub_tag}"))
-                    for p in sheet.get("substitutes", []):
-                        p_id = p.get("id")
-                        raw_num = p.get("matchShirtNumber") or p.get("shirtNum")
-                        num_str = f"#{raw_num} " if raw_num and str(raw_num).strip() not in ["-", "None", ""] else ""
-                        name = p.get("name", {}).get("display", "Unknown")
-                        if p_id in sub_events and sub_events[p_id][0] == "ON":
-                            subs_used.append(f"{num_str}<b>{name}</b> <span style='color:#22c55e; font-weight:800;'>▲ {sub_events[p_id][1]}</span>")
-                        else:
-                            subs_unused.append(f"{num_str}{name}")
-                    return [s[1] for s in sorted(starters, key=lambda x: x[0])], subs_used, subs_unused
-
-                h_s, h_u, h_un = format_official_sheet(h_sheet)
-                a_s, a_u, a_un = format_official_sheet(a_sheet)
-                raw_lineup = {
-                    "has_lineups": True,
-                    "h_starters": h_s, "h_subs_used": h_u, "h_subs_unused": h_un,
-                    "a_starters": a_s, "a_subs_used": a_u, "a_subs_unused": a_un
-                }
-
-    # 2. ESPN Backup
-    if not raw_lineup:
-        raw_lineup = _fetch_espn_lineup_backup(home_short, away_short)
-
-    # 3. FPL Live Elements Fallback
     if not raw_lineup and live_elements and element_lookup and home_team_id and away_team_id:
         def extract_squad(target_club_id):
             club_players = []
@@ -1337,6 +1288,9 @@ def get_epl_scores(gw: str = "0"):
     fixtures = cached_epl_fixtures(selected_gw) or []
     live_event_data = cached_live_event(selected_gw)
     live_elements = live_event_data.get("elements", {}) if live_event_data else {}
+
+    if selected_gw == detected_gw:
+        get_espn_scoreboard()
 
     def process_epl_fixture(f):
         h_id, a_id = f.get("team_h"), f.get("team_a")

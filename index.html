@@ -1702,10 +1702,38 @@
         // EPL SCORES & LINEUPS SCREEN
         // ==========================================
         window.eplPitchStore = {};
+        window.eplAutoRefreshTimer = null;
 
-        async function fetchEplScores(gw = "0") {
+        if (!window.eplAutoRefreshTimer) {
+            window.eplAutoRefreshTimer = setInterval(() => {
+                const eplScr = document.getElementById("screen-epl");
+                if (eplScr && eplScr.classList.contains("active")) {
+                    const gwSel = document.getElementById("epl-gw-select");
+                    window.cdpForceFresh = true;
+                    fetchEplScores(gwSel ? gwSel.value : "0", true);
+                }
+            }, 30000);
+        }
+
+        async function fetchEplScores(gw = "0", silentRefresh = false) {
             const listEl = document.getElementById("epl-fixtures-list");
-            listEl.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading Premier League matchday data and official team sheets...</p>";
+            const openDrawers = {};
+            listEl.querySelectorAll(".exp-body.open").forEach(el => {
+                const fid = el.id.replace("epl-drawer-", "");
+                let activeTab = "events";
+                ["events", "sheets", "bps", "defcon"].forEach(t => {
+                    const b = document.getElementById(`epl-tab-btn-${fid}-${t}`);
+                    if (b && b.classList.contains("active")) activeTab = t;
+                });
+                const lWrap = document.getElementById(`epl-list-wrap-${fid}`);
+                const mode = (lWrap && lWrap.style.display === "grid") ? "list" : "pitch";
+                openDrawers[fid] = { activeTab, mode };
+            });
+
+            if (!silentRefresh && !listEl.children.length) {
+                listEl.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading Premier League matchday data and official team sheets...</p>";
+            }
+
             try {
                 const res = await fetch(`/api/epl_scores?gw=${gw}`);
                 const data = await res.json();
@@ -1720,8 +1748,8 @@
                     gwSel.value = String(data.gw);
                 }
 
-                listEl.innerHTML = "";
                 window.eplPitchStore = {};
+                let cardsHtml = "";
 
                 (data.fixtures || []).forEach(f => {
                     const fid = f.id;
@@ -1764,7 +1792,6 @@
                         ? `<div style="font-family:'JetBrains Mono',monospace; font-size:1.5rem; font-weight:900; color:#fff; text-align:center; line-height:1; white-space:nowrap;">${f.h_score} - ${f.a_score}</div>`
                         : `<div style="font-size:0.85rem; font-weight:800; color:#64748b; text-align:center; white-space:nowrap;">VS</div>`;
 
-                    // 1. Events HTML
                     const ev = f.events || {};
                     function buildTeamEvents(teamName, side) {
                         const lines = ev[side] || [];
@@ -1772,7 +1799,6 @@
                         return `<div><div style="font-weight:800; color:#fff; margin-bottom:6px;">${teamName} Events</div>${lines.map(l => `<div style="font-size:0.82rem; color:#cbd5e1; margin-bottom:4px;">${l}</div>`).join('')}</div>`;
                     }
 
-                    // 2. Lineups HTML
                     let lineupsHtml = `<div class="alert-box alert-info">🕒 Official team sheets drop 60 to 75 minutes prior to kickoff. Once submitted by the clubs, they will populate here automatically.</div>`;
                     if (f.lineups && f.lineups.has_lineups) {
                         const hS = (f.lineups.h_starters || []).map(s => `<div style="margin-bottom:4px; font-size:0.82rem;">${s}</div>`).join('');
@@ -1816,7 +1842,6 @@
                         `;
                     }
 
-                    // 3. BPS HTML
                     let bpsHtml = `<p style="font-size:0.82rem; color:#64748b;">No BPS data registered for this fixture yet.</p>`;
                     if (f.bps && f.bps.length > 0) {
                         bpsHtml = `<div class="table-wrap"><table class="clean-table">
@@ -1825,7 +1850,6 @@
                         </table></div>`;
                     }
 
-                    // 4. DefCon HTML
                     let dcHtml = `<p style="font-size:0.82rem; color:#64748b;">No defensive contributions registered for this fixture yet.</p>`;
                     if (f.defcon && f.defcon.length > 0) {
                         dcHtml = `<div class="table-wrap"><table class="clean-table">
@@ -1834,7 +1858,7 @@
                         </table></div>`;
                     }
 
-                    listEl.innerHTML += `
+                    cardsHtml += `
                         <div class="exp-card">
                             <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
                                 <div style="width:36%; min-width:0; font-size:0.96rem; font-weight:800; color:#fff; line-height:1.2;">${f.h_name} <span style="color:#94a3b8; font-size:0.75rem; white-space:nowrap;">(${f.h_short})</span></div>
@@ -1866,8 +1890,25 @@
                         </div>
                     `;
                 });
+
+                listEl.innerHTML = cardsHtml;
+
+                Object.keys(openDrawers).forEach(fidStr => {
+                    const fid = Number(fidStr);
+                    const st = openDrawers[fidStr];
+                    const drawer = document.getElementById(`epl-drawer-${fid}`);
+                    const arrow = document.getElementById(`epl-arrow-${fid}`);
+                    if (drawer) {
+                        drawer.classList.add("open");
+                        if (arrow) arrow.innerText = "▲";
+                        switchEplInnerTab(fid, st.activeTab);
+                        if (st.mode === "list") toggleEplLineupMode(fid, "list");
+                    }
+                });
             } catch (err) {
-                listEl.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load EPL scores.</p>";
+                if (!silentRefresh) {
+                    listEl.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load EPL scores.</p>";
+                }
             }
         }
 
