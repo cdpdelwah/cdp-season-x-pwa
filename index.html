@@ -1209,7 +1209,7 @@
         window.cdpForceFresh = false;
         const _origFetch = window.fetch.bind(window);
         const _SWR_PATHS = [
-            '/api/home_summary', '/api/gw_timeline_meta', '/api/live_scores', '/api/cup_matches', '/api/cup_standings',
+            '/api/home_summary', '/api/live_scores', '/api/cup_matches', '/api/cup_standings',
             '/api/standings', '/api/epl_scores', '/api/squad_analyser',
             '/api/player_hub', '/api/gacs', '/api/disciplinary'
         ];
@@ -3364,7 +3364,7 @@
             const manager1 = matchObj.m1;
             const manager2 = matchObj.m2;
             const data = matchObj.spotlight;
-            window.activeSpotlightData = { manager1, manager2, gw, data, matchObj };
+            window.activeSpotlightData = { manager1, manager2, gw, data };
 
             document.getElementById('match-modal').classList.remove('hidden');
             document.getElementById('modal-match-title').innerText = `${manager1} (${matchObj.s1}) vs (${matchObj.s2}) ${manager2}`;
@@ -3384,212 +3384,10 @@
             renderTable('table-m1', data.table_m1);
             renderTable('table-m2', data.table_m2);
 
-            requestAnimationFrame(async () => {
-                let metaFixtures = {};
-                try {
-                    const mRes = await fetch(`/api/gw_timeline_meta?gw=${gw}`);
-                    const mJson = await mRes.json();
-                    metaFixtures = mJson.fixtures || {};
-                } catch (e) {}
-                const chronoProg = buildChronoProgression(manager1, manager2, data, matchObj, metaFixtures);
-                drawProgressionSvg(manager1, manager2, chronoProg);
+            requestAnimationFrame(() => {
+                drawProgressionSvg(manager1, manager2, data.progression);
             });
         }
-
-        function buildChronoProgression(alias1, alias2, spotData, matchObj, metaFixtures) {
-            const rawFixtures = (spotData.progression && spotData.progression.fixtures) ? spotData.progression.fixtures : [];
-            if (!rawFixtures.length) return { fixtures: [] };
-
-            // Collect active Starting XI players for both managers to map YTP projections onto future kickoff slots
-            const getActiveStarters = (pitchObj) => {
-                const list = [];
-                if (!pitchObj) return list;
-                (pitchObj.pitch || []).forEach(row => {
-                    (row || []).forEach(p => {
-                        if (p.sub_action !== 'Subbed Off') list.push(p);
-                    });
-                });
-                (pitchObj.subs || []).forEach(p => {
-                    if (p.sub_action === 'Subbed On') list.push(p);
-                });
-                return list;
-            };
-            const starters1 = getActiveStarters(spotData.pitch_m1);
-            const starters2 = getActiveStarters(spotData.pitch_m2);
-
-            const slotGroups = {};
-            const slotOrder = [];
-
-            rawFixtures.forEach((f, idx) => {
-                const normName = String(f.match || '').replace(/\s+vs\s+/i, ' v ').trim();
-                if (idx === 0 || normName.toLowerCase().startsWith('start')) return;
-
-                const meta = metaFixtures[normName] || {};
-                const koKey = meta.ko_iso || `slot_${idx}`;
-                const slotLabel = meta.slot || normName;
-
-                if (!slotGroups[koKey]) {
-                    slotGroups[koKey] = {
-                        koKey,
-                        slotLabel,
-                        started: false,
-                        finished: true,
-                        items: []
-                    };
-                    slotOrder.push(koKey);
-                }
-                const grp = slotGroups[koKey];
-                if (meta.started) grp.started = true;
-                if (!meta.finished) grp.finished = false;
-                grp.items.push({ f, normName, meta });
-            });
-
-            slotOrder.sort();
-
-            const outNodes = [{
-                axis_label: "Start",
-                match: "Gameweek Kickoff Baseline",
-                is_proj: false,
-                m1: { manager: alias1, pts: 0, added: "0", events: "Kickoff Baseline" },
-                m2: { manager: alias2, pts: 0, added: "0", events: "Kickoff Baseline" }
-            }];
-
-            let cum1 = 0;
-            let cum2 = 0;
-            const unplayedGroups = [];
-
-            slotOrder.forEach(k => {
-                const grp = slotGroups[k];
-                const gameCount = grp.items.length;
-                const axisLbl = gameCount > 1 ? `${grp.slotLabel} (${gameCount})` : grp.slotLabel;
-
-                if (grp.started || (matchObj && matchObj.is_fin)) {
-                    let add1 = 0, add2 = 0;
-                    const evList1 = [], evList2 = [], matchNames = [];
-
-                    grp.items.forEach(({ f, normName, meta }) => {
-                        matchNames.push(meta.score_str || normName);
-                        const a1 = parseInt(String(f.m1.added || '0').replace('+', ''), 10) || 0;
-                        const a2 = parseInt(String(f.m2.added || '0').replace('+', ''), 10) || 0;
-                        add1 += a1;
-                        add2 += a2;
-                        if (f.m1.events && f.m1.events !== 'None') {
-                            evList1.push(gameCount > 1 ? `[${normName}] ${f.m1.events}` : f.m1.events);
-                        }
-                        if (f.m2.events && f.m2.events !== 'None') {
-                            evList2.push(gameCount > 1 ? `[${normName}] ${f.m2.events}` : f.m2.events);
-                        }
-                    });
-
-                    cum1 += add1;
-                    cum2 += add2;
-
-                    const joinedNames = matchNames.join(', ');
-                    const matchTitle = (grp.slotLabel === joinedNames) ? joinedNames : `${grp.slotLabel} • ${joinedNames}`;
-
-                    outNodes.push({
-                        axis_label: axisLbl,
-                        match: matchTitle,
-                        is_proj: false,
-                        m1: {
-                            manager: alias1,
-                            pts: cum1,
-                            added: add1 > 0 ? `+${add1}` : String(add1),
-                            events: evList1.length ? evList1.join(' • ') : 'None'
-                        },
-                        m2: {
-                            manager: alias2,
-                            pts: cum2,
-                            added: add2 > 0 ? `+${add2}` : String(add2),
-                            events: evList2.length ? evList2.join(' • ') : 'None'
-                        }
-                    });
-                } else {
-                    unplayedGroups.push({ grp, axisLbl });
-                }
-            });
-
-            // Build Grey Dotted Projection Nodes across remaining unplayed kickoff windows
-            if (unplayedGroups.length > 0 && !(matchObj && matchObj.is_fin)) {
-                const targetP1 = (matchObj && typeof matchObj.p1 === 'number') ? matchObj.p1 : cum1;
-                const targetP2 = (matchObj && typeof matchObj.p2 === 'number') ? matchObj.p2 : cum2;
-                const remNeed1 = Math.max(0, targetP1 - cum1);
-                const remNeed2 = Math.max(0, targetP2 - cum2);
-
-                const slotRaw1 = [], slotRaw2 = [], slotEv1 = [], slotEv2 = [], slotMatchTitles = [];
-
-                unplayedGroups.forEach(({ grp }) => {
-                    const clubsInSlot = new Set();
-                    const clubToMatch = {};
-                    const mNames = [];
-                    grp.items.forEach(({ normName, meta }) => {
-                        mNames.push(normName);
-                        const hs = (meta.h_short || normName.split(' v ')[0] || '').trim().toUpperCase();
-                        const as = (meta.a_short || normName.split(' v ')[1] || '').trim().toUpperCase();
-                        if (hs) { clubsInSlot.add(hs); clubToMatch[hs] = normName; }
-                        if (as) { clubsInSlot.add(as); clubToMatch[as] = normName; }
-                    });
-                    slotMatchTitles.push(`${grp.slotLabel} (Proj) • ${mNames.join(', ')}`);
-
-                    let r1 = 0, r2 = 0;
-                    const e1 = [], e2 = [];
-                    starters1.forEach(p => {
-                        const c = String(p.club || '').toUpperCase();
-                        if (p.state === 'YTP' && clubsInSlot.has(c)) {
-                            const pr = parseFloat(p.proj) || 0;
-                            r1 += pr;
-                            e1.push(`[${clubToMatch[c]}] ${p.name} (Proj ${pr.toFixed(1)})`);
-                        }
-                    });
-                    starters2.forEach(p => {
-                        const c = String(p.club || '').toUpperCase();
-                        if (p.state === 'YTP' && clubsInSlot.has(c)) {
-                            const pr = parseFloat(p.proj) || 0;
-                            r2 += pr;
-                            e2.push(`[${clubToMatch[c]}] ${p.name} (Proj ${pr.toFixed(1)})`);
-                        }
-                    });
-                    slotRaw1.push(r1);
-                    slotRaw2.push(r2);
-                    slotEv1.push(e1.length ? e1.join(' • ') : 'No YTP starters');
-                    slotEv2.push(e2.length ? e2.join(' • ') : 'No YTP starters');
-                });
-
-                const sumRaw1 = slotRaw1.reduce((a, b) => a + b, 0);
-                const sumRaw2 = slotRaw2.reduce((a, b) => a + b, 0);
-                let runProj1 = cum1;
-                let runProj2 = cum2;
-
-                unplayedGroups.forEach(({ axisLbl }, idx) => {
-                    const addP1 = sumRaw1 > 0 ? (slotRaw1[idx] / sumRaw1) * remNeed1 : (idx === unplayedGroups.length - 1 ? remNeed1 : 0);
-                    const addP2 = sumRaw2 > 0 ? (slotRaw2[idx] / sumRaw2) * remNeed2 : (idx === unplayedGroups.length - 1 ? remNeed2 : 0);
-                    runProj1 = (idx === unplayedGroups.length - 1 && (sumRaw1 > 0 || remNeed1 > 0)) ? targetP1 : (runProj1 + addP1);
-                    runProj2 = (idx === unplayedGroups.length - 1 && (sumRaw2 > 0 || remNeed2 > 0)) ? targetP2 : (runProj2 + addP2);
-
-                    outNodes.push({
-                        axis_label: axisLbl,
-                        match: slotMatchTitles[idx],
-                        is_proj: true,
-                        m1: {
-                            manager: alias1,
-                            pts: Number(runProj1.toFixed(1)),
-                            added: `+${addP1.toFixed(1)} proj`,
-                            events: slotEv1[idx]
-                        },
-                        m2: {
-                            manager: alias2,
-                            pts: Number(runProj2.toFixed(1)),
-                            added: `+${addP2.toFixed(1)} proj`,
-                            events: slotEv2[idx]
-                        }
-                    });
-                });
-            }
-
-            return { fixtures: outNodes };
-        }
-
-        
 
         function drawProgressionSvg(alias1, alias2, prog) {
             const svgEl = document.getElementById("prog-svg");
