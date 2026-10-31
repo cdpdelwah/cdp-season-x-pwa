@@ -2963,6 +2963,50 @@ def download_asterisk_archive():
         return Response(status_code=404)
     return FileResponse(target_file, filename=target_file.name, media_type="application/octet-stream")
 
+@app.get("/api/gw_timeline_meta")
+def get_gw_timeline_meta(gw: int = 0):
+    static_data = cached_fpl_static()
+    all_fixtures = cached_all_fixtures() or []
+    if not static_data:
+        return {"gw": gw, "fixtures": {}}
+    detected_gw, _, _ = get_current_and_last_gw(static_data)
+    target_gw = gw if gw > 0 else detected_gw
+    team_map = {item["id"]: item["short_name"] for item in static_data.get("teams", [])}
+    gw_fix = [f for f in all_fixtures if f.get("event") == target_gw]
+    out = {}
+    for f in gw_fix:
+        h_s = str(team_map.get(f.get("team_h"), "HOM")).upper()
+        a_s = str(team_map.get(f.get("team_a"), "AWY")).upper()
+        m_key = f"{h_s} v {a_s}"
+        ko_raw = f.get("kickoff_time") or ""
+        slot_lbl = m_key
+        if ko_raw:
+            try:
+                dt_utc = datetime.fromisoformat(ko_raw.replace("Z", "+00:00"))
+                try:
+                    from zoneinfo import ZoneInfo
+                    dt_uk = dt_utc.astimezone(ZoneInfo("Europe/London"))
+                except Exception:
+                    dt_uk = dt_utc
+                slot_lbl = dt_uk.strftime("%a %H:%M")
+            except Exception:
+                pass
+        started = bool(f.get("started", False))
+        finished = bool(f.get("finished", False) or f.get("finished_provisional", False))
+        h_sc = safe_int(f.get("team_h_score", 0))
+        a_sc = safe_int(f.get("team_a_score", 0))
+        score_str = f"{h_s} {h_sc}-{a_sc} {a_s}" if started else m_key
+        out[m_key] = {
+            "ko_iso": ko_raw,
+            "slot": slot_lbl,
+            "started": started,
+            "finished": finished,
+            "h_short": h_s,
+            "a_short": a_s,
+            "score_str": score_str
+        }
+    return {"gw": target_gw, "fixtures": out}
+
 # ==========================================
 # 11. CUP & BUCKET COMPETITION (32 TEAMS)
 # ==========================================
