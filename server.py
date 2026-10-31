@@ -547,6 +547,17 @@ def make_table_payload(s_recs, b_recs):
     }
 
 def make_progression_payload(a1, a2, t1_act, t2_act, gw_fixtures, team_map):
+    def is_fix_played(f):
+        if f.get("started", False) or f.get("finished", False) or f.get("finished_provisional", False):
+            return True
+        h_id = safe_int(f.get("team_h"))
+        a_id = safe_int(f.get("team_a"))
+        for p in (t1_act + t2_act):
+            if safe_int(p.get("club_id")) in (h_id, a_id):
+                if str(p.get("State", "")).upper() in ("LIVE", "FT") or safe_int(p.get("Mins", 0)) > 0:
+                    return True
+        return False
+
     def get_fixture_contributors(active_players, h_id, a_id):
         entries_list = []
         for p in active_players:
@@ -569,27 +580,64 @@ def make_progression_payload(a1, a2, t1_act, t2_act, gw_fixtures, team_map):
                     entries_list.append(f"{p_name} ({' '.join(cats)})")
         return ", ".join(entries_list) if entries_list else "None"
 
-    fixtures_list = []
-    c1, c2 = 0, 0
+    def get_proj_contributors(active_players, h_id, a_id, unplayed_counts):
+        entries_list = []
+        for p in active_players:
+            cid = safe_int(p.get("club_id"))
+            if cid in (safe_int(h_id), safe_int(a_id)):
+                p_name = str(p.get("Player", "Unknown"))
+                p_proj = float(p.get("Proj", 0.0)) / max(1, unplayed_counts.get(cid, 1))
+                entries_list.append(f"{p_name} ({p_proj:.1f} proj)")
+        return ", ".join(entries_list) if entries_list else "None"
 
-    for f in gw_fixtures:
+    ordered_fixtures = sorted(
+        gw_fixtures or [],
+        key=lambda x: (0 if is_fix_played(x) else 1, str(x.get("kickoff_time") or ""), safe_int(x.get("id")))
+    )
+
+    unplayed_counts = {}
+    for f in ordered_fixtures:
+        if not is_fix_played(f):
+            h_id = safe_int(f.get("team_h"))
+            a_id = safe_int(f.get("team_a"))
+            unplayed_counts[h_id] = unplayed_counts.get(h_id, 0) + 1
+            unplayed_counts[a_id] = unplayed_counts.get(a_id, 0) + 1
+
+    fixtures_list = []
+    c1, c2 = 0.0, 0.0
+
+    for f in ordered_fixtures:
         h_id = f.get("team_h")
         a_id = f.get("team_a")
         m_label = f"{team_map.get(h_id, 'H')} v {team_map.get(a_id, 'A')}"
+        played = is_fix_played(f)
 
-        fp1 = sum(safe_int(p.get("Pts", 0)) for p in t1_act if safe_int(p.get("club_id")) in (safe_int(h_id), safe_int(a_id)))
-        fp2 = sum(safe_int(p.get("Pts", 0)) for p in t2_act if safe_int(p.get("club_id")) in (safe_int(h_id), safe_int(a_id)))
-        c1 += fp1
-        c2 += fp2
-
-        ev1 = get_fixture_contributors(t1_act, h_id, a_id)
-        ev2 = get_fixture_contributors(t2_act, h_id, a_id)
-
-        fixtures_list.append({
-            "match": m_label,
-            "m1": {"manager": str(a1), "pts": c1, "added": f"+{fp1}", "events": ev1, "color": "#f59e0b"},
-            "m2": {"manager": str(a2), "pts": c2, "added": f"+{fp2}", "events": ev2, "color": "#38bdf8"}
-        })
+        if played:
+            fp1 = sum(safe_int(p.get("Pts", 0)) for p in t1_act if safe_int(p.get("club_id")) in (safe_int(h_id), safe_int(a_id)))
+            fp2 = sum(safe_int(p.get("Pts", 0)) for p in t2_act if safe_int(p.get("club_id")) in (safe_int(h_id), safe_int(a_id)))
+            c1 += fp1
+            c2 += fp2
+            ev1 = get_fixture_contributors(t1_act, h_id, a_id)
+            ev2 = get_fixture_contributors(t2_act, h_id, a_id)
+            fixtures_list.append({
+                "match": m_label,
+                "is_proj": False,
+                "m1": {"manager": str(a1), "pts": int(round(c1)), "added": f"+{fp1}", "events": ev1, "color": "#f59e0b"},
+                "m2": {"manager": str(a2), "pts": int(round(c2)), "added": f"+{fp2}", "events": ev2, "color": "#38bdf8"}
+            })
+        else:
+            fp1 = sum(float(p.get("Proj", 0.0)) / max(1, unplayed_counts.get(safe_int(p.get("club_id")), 1)) for p in t1_act if safe_int(p.get("club_id")) in (safe_int(h_id), safe_int(a_id)))
+            fp2 = sum(float(p.get("Proj", 0.0)) / max(1, unplayed_counts.get(safe_int(p.get("club_id")), 1)) for p in t2_act if safe_int(p.get("club_id")) in (safe_int(h_id), safe_int(a_id)))
+            c1 = round(c1 + fp1, 1)
+            c2 = round(c2 + fp2, 1)
+            ev1 = get_proj_contributors(t1_act, h_id, a_id, unplayed_counts)
+            ev2 = get_proj_contributors(t2_act, h_id, a_id, unplayed_counts)
+            fixtures_list.append({
+                "match": m_label,
+                "is_proj": True,
+                "m1": {"manager": str(a1), "pts": round(c1, 1), "added": f"+{fp1:.1f} proj", "events": ev1, "color": "#94a3b8"},
+                "m2": {"manager": str(a2), "pts": round(c2, 1), "added": f"+{fp2:.1f} proj", "events": ev2, "color": "#94a3b8"}
+            })
 
     return {"fixtures": fixtures_list}
 

@@ -3482,6 +3482,9 @@
             const legendEl = document.getElementById("prog-legend");
 
             tooltipEl.style.display = "none";
+            const fixtures = prog.fixtures || [];
+            const hasProj = fixtures.some(f => f.is_proj);
+
             legendEl.innerHTML = `
                 <div style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:700; color:#fff;">
                     <span style="width:12px; height:12px; border-radius:50%; background:#f59e0b; display:inline-block;"></span><span>${alias1}</span>
@@ -3489,9 +3492,9 @@
                 <div style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:700; color:#fff;">
                     <span style="width:12px; height:12px; border-radius:50%; background:#38bdf8; display:inline-block;"></span><span>${alias2}</span>
                 </div>
+                ${hasProj ? `<div style="display:flex; align-items:center; gap:6px; font-size:12px; font-weight:700; color:#94a3b8;"><span style="width:18px; border-top:2.5px dashed #94a3b8; display:inline-block;"></span><span>Predicted</span></div>` : ''}
             `;
 
-            const fixtures = prog.fixtures || [];
             if (!fixtures.length) {
                 svgEl.innerHTML = "";
                 return;
@@ -3536,12 +3539,36 @@
             fixtures.forEach((f, i) => {
                 const x = getX(i);
                 const labelY = padT + plotH + 8;
+                const lblColor = f.is_proj ? "#64748b" : "#94a3b8";
                 svg += `<line x1="${x}" y1="${padT + plotH}" x2="${x}" y2="${padT + plotH + 4}" stroke="#182030" stroke-width="1" />`;
-                svg += `<text x="${x}" y="${labelY}" fill="#94a3b8" font-size="10.5" font-weight="600" text-anchor="end" dominant-baseline="central" transform="rotate(-90, ${x}, ${labelY})">${f.match}</text>`;
+                svg += `<text x="${x}" y="${labelY}" fill="${lblColor}" font-size="10.5" font-weight="600" text-anchor="end" dominant-baseline="central" transform="rotate(-90, ${x}, ${labelY})">${f.match}</text>`;
             });
 
-            const pts1 = fixtures.map((f, i) => `${getX(i)},${getY(f.m1.pts)}`).join(" ");
-            const pts2 = fixtures.map((f, i) => `${getX(i)},${getY(f.m2.pts)}`).join(" ");
+            let lastSolidIdx = -1;
+            fixtures.forEach((f, i) => { if (!f.is_proj) lastSolidIdx = i; });
+
+            let solidSvg = "";
+            if (lastSolidIdx >= 0) {
+                const solidSlice = fixtures.slice(0, lastSolidIdx + 1);
+                const pts1 = solidSlice.map((f, i) => `${getX(i)},${getY(f.m1.pts)}`).join(" ");
+                const pts2 = solidSlice.map((f, i) => `${getX(i)},${getY(f.m2.pts)}`).join(" ");
+                solidSvg = `
+                    <polyline class="prog-line-anim" pathLength="1000" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${pts1}" />
+                    <polyline class="prog-line-anim" pathLength="1000" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${pts2}" />
+                `;
+            }
+
+            let projSvg = "";
+            if (lastSolidIdx < n - 1) {
+                const startIdx = Math.max(0, lastSolidIdx);
+                const projSlice = fixtures.slice(startIdx);
+                const projPts1 = projSlice.map((f, idx) => `${getX(startIdx + idx)},${getY(f.m1.pts)}`).join(" ");
+                const projPts2 = projSlice.map((f, idx) => `${getX(startIdx + idx)},${getY(f.m2.pts)}`).join(" ");
+                projSvg = `
+                    <polyline fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-dasharray="4,4" stroke-opacity="0.85" stroke-linecap="round" stroke-linejoin="round" points="${projPts1}" />
+                    <polyline fill="none" stroke="#94a3b8" stroke-width="2.2" stroke-dasharray="4,4" stroke-opacity="0.85" stroke-linecap="round" stroke-linejoin="round" points="${projPts2}" />
+                `;
+            }
 
             svg += `
                 <style>
@@ -3565,16 +3592,21 @@
                         transform-origin: center;
                         animation: popProgDot 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
                     }
-</style>
-                <polyline class="prog-line-anim" pathLength="1000" fill="none" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${pts1}" />
-                <polyline class="prog-line-anim" pathLength="1000" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${pts2}" />
+                </style>
+                ${projSvg}
+                ${solidSvg}
             `;
 
             fixtures.forEach((f, i) => {
                 const x = getX(i);
                 const delayMs = Math.round((i / Math.max(1, n - 1)) * 900);
-                svg += `<circle id="vdot-${i}-m2" class="vis-dot" style="animation-delay:${delayMs}ms;" cx="${x}" cy="${getY(f.m2.pts)}" r="5" fill="#38bdf8" />`;
-                svg += `<circle id="vdot-${i}-m1" class="vis-dot" style="animation-delay:${delayMs}ms;" cx="${x}" cy="${getY(f.m1.pts)}" r="5" fill="#f59e0b" />`;
+                if (f.is_proj) {
+                    svg += `<circle id="vdot-${i}-m2" class="vis-dot" style="animation-delay:${delayMs}ms;" cx="${x}" cy="${getY(f.m2.pts)}" r="4.5" fill="#090c13" stroke="#38bdf8" stroke-width="2" />`;
+                    svg += `<circle id="vdot-${i}-m1" class="vis-dot" style="animation-delay:${delayMs}ms;" cx="${x}" cy="${getY(f.m1.pts)}" r="4.5" fill="#090c13" stroke="#f59e0b" stroke-width="2" />`;
+                } else {
+                    svg += `<circle id="vdot-${i}-m2" class="vis-dot" style="animation-delay:${delayMs}ms;" cx="${x}" cy="${getY(f.m2.pts)}" r="5" fill="#38bdf8" />`;
+                    svg += `<circle id="vdot-${i}-m1" class="vis-dot" style="animation-delay:${delayMs}ms;" cx="${x}" cy="${getY(f.m1.pts)}" r="5" fill="#f59e0b" />`;
+                }
             });
 
             fixtures.forEach((f, i) => {
@@ -3586,13 +3618,13 @@
             svgEl.innerHTML = svg;
 
             let pinnedKey = null;
-            function buildTableHtml(item, matchName) {
+            function buildTableHtml(item, matchName, isProj) {
                 return `<table>
                     <tr><td class="k">Manager</td><td class="v">${item.manager}</td></tr>
-                    <tr><td class="k">Match</td><td class="v">${matchName}</td></tr>
-                    <tr><td class="k">Total Pts</td><td class="v">${item.pts}</td></tr>
-                    <tr><td class="k">Match Pts</td><td class="v">${item.added}</td></tr>
-                    <tr><td class="k">Key Events</td><td class="v">${item.events}</td></tr>
+                    <tr><td class="k">Match</td><td class="v">${isProj ? `${matchName} (Pred)` : matchName}</td></tr>
+                    <tr><td class="k">${isProj ? 'Pred Total' : 'Total Pts'}</td><td class="v">${item.pts}</td></tr>
+                    <tr><td class="k">${isProj ? 'Pred Pts' : 'Match Pts'}</td><td class="v">${item.added}</td></tr>
+                    <tr><td class="k">${isProj ? 'Yet to Play' : 'Key Events'}</td><td class="v">${item.events}</td></tr>
                 </table>`;
             }
 
@@ -3602,9 +3634,9 @@
                 if (f.m1.pts === f.m2.pts) {
                     const p = side === "m1" ? f.m1 : f.m2;
                     const s = side === "m1" ? f.m2 : f.m1;
-                    tooltipEl.innerHTML = buildTableHtml(p, f.match) + '<div style="height:1px; background:#334155; margin:5px 0;"></div>' + buildTableHtml(s, f.match);
+                    tooltipEl.innerHTML = buildTableHtml(p, f.match, f.is_proj) + '<div style="height:1px; background:#334155; margin:5px 0;"></div>' + buildTableHtml(s, f.match, f.is_proj);
                 } else {
-                    tooltipEl.innerHTML = buildTableHtml(side === "m1" ? f.m1 : f.m2, f.match);
+                    tooltipEl.innerHTML = buildTableHtml(side === "m1" ? f.m1 : f.m2, f.match, f.is_proj);
                 }
                 tooltipEl.style.display = "block";
                 document.querySelectorAll(".vis-dot").forEach(el => el.classList.remove("active"));
