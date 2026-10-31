@@ -42,11 +42,22 @@ def ttl_cache(ttl_seconds=60):
         def wrapper(*args, **kwargs):
             key = (func.__name__, args, tuple(sorted(kwargs.items())))
             now = time.time()
+            stale_val = None
             if key in _MEMORY_CACHE:
                 val, ts = _MEMORY_CACHE[key]
                 if now - ts < ttl_seconds:
                     return val
+                stale_val = val
             res = func(*args, **kwargs)
+            is_empty_fail = (
+                res is None
+                or res == (None, None)
+                or (isinstance(res, (list, dict)) and len(res) == 0 and func.__name__ in ("cached_fpl_static", "cached_all_fixtures", "cached_epl_fixtures", "cached_live_event", "cached_entry_event"))
+            )
+            if is_empty_fail:
+                if stale_val is not None:
+                    return stale_val
+                return res
             _MEMORY_CACHE[key] = (res, now)
             return res
         return wrapper
@@ -3354,23 +3365,28 @@ def send_push_to_manager(subs_registry: dict, alias: str, title: str, body: str,
                 valid_subs.append(sub)
                 continue
             seen_endpoints.add(ep)
-            try:
-                fresh_claims = {"sub": "mailto:commissar@cdp.com"}
-                webpush(
-                    subscription_info=sub,
-                    data=payload,
-                    vapid_private_key=VAPID_PRIVATE_KEY,
-                    vapid_claims=fresh_claims,
-                    timeout=6
-                )
-                valid_subs.append(sub)
-                sent += 1
-                LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | ✅ SENT to {matched_key}: {title}")
-            except Exception as e:
-                err_str = str(e)
-                LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | ❌ ERR {matched_key}: {err_str[:90]}")
-                if "410" not in err_str and "404" not in err_str:
+            for attempt in range(2):
+                try:
+                    fresh_claims = {"sub": "mailto:commissar@cdp.com"}
+                    webpush(
+                        subscription_info=sub,
+                        data=payload,
+                        vapid_private_key=VAPID_PRIVATE_KEY,
+                        vapid_claims=fresh_claims,
+                        timeout=10
+                    )
                     valid_subs.append(sub)
+                    sent += 1
+                    LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | ✅ SENT to {matched_key}: {title}")
+                    break
+                except Exception as e:
+                    err_str = str(e)
+                    if attempt == 0 and "410" not in err_str and "404" not in err_str:
+                        time.sleep(1.0)
+                        continue
+                    LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | ❌ ERR {matched_key}: {err_str[:90]}")
+                    if "410" not in err_str and "404" not in err_str:
+                        valid_subs.append(sub)
 
         subs_registry[matched_key] = valid_subs
 
@@ -3741,8 +3757,18 @@ def run_automated_push_checks():
                     queue_pair_alerts(a2, a1, act2_ids, bench2_ids, act1_ids, bench1_ids)
 
             if push_jobs:
-                with ThreadPoolExecutor(max_workers=12) as push_ex:
-                    list(push_ex.map(lambda job: send_push_to_manager(subs_registry, job[0], job[1], job[2], tag=job[3]), push_jobs))
+                jobs_by_mgr = {}
+                for job in push_jobs:
+                    jobs_by_mgr.setdefault(job[0], []).append(job)
+
+                def _send_mgr_queue(m_jobs):
+                    for idx, j in enumerate(m_jobs):
+                        if idx > 0:
+                            time.sleep(0.4)
+                        send_push_to_manager(subs_registry, j[0], j[1], j[2], tag=j[3])
+
+                with ThreadPoolExecutor(max_workers=8) as push_ex:
+                    list(push_ex.map(_send_mgr_queue, jobs_by_mgr.values()))
 
         if state_dirty:
             upstash_set_json(state_key, gw_state)
