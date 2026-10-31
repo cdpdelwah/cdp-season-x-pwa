@@ -1139,19 +1139,21 @@ def build_epl_pitch_payload_from_lists(starters_list, subs_used_list, subs_unuse
         import unicodedata
         return "".join(c for c in unicodedata.normalize("NFD", str(s).lower()) if unicodedata.category(c) != "Mn")
 
+    used_fpl_ids = set()
+
     def parse_entry(entry_str, is_sub=False, sub_action=""):
         clean = re.sub(r"<[^>]*>", "", str(entry_str)).strip()
-        pos = "MID"
+        espn_pos = "MID"
         left_part = clean
         if "•" in clean:
             parts = clean.split("•")
             left_part = parts[0].strip()
             raw_pos = parts[1].replace("*", "").strip() if len(parts) > 1 else "MID"
-            pos = "GKP" if "GK" in raw_pos else ("DEF" if "DEF" in raw_pos else ("FWD" if "FWD" in raw_pos else "MID"))
+            espn_pos = "GKP" if "GK" in raw_pos else ("DEF" if "DEF" in raw_pos else ("FWD" if "FWD" in raw_pos else "MID"))
         else:
             for cand in ["GKP", "DEF", "MID", "FWD", "GK"]:
                 if f"({cand})" in clean or f"*{cand}*" in clean:
-                    pos = "GKP" if "GK" in cand else cand
+                    espn_pos = "GKP" if "GK" in cand else cand
                     left_part = clean.replace(f"({cand})", "").replace(f"*{cand}*", "").strip()
                     break
 
@@ -1162,7 +1164,7 @@ def build_epl_pitch_payload_from_lists(starters_list, subs_used_list, subs_unuse
         name = re.sub(r"[▼▲].*$", "", name).replace("**", "").replace("(C)", "").strip()
 
         rec = {
-            "Player": name, "Pos": pos, "Club": club_short, "Opp": "",
+            "Player": name, "Pos": espn_pos, "fpl_pos": espn_pos, "Club": club_short, "Opp": "",
             "Pts": 0, "Proj": 0.0, "Mins": 0, "State": "FT",
             "G": 0, "A": 0, "CS": 0, "GC": 0, "Bonus": 0, "Saves": 0,
             "Penalties_Saved": 0, "Penalties_Missed": 0, "YC": 0, "RC": 0,
@@ -1170,25 +1172,67 @@ def build_epl_pitch_payload_from_lists(starters_list, subs_used_list, subs_unuse
         }
 
         name_norm = _norm_str(name)
-        name_last = name_norm.split()[-1] if name_norm else ""
+        name_words = [w for w in re.split(r"[^a-z0-9]+", name_norm) if w]
+        name_last = name_words[-1] if name_words else ""
+        name_first = name_words[0] if name_words else ""
+
+        best_score = 0
         matched_pair = None
         for raw_elem, e_info in club_fpl_players:
-            wn = _norm_str(raw_elem.get("web_name", ""))
-            fn = _norm_str(f"{raw_elem.get('first_name', '')} {raw_elem.get('second_name', '')}")
-            ln = _norm_str(raw_elem.get("second_name", ""))
-            if wn and (wn == name_norm or wn == name_last or wn in name_norm or name_norm in fn or (ln and ln == name_last)):
-                matched_pair = (raw_elem, e_info)
-                break
+            eid = raw_elem.get("id")
+            if eid in used_fpl_ids:
+                continue
+            p_type = raw_elem.get("element_type", 3)
+            fpl_pos = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}.get(p_type, "MID")
 
-        if matched_pair:
+            # Strict GK isolation: never match a GK to an outfield player (e.g. James Trafford -> Dan James)
+            if espn_pos == "GKP" and fpl_pos != "GKP":
+                continue
+            if espn_pos != "GKP" and fpl_pos == "GKP":
+                continue
+
+            wn = _norm_str(raw_elem.get("web_name", ""))
+            fn_first = _norm_str(raw_elem.get("first_name", ""))
+            fn_second = _norm_str(raw_elem.get("second_name", ""))
+            full_n = f"{fn_first} {fn_second}".strip()
+
+            score = 0
+            if full_n and full_n == name_norm:
+                score = 100
+            elif wn and wn == name_norm:
+                score = 95
+            elif fn_second and fn_second == name_norm:
+                score = 92
+            elif name_last and (name_last == wn or name_last == fn_second):
+                if name_first and fn_first and (name_first == fn_first or name_first[0] == fn_first[0]):
+                    score = 88
+                elif len(name_words) == 1:
+                    score = 85
+                else:
+                    score = 72
+            elif wn and len(wn) >= 4 and wn in name_words:
+                if len(name_words) == 1 or wn != name_first or (fn_second and fn_second in name_words):
+                    score = 65
+            elif fn_second and len(fn_second) >= 4 and fn_second in name_words:
+                if len(name_words) == 1 or fn_second != name_first:
+                    score = 60
+
+            if score > best_score:
+                best_score = score
+                matched_pair = (raw_elem, e_info)
+
+        if matched_pair and best_score >= 55:
             raw_elem, e_info = matched_pair
+            used_fpl_ids.add(raw_elem.get("id"))
             st_dict = e_info.get("stats", {}) if isinstance(e_info, dict) else {}
             exp_raw = e_info.get("explain", []) if isinstance(e_info, dict) else []
             p_type = raw_elem.get("element_type", 3)
-            fpl_pos = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}.get(p_type, pos)
+            fpl_pos = {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}.get(p_type, espn_pos)
+            final_pos = "GKP" if (espn_pos == "GKP" or fpl_pos == "GKP") else (espn_pos if espn_pos in ("DEF", "FWD") else (fpl_pos if fpl_pos in ("DEF", "FWD") else "MID"))
             rec.update({
                 "Player": str(raw_elem.get("web_name", name)),
-                "Pos": fpl_pos,
+                "Pos": final_pos,
+                "fpl_pos": fpl_pos,
                 "Pts": safe_int(st_dict.get("total_points", 0)),
                 "Mins": safe_int(st_dict.get("minutes", 0)),
                 "G": safe_int(st_dict.get("goals_scored", 0)),
@@ -1207,9 +1251,38 @@ def build_epl_pitch_payload_from_lists(starters_list, subs_used_list, subs_unuse
 
     s_recs = [parse_entry(s, is_sub=False, sub_action=("Subbed Off" if "▼" in str(s) else "")) for s in starters_list]
     b_recs = [parse_entry(su, is_sub=True, sub_action="Subbed On") for su in subs_used_list] + [parse_entry(sun, is_sub=True, sub_action="") for sun in subs_unused_list]
-    b_recs = sorted(b_recs, key=lambda x: (0 if x.get("sub_action") == "Subbed On" else 1, POS_ORDER.get(str(x.get("Pos", "")), 99)))
 
-    # Keep all 11 starters on the pitch (with OFF badge if subbed) and all substitutes in the dugout (with ON badge if subbed on)
+    # Guarantee 4 distinct lines on every pitch: 1 GKP, 3-5 DEF, 2-5 MID, 1-3 FWD
+    gkps = [r for r in s_recs if r["Pos"] == "GKP"]
+    if not gkps and s_recs:
+        s_recs[0]["Pos"] = "GKP"
+    elif len(gkps) > 1:
+        for r in gkps[1:]:
+            r["Pos"] = r.get("fpl_pos") if r.get("fpl_pos") in ("DEF", "MID", "FWD") else "DEF"
+
+    defs = [r for r in s_recs if r["Pos"] == "DEF"]
+    if len(defs) < 3:
+        for r in [x for x in s_recs if x["Pos"] == "MID"]:
+            if len(defs) >= 3:
+                break
+            r["Pos"] = "DEF"
+            defs.append(r)
+    elif len(defs) > 5:
+        for r in defs[5:]:
+            r["Pos"] = "MID"
+
+    fwds = [r for r in s_recs if r["Pos"] == "FWD"]
+    if len(fwds) == 0:
+        mids = [r for r in s_recs if r["Pos"] == "MID"]
+        if mids:
+            mids[-1]["Pos"] = "FWD"
+
+    mids = [r for r in s_recs if r["Pos"] == "MID"]
+    while len(mids) > 5:
+        mids[-1]["Pos"] = "FWD"
+        mids.pop()
+
+    b_recs = sorted(b_recs, key=lambda x: (0 if x.get("sub_action") == "Subbed On" else 1, POS_ORDER.get(str(x.get("Pos", "")), 99)))
     return make_pitch_payload(s_recs, b_recs)
 
 def fetch_epl_match_lineup(f_obj, home_short, away_short, live_elements, element_lookup, event_num):
