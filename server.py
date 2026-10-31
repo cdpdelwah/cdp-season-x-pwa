@@ -49,11 +49,14 @@ def ttl_cache(ttl_seconds=60):
                     return val
                 stale_val = val
             res = func(*args, **kwargs)
-            is_empty_fail = (
-                res is None
-                or res == (None, None)
-                or (isinstance(res, (list, dict)) and len(res) == 0 and func.__name__ in ("cached_fpl_static", "cached_all_fixtures", "cached_epl_fixtures", "cached_live_event", "cached_entry_event"))
-            )
+            if isinstance(res, pd.DataFrame):
+                is_empty_fail = res.empty
+            else:
+                is_empty_fail = (
+                    res is None
+                    or (isinstance(res, tuple) and res == (None, None))
+                    or (isinstance(res, (list, dict)) and len(res) == 0 and func.__name__ in ("cached_fpl_static", "cached_all_fixtures", "cached_epl_fixtures", "cached_live_event", "cached_entry_event"))
+                )
             if is_empty_fail:
                 if stale_val is not None:
                     return stale_val
