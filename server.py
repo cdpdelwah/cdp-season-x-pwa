@@ -308,17 +308,32 @@ def full_evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes
             base_exp = 2.0
         base_exp *= get_fdr_multiplier(club_id, current_gw, all_fixtures_list)
 
-        if team_mins >= 800:
+        club_is_ft = False
+        club_is_live = False
+        match_minute = 45
+        if all_fixtures_list and club_id:
+            c_fixes = [
+                fix for fix in all_fixtures_list
+                if fix.get("event") == current_gw and (fix.get("team_h") == club_id or fix.get("team_a") == club_id)
+            ]
+            if c_fixes:
+                if all(fix.get("finished", False) or fix.get("finished_provisional", False) for fix in c_fixes):
+                    club_is_ft = True
+                elif any(fix.get("started", False) for fix in c_fixes):
+                    club_is_live = True
+                    for fix in c_fixes:
+                        if fix.get("started", False) and not (fix.get("finished", False) or fix.get("finished_provisional", False)):
+                            match_minute = safe_int(fix.get("minutes", 45))
+                            break
+        else:
+            club_is_ft = (team_mins >= 985)
+            club_is_live = (team_mins > 0 and not club_is_ft)
+
+        if club_is_ft:
             state = "FT" if mins > 0 else "DNP"
             proj = float(pts) if mins > 0 else 0.0
-        elif team_mins > 0:
+        elif club_is_live or team_mins > 0:
             state = "LIVE"
-            match_minute = 45
-            if all_fixtures_list:
-                for fix in all_fixtures_list:
-                    if fix.get("event") == current_gw and (fix.get("team_h") == club_id or fix.get("team_a") == club_id) and fix.get("started", False):
-                        match_minute = fix.get("minutes", 45)
-                        break
             rem_frac = max(0.0, (90.0 - float(match_minute)) / 90.0)
             if mins > 0:
                 proj = round(float(pts) + (1.0 if match_minute < 60 else 0.0) + (max(0.0, base_exp - 2.0) * rem_frac), 1)
@@ -1346,56 +1361,58 @@ def get_epl_scores(gw: str = "0"):
                 status_text = ko[11:16] if ko else "Upcoming"
             status_color = "#cbd5e1"
 
-        stats_raw = f.get("stats", [])
-        stats_dict = {item["identifier"]: {"h": item.get("h", []), "a": item.get("a", [])} for item in stats_raw}
+        def get_club_stat_entries(ident, team_id):
+            out_entries = []
+            if not is_started or not live_elements:
+                return out_entries
+            for elem_str_id, e_data in live_elements.items():
+                if not isinstance(e_data, dict):
+                    continue
+                try:
+                    eid = int(elem_str_id)
+                except Exception:
+                    continue
+                elem_obj = element_lookup.get(eid, {})
+                if elem_obj.get("team") == team_id:
+                    val = safe_int(e_data.get("stats", {}).get(ident, 0))
+                    if val > 0:
+                        out_entries.append((elem_obj.get("web_name", "Unknown"), val))
+            return sorted(out_entries, key=lambda x: (-x[1], x[0].lower()))
 
-        def get_stat_entries(ident, side):
-            return [
-                (element_lookup.get(entry["element"], {}).get("web_name", "Unknown"), entry.get("value", 1))
-                for entry in stats_dict.get(ident, {}).get(side, [])
-            ]
-
-        def resolve_defcon_achieved(side, team_id):
+        def resolve_defcon_achieved(team_id):
             achieved = []
-            dc_items = stats_dict.get("defensive_contributions", {}).get(side, []) or stats_dict.get("cbit", {}).get(side, []) or stats_dict.get("defcon", {}).get(side, [])
-            for itm in dc_items:
-                if isinstance(itm, dict):
-                    p_elem = element_lookup.get(itm.get("element"), {})
-                    p_name = p_elem.get("web_name", "Unknown")
-                    p_pos = p_elem.get("element_type", 1)
-                    val = safe_int(itm.get("value", 0))
-                    if (p_pos == 2 and val >= 10) or (p_pos in [3, 4] and val >= 12) or val >= 10:
-                        achieved.append(p_name)
-            if live_elements:
-                for elem_str_id, e_data in live_elements.items():
-                    if not isinstance(e_data, dict): continue
-                    try:
-                        elem_obj = element_lookup.get(int(elem_str_id), {})
-                        if elem_obj.get("team") == team_id:
-                            p_name = elem_obj.get("web_name", "Unknown")
-                            p_pos = elem_obj.get("element_type", 1)
-                            if extract_defcon_flag(e_data.get("stats", {}), e_data.get("explain", []), p_pos) and p_name not in achieved:
-                                achieved.append(p_name)
-                    except Exception:
-                        pass
+            if not is_started or not live_elements:
+                return achieved
+            for elem_str_id, e_data in live_elements.items():
+                if not isinstance(e_data, dict):
+                    continue
+                try:
+                    elem_obj = element_lookup.get(int(elem_str_id), {})
+                    if elem_obj.get("team") == team_id:
+                        p_name = elem_obj.get("web_name", "Unknown")
+                        p_pos = elem_obj.get("element_type", 1)
+                        if extract_defcon_flag(e_data.get("stats", {}), e_data.get("explain", []), p_pos) and p_name not in achieved:
+                            achieved.append(p_name)
+                except Exception:
+                    pass
             return achieved
 
         def build_side_events(side, team_id, opp_score):
             lines = []
-            goals = get_stat_entries("goals_scored", side)
-            assists = get_stat_entries("assists", side)
-            saves = get_stat_entries("saves", side)
-            og = get_stat_entries("own_goals", side)
-            pmiss = get_stat_entries("penalties_missed", side)
-            psaved = get_stat_entries("penalties_saved", side)
-            dc_hit = resolve_defcon_achieved(side, team_id)
+            goals = get_club_stat_entries("goals_scored", team_id)
+            assists = get_club_stat_entries("assists", team_id)
+            saves = get_club_stat_entries("saves", team_id)
+            og = get_club_stat_entries("own_goals", team_id)
+            pmiss = get_club_stat_entries("penalties_missed", team_id)
+            psaved = get_club_stat_entries("penalties_saved", team_id)
+            dc_hit = resolve_defcon_achieved(team_id)
 
             cs_players = []
             if is_started and live_elements and opp_score == 0:
                 for elem_id_str, e_data in live_elements.items():
                     try:
                         elem_obj = element_lookup.get(int(elem_id_str), {})
-                        if elem_obj.get("team") == team_id and safe_int(e_data.get("stats", {}).get("clean_sheets", 0)) > 0:
+                        if elem_obj.get("team") == team_id and elem_obj.get("element_type") in [1, 2] and safe_int(e_data.get("stats", {}).get("clean_sheets", 0)) > 0:
                             cs_players.append(elem_obj.get("web_name", "Unknown"))
                     except Exception:
                         pass
@@ -1410,18 +1427,30 @@ def get_epl_scores(gw: str = "0"):
             if psaved: lines.append("<span style='color:#22c55e;'>🧤 <b>Penalties Saved:</b> " + ", ".join([f"{n} ({v})" if v > 1 else n for n, v in psaved]) + "</span>")
             return lines
 
-        # BPS Ranking
+        # BPS Ranking (Directly from Draft live_elements)
         bps_list = []
-        for item in stats_dict.get("bps", {}).get("h", []) + stats_dict.get("bps", {}).get("a", []):
-            eid = item.get("element")
-            p_elem = element_lookup.get(eid, {})
-            bps_list.append({
-                "element": eid,
-                "player": p_elem.get("web_name", "Unknown"),
-                "club": team_short_map.get(p_elem.get("team"), ""),
-                "pos": {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}.get(p_elem.get("element_type", 1), ""),
-                "bps": safe_int(item.get("value", 0))
-            })
+        if is_started and live_elements:
+            for elem_str_id, e_data in live_elements.items():
+                if not isinstance(e_data, dict):
+                    continue
+                try:
+                    eid = int(elem_str_id)
+                except Exception:
+                    continue
+                p_elem = element_lookup.get(eid, {})
+                if p_elem.get("team") not in (h_id, a_id):
+                    continue
+                e_stats = e_data.get("stats", {}) if isinstance(e_data.get("stats"), dict) else {}
+                if safe_int(e_stats.get("minutes", 0)) <= 0:
+                    continue
+                bps_val = safe_int(e_stats.get("bps", 0))
+                bps_list.append({
+                    "element": eid,
+                    "player": p_elem.get("web_name", "Unknown"),
+                    "club": team_short_map.get(p_elem.get("team"), ""),
+                    "pos": {1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"}.get(p_elem.get("element_type", 1), ""),
+                    "bps": bps_val
+                })
         bps_sorted = sorted(bps_list, key=lambda x: x["bps"], reverse=True)
         unique_scores = sorted(list({p["bps"] for p in bps_sorted}), reverse=True)
         bonus_award = {}
@@ -1452,15 +1481,9 @@ def get_epl_scores(gw: str = "0"):
                 "bonus_html": f"<span style='color:#f59e0b; font-weight:800;'>+{b_pts} pts</span>" if b_pts > 0 else "<span style='color:#64748b;'>-</span>"
             })
 
-        # DefCon Table
+        # DefCon Table (Directly from Draft live_elements)
         defcon_map = {}
-        for k_name in ["defensive_contributions", "cbit", "defcon"]:
-            for item in stats_dict.get(k_name, {}).get("h", []) + stats_dict.get(k_name, {}).get("a", []):
-                if isinstance(item, dict) and item.get("element"):
-                    eid = int(item["element"])
-                    defcon_map[eid] = max(defcon_map.get(eid, 0), safe_int(item.get("value", 0)))
-
-        if live_elements:
+        if is_started and live_elements:
             for elem_str_id, e_data in live_elements.items():
                 if not isinstance(e_data, dict): continue
                 try:
@@ -3343,43 +3366,56 @@ def send_push_to_manager(subs_registry: dict, alias: str, title: str, body: str,
     if not isinstance(subs_registry, dict):
         return 0
 
-    matched_key = next((k for k in subs_registry.keys() if k.lower() == str(alias).strip().lower()), None)
-    if not matched_key:
-        LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | SKIP {alias}: Not registered in Upstash")
-        return 0
+    clean_target = str(alias).strip().lower()
+    target_keys = [k for k in subs_registry.keys() if k.lower() == clean_target]
+    if clean_target == "andy":
+        target_keys.extend([k for k in subs_registry.keys() if k.lower() == "admin" and k not in target_keys])
 
-    mgr_subs = subs_registry.get(matched_key, [])
-    if isinstance(mgr_subs, dict):
-        mgr_subs = [mgr_subs]
-    if not mgr_subs:
-        LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | SKIP {alias}: Empty device list")
+    if not target_keys:
+        LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | SKIP {alias}: Not registered in Upstash")
         return 0
 
     payload = json.dumps({"title": title, "body": body, "tag": tag})
     sent = 0
-    valid_subs = []
-    for sub in mgr_subs:
-        try:
-            # Fresh dictionary every call so pywebpush never mutates global 'aud' or 'exp' claims
-            fresh_claims = {"sub": "mailto:commissar@cdp.com"}
-            webpush(
-                subscription_info=sub,
-                data=payload,
-                vapid_private_key=VAPID_PRIVATE_KEY,
-                vapid_claims=fresh_claims,
-                timeout=8
-            )
-            valid_subs.append(sub)
-            sent += 1
-            LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | ✅ SENT to {matched_key}: {title}")
-        except Exception as e:
-            err_str = str(e)
-            LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | ❌ ERR {matched_key}: {err_str[:90]}")
-            if "410" not in err_str:
-                valid_subs.append(sub)
+    seen_endpoints = set()
 
-    subs_registry[matched_key] = valid_subs
-    del LAST_PUSH_LOGS[:-30]
+    for matched_key in target_keys:
+        mgr_subs = subs_registry.get(matched_key, [])
+        if isinstance(mgr_subs, dict):
+            mgr_subs = [mgr_subs]
+        if not mgr_subs:
+            continue
+
+        valid_subs = []
+        for sub in mgr_subs:
+            if not isinstance(sub, dict):
+                continue
+            ep = sub.get("endpoint", "")
+            if ep in seen_endpoints:
+                valid_subs.append(sub)
+                continue
+            seen_endpoints.add(ep)
+            try:
+                fresh_claims = {"sub": "mailto:commissar@cdp.com"}
+                webpush(
+                    subscription_info=sub,
+                    data=payload,
+                    vapid_private_key=VAPID_PRIVATE_KEY,
+                    vapid_claims=fresh_claims,
+                    timeout=6
+                )
+                valid_subs.append(sub)
+                sent += 1
+                LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | ✅ SENT to {matched_key}: {title}")
+            except Exception as e:
+                err_str = str(e)
+                LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | ❌ ERR {matched_key}: {err_str[:90]}")
+                if "410" not in err_str and "404" not in err_str:
+                    valid_subs.append(sub)
+
+        subs_registry[matched_key] = valid_subs
+
+    del LAST_PUSH_LOGS[:-40]
     return sent
 
 @app.get("/api/debug_push")
@@ -3398,14 +3434,15 @@ def debug_push_status():
     }
 
 def broadcast_push_to_all(subs_registry: dict, title: str, body: str, tag: str = "cdp-broadcast"):
-    for alias in list(subs_registry.keys()):
-        send_push_to_manager(subs_registry, alias, title, body, tag=tag)
+    keys = list(subs_registry.keys())
+    with ThreadPoolExecutor(max_workers=12) as ex:
+        list(ex.map(lambda a: send_push_to_manager(subs_registry, a, title, body, tag=tag), keys))
 
 @app.post("/api/save_subscription")
 async def save_subscription(request: Request):
     body = await request.json()
     if "subscription" in body and "alias" in body:
-        alias = str(body.get("alias") or "Admin").strip()
+        alias = str(body.get("alias") or "Andy").strip()
         sub_obj = body.get("subscription")
     else:
         alias = "Andy"
@@ -3414,7 +3451,6 @@ async def save_subscription(request: Request):
     if not sub_obj or not isinstance(sub_obj, dict):
         return {"status": "invalid subscription"}
 
-    # DIAGNOSTIC: Explicitly check if Render has your credentials
     upstash_url = os.getenv("UPSTASH_URL")
     upstash_token = os.getenv("UPSTASH_TOKEN")
     if not upstash_url or not upstash_token:
@@ -3424,14 +3460,18 @@ async def save_subscription(request: Request):
     if not isinstance(subs_registry, dict):
         subs_registry = {}
 
-    existing = subs_registry.get(alias, [])
-    if isinstance(existing, dict):
-        existing = [existing]
+    save_keys = [alias]
+    if alias.lower() == "admin":
+        save_keys.append("Andy")
 
     endpoint = sub_obj.get("endpoint")
-    existing = [s for s in existing if s.get("endpoint") != endpoint]
-    existing.append(sub_obj)
-    subs_registry[alias] = existing[-3:]
+    for k in save_keys:
+        existing = subs_registry.get(k, [])
+        if isinstance(existing, dict):
+            existing = [existing]
+        existing = [s for s in existing if s.get("endpoint") != endpoint]
+        existing.append(sub_obj)
+        subs_registry[k] = existing[-3:]
 
     upstash_set_json("cdp_push_subs_v2", subs_registry)
     return {"status": f"saved subscription for {alias}"}
@@ -3443,34 +3483,47 @@ def trigger_push(alias: str = "Andy"):
         subs_registry,
         alias,
         f"🚨 CDP Command Center ({alias})",
-        "Your live Goal, DEFCON, Penalty, Save, Clean Sheet & Deadline alerts are active!",
-        tag="cdp-test"
+        "Your live Goal, Assist, Save, Penalty, Own Goal, Clean Sheet & Deadline alerts are active!",
+        tag=f"cdp-test-{int(time.time())}"
     )
     upstash_set_json("cdp_push_subs_v2", subs_registry)
     if count == 0:
         return {"error": f"No active device registered for {alias}. Tap 'Sync Alerts on This Device' first."}
     return {"status": f"Sent test alert to {count} device(s) for {alias}!"}
 
+_PUSH_SCAN_LOCK = None
+_AUTO_LOOP_STARTED = False
+
 def run_automated_push_checks():
+    global _PUSH_SCAN_LOCK
+    import threading
+    if _PUSH_SCAN_LOCK is None:
+        _PUSH_SCAN_LOCK = threading.Lock()
+    if not _PUSH_SCAN_LOCK.acquire(blocking=False):
+        return
+
     try:
         subs_registry = upstash_get_json("cdp_push_subs_v2", {})
         if not subs_registry or not isinstance(subs_registry, dict):
             return
 
-        # 1. Check Waiver & Lineup Deadlines (1h Warning + Deadline Passed)
+        # 1. Check Waiver & Lineup Deadlines (Always look at next unstarted GW so pre-deadline alerts never miss)
         static_data = cached_fpl_static()
         league_details, _ = cached_league_data(63)
         all_fixtures = cached_all_fixtures() or []
         current_gw, _ = detect_current_gw(league_details)
 
+        upcoming_fixes = [f for f in all_fixtures if not f.get("started", False) and f.get("kickoff_time") and safe_int(f.get("event", 0)) > 0]
+        deadline_gw = min((safe_int(f.get("event")) for f in upcoming_fixes), default=current_gw)
+
         events_list = static_data.get("events", []) if static_data else []
         if isinstance(events_list, dict):
             events_list = events_list.get("data", [])
-        target_ev = next((ev for ev in events_list if ev.get("id") == current_gw), None)
+        target_ev = next((ev for ev in events_list if ev.get("id") == deadline_gw), None)
         lineup_iso = target_ev.get("deadline_time") if target_ev else None
 
         if not lineup_iso and all_fixtures:
-            gw_fixes_ko = [f for f in all_fixtures if f.get("event") == current_gw and f.get("kickoff_time")]
+            gw_fixes_ko = [f for f in all_fixtures if f.get("event") == deadline_gw and f.get("kickoff_time")]
             if gw_fixes_ko:
                 earliest_ko = sorted(gw_fixes_ko, key=lambda x: x.get("kickoff_time"))[0].get("kickoff_time")
                 try:
@@ -3485,41 +3538,40 @@ def run_automated_push_checks():
             except Exception:
                 waiver_iso = lineup_iso
 
-        state_key = f"cdp_push_state_gw_{current_gw}"
-        gw_state = upstash_get_json(state_key, {
+        dl_state_key = f"cdp_push_state_gw_{deadline_gw}"
+        dl_state = upstash_get_json(dl_state_key, {
             "waiver_1h_sent": False,
             "waiver_passed_sent": False,
             "lineup_1h_sent": False,
             "lineup_passed_sent": False,
             "players": {}
         })
-        state_dirty = False
+        dl_dirty = False
         now_utc = datetime.now(timezone.utc)
 
         if waiver_iso:
             try:
                 w_dt = datetime.fromisoformat(waiver_iso.replace("Z", "+00:00"))
                 secs_left = (w_dt - now_utc).total_seconds()
-                
-                if not gw_state.get("waiver_1h_sent") and 0 < secs_left <= 3900:
+                if not dl_state.get("waiver_1h_sent") and 0 < secs_left <= 3900:
                     broadcast_push_to_all(
                         subs_registry,
-                        f"⚡ 1 Hour to Waiver Deadline (GW {current_gw})",
-                        f"Gameweek {current_gw} waivers process in under an hour. Lock in your claims!",
-                        tag=f"waiver-1h-gw{current_gw}"
+                        f"⚡ 1 Hour to Waiver Deadline (GW {deadline_gw})",
+                        f"Gameweek {deadline_gw} waivers process in under an hour. Lock in your claims!",
+                        tag=f"waiver-1h-gw{deadline_gw}"
                     )
-                    gw_state["waiver_1h_sent"] = True
-                    state_dirty = True
+                    dl_state["waiver_1h_sent"] = True
+                    dl_dirty = True
 
-                if not gw_state.get("waiver_passed_sent") and -7200 <= secs_left <= 0:
+                if not dl_state.get("waiver_passed_sent") and -3600 <= secs_left <= 0:
                     broadcast_push_to_all(
                         subs_registry,
-                        f"🚨 Waiver Deadline Passed (GW {current_gw})",
-                        f"Gameweek {current_gw} waivers are now locked and processing! Free agency is open.",
-                        tag=f"waiver-passed-gw{current_gw}"
+                        f"🚨 Waiver Deadline Passed (GW {deadline_gw})",
+                        f"Gameweek {deadline_gw} waivers are now locked and processing! Free agency is open.",
+                        tag=f"waiver-passed-gw{deadline_gw}"
                     )
-                    gw_state["waiver_passed_sent"] = True
-                    state_dirty = True
+                    dl_state["waiver_passed_sent"] = True
+                    dl_dirty = True
             except Exception:
                 pass
 
@@ -3527,37 +3579,47 @@ def run_automated_push_checks():
             try:
                 l_dt = datetime.fromisoformat(lineup_iso.replace("Z", "+00:00"))
                 secs_left = (l_dt - now_utc).total_seconds()
-                
-                if not gw_state.get("lineup_1h_sent") and 0 < secs_left <= 3900:
+                if not dl_state.get("lineup_1h_sent") and 0 < secs_left <= 3900:
                     broadcast_push_to_all(
                         subs_registry,
-                        f"🔒 1 Hour to Lineup Lock (GW {current_gw})",
-                        f"Gameweek {current_gw} lineups lock in under an hour. Set your starting XI and bench order!",
-                        tag=f"lineup-1h-gw{current_gw}"
+                        f"🔒 1 Hour to Lineup Lock (GW {deadline_gw})",
+                        f"Gameweek {deadline_gw} lineups lock in under an hour. Set your starting XI and bench order!",
+                        tag=f"lineup-1h-gw{deadline_gw}"
                     )
-                    gw_state["lineup_1h_sent"] = True
-                    state_dirty = True
+                    dl_state["lineup_1h_sent"] = True
+                    dl_dirty = True
 
-                if not gw_state.get("lineup_passed_sent") and -7200 <= secs_left <= 0:
+                if not dl_state.get("lineup_passed_sent") and -3600 <= secs_left <= 0:
                     broadcast_push_to_all(
                         subs_registry,
-                        f"Gameweek {current_gw} Locked and Loaded 🔫",
-                        f"Gameweek {current_gw} lineups are now locked! Head to the app to scout your opponent's starting XI.",
-                        tag=f"lineup-passed-gw{current_gw}"
+                        f"Gameweek {deadline_gw} Locked and Loaded 🔫",
+                        f"Gameweek {deadline_gw} lineups are now locked! Head to the app to scout your opponent's starting XI.",
+                        tag=f"lineup-passed-gw{deadline_gw}"
                     )
-                    gw_state["lineup_passed_sent"] = True
-                    state_dirty = True
+                    dl_state["lineup_passed_sent"] = True
+                    dl_dirty = True
             except Exception:
                 pass
 
+        if dl_dirty and deadline_gw != current_gw:
+            upstash_set_json(dl_state_key, dl_state)
+
+        state_key = f"cdp_push_state_gw_{current_gw}"
+        gw_state = dl_state if deadline_gw == current_gw else upstash_get_json(state_key, {
+            "waiver_1h_sent": False,
+            "waiver_passed_sent": False,
+            "lineup_1h_sent": False,
+            "lineup_passed_sent": False,
+            "players": {}
+        })
+        state_dirty = dl_dirty if deadline_gw == current_gw else False
+
         # 2. Check Live EPL Player Events Across All 4 Leagues
-        static_data = cached_fpl_static()
         for k in list(_MEMORY_CACHE.keys()):
             if k[0] in ("cached_live_event", "cached_all_fixtures", "cached_epl_fixtures", "compute_cbwcbw_tracker", "evaluate_cup_manager_gw"):
                 _MEMORY_CACHE.pop(k, None)
 
-        all_fixtures = cached_all_fixtures() or []
-        gw_fixtures = [f for f in all_fixtures if f.get("event") == current_gw]
+        gw_fixtures = cached_epl_fixtures(current_gw) or [f for f in all_fixtures if f.get("event") == current_gw]
         if not static_data or not any(f.get("started", False) for f in gw_fixtures):
             if not gw_state.get("players"):
                 gw_state["players"] = {"_seeded": True}
@@ -3577,8 +3639,12 @@ def run_automated_push_checks():
         element_lookup = {item["id"]: item for item in static_data["elements"]}
 
         finished_clubs = set()
+        started_clubs = set()
         club_minutes = {}
         for f in gw_fixtures:
+            if f.get("started", False):
+                started_clubs.add(f.get("team_h"))
+                started_clubs.add(f.get("team_a"))
             if f.get("finished", False) or f.get("finished_provisional", False):
                 finished_clubs.add(f.get("team_h"))
                 finished_clubs.add(f.get("team_a"))
@@ -3592,9 +3658,11 @@ def run_automated_push_checks():
                 pass
 
         prev_players = gw_state.get("players", {})
+        has_real_prev = any(k != "_seeded" for k in prev_players.keys())
         already_mid_match = any(safe_int(f.get("minutes", 0)) > 10 or f.get("finished", False) for f in gw_fixtures)
-        is_first_baseline = (len(prev_players) == 0 and already_mid_match)
-        curr_players = {}
+        is_first_baseline = (not has_real_prev and already_mid_match and "_seeded" not in prev_players)
+        curr_players = dict(prev_players) if isinstance(prev_players, dict) else {}
+        curr_players.pop("_seeded", None)
         player_new_events = {}
 
         for elem_str_id, e_info in live_elements.items():
@@ -3608,46 +3676,49 @@ def run_automated_push_checks():
             pos_type = raw_elem.get("element_type", 1)
             pos_str = pos_map.get(pos_type, "MID")
             club_id = raw_elem.get("team")
+            if club_id not in started_clubs:
+                continue
             club_short = str(team_map.get(club_id, "PL")).upper()
             p_name = str(raw_elem.get("web_name", "Unknown"))
 
             stats = e_info.get("stats", {}) if isinstance(e_info, dict) else {}
-            explain_raw = e_info.get("explain", []) if isinstance(e_info, dict) else []
 
             g = safe_int(stats.get("goals_scored", 0))
             a = safe_int(stats.get("assists", 0))
+            og = safe_int(stats.get("own_goals", 0))
             saves_tiers = safe_int(stats.get("saves", 0)) // 3 if pos_str == "GKP" else 0
             raw_saves = safe_int(stats.get("saves", 0))
             p_saved = safe_int(stats.get("penalties_saved", 0))
             p_missed = safe_int(stats.get("penalties_missed", 0))
-            defcon = 1 if extract_defcon_flag(stats, explain_raw, pos_type) else 0
 
-            is_club_ft = (club_id in finished_clubs) or (club_minutes.get(club_id, 0) >= 800)
-            cs_ft = 1 if (is_club_ft and pos_str in ["GKP", "DEF", "MID"] and safe_int(stats.get("clean_sheets", 0)) > 0) else 0
+            # Clean Sheets: ONLY for GKP & DEF, and ONLY when the club's fixture is officially finished/finished_provisional
+            is_club_ft = (club_id in finished_clubs)
+            cs_ft = 1 if (is_club_ft and pos_str in ["GKP", "DEF"] and safe_int(stats.get("clean_sheets", 0)) > 0) else 0
+
+            old = prev_players.get(str(eid), {}) if isinstance(prev_players.get(str(eid)), dict) else {}
 
             snap = {
-                "g": g, "a": a, "save_pts": saves_tiers,
-                "ps": p_saved, "pm": p_missed, "dc": defcon, "cs_ft": cs_ft
+                "g": g, "a": a, "og": og, "save_pts": saves_tiers,
+                "ps": p_saved, "pm": p_missed, "cs_ft": cs_ft
             }
             curr_players[str(eid)] = snap
 
             if not is_first_baseline:
-                old = prev_players.get(str(eid), {}) if isinstance(prev_players.get(str(eid)), dict) else {}
                 evs = []
                 if g > old.get("g", 0):
-                    evs.append(("⚽ GOAL!", f"{p_name} ({club_short}) scored a goal!"))
+                    evs.append(("⚽ GOAL!", f"{p_name} ({club_short}) scored a goal!", f"g{g}"))
                 if a > old.get("a", 0):
-                    evs.append(("🎯 ASSIST!", f"{p_name} ({club_short}) registered an assist!"))
-                if defcon > old.get("dc", 0):
-                    evs.append(("🔰 DEFCON (+2 pts)!", f"{p_name} ({club_short}) hit the DEFCON threshold (+2 pts)!"))
+                    evs.append(("🎯 ASSIST!", f"{p_name} ({club_short}) registered an assist!", f"a{a}"))
+                if og > old.get("og", 0):
+                    evs.append(("🛑 OWN GOAL!", f"{p_name} ({club_short}) scored an own goal (-2 pts)!", f"og{og}"))
                 if saves_tiers > old.get("save_pts", 0):
-                    evs.append(("🧤 SAVE POINT!", f"{p_name} ({club_short}) reached {raw_saves} saves (+{saves_tiers} pt)!"))
+                    evs.append(("🧤 SAVE POINT!", f"{p_name} ({club_short}) reached {raw_saves} saves (+{saves_tiers} pt)!", f"sv{saves_tiers}"))
                 if p_saved > old.get("ps", 0):
-                    evs.append(("🧤 PENALTY SAVED!", f"{p_name} ({club_short}) saved a penalty (+5 pts)!"))
+                    evs.append(("🧤 PENALTY SAVED!", f"{p_name} ({club_short}) saved a penalty (+5 pts)!", f"ps{p_saved}"))
                 if p_missed > old.get("pm", 0):
-                    evs.append(("❌ PENALTY MISSED!", f"{p_name} ({club_short}) missed a penalty (-2 pts)!"))
+                    evs.append(("❌ PENALTY MISSED!", f"{p_name} ({club_short}) missed a penalty (-2 pts)!", f"pm{p_missed}"))
                 if cs_ft > old.get("cs_ft", 0):
-                    evs.append(("🛡️ FT CLEAN SHEET!", f"{p_name} ({club_short}) locked in a Full Time Clean Sheet!"))
+                    evs.append(("🛡️ FT CLEAN SHEET!", f"{p_name} ({club_short}) locked in a Full Time Clean Sheet (+4 pts)!", f"cs{cs_ft}"))
 
                 if evs:
                     player_new_events[eid] = evs
@@ -3656,6 +3727,7 @@ def run_automated_push_checks():
         state_dirty = True
 
         if player_new_events:
+            push_jobs = []
             for l_id in [63, 320, 378, 240]:
                 ld, _ = cached_league_data(l_id)
                 if not ld:
@@ -3670,13 +3742,10 @@ def run_automated_push_checks():
                     a1 = engine.get_manager_alias(e1.get("player_first_name", ""), e1.get("player_last_name", ""))
                     a2 = engine.get_manager_alias(e2.get("player_first_name", ""), e2.get("player_last_name", ""))
 
-                    if a1 not in subs_registry and a2 not in subs_registry:
-                        continue
-
                     p1 = cached_entry_event(e1.get("entry_id"), current_gw)
                     p2 = cached_entry_event(e2.get("entry_id"), current_gw)
-                    s1_recs, b1_recs, s1_live, _, _, _, _, _ = full_evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures)
-                    s2_recs, b2_recs, s2_live, _, _, _, _, _ = full_evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures)
+                    s1_recs, b1_recs, s1_live, _, _, _, _, _ = full_evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, gw_fixtures)
+                    s2_recs, b2_recs, s2_live, _, _, _, _, _ = full_evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, gw_fixtures)
 
                     act1, inact1 = split_squad_records(s1_recs, b1_recs)
                     act2, inact2 = split_squad_records(s2_recs, b2_recs)
@@ -3688,33 +3757,59 @@ def run_automated_push_checks():
 
                     scoreline = f"Live: {a1} {s1_live} - {s2_live} {a2}"
 
-                    def dispatch_pair_alerts(mgr_me, mgr_opp, my_act_ids, my_bench_ids, opp_act_ids, opp_bench_ids):
-                        if mgr_me not in subs_registry:
-                            return
+                    def queue_pair_alerts(mgr_me, mgr_opp, my_act_ids, my_bench_ids, opp_act_ids, opp_bench_ids):
                         for eid, ev_list in player_new_events.items():
-                            for ev_tag, ev_desc in ev_list:
+                            for ev_tag, ev_desc, ev_code in ev_list:
+                                unique_tag = f"ev-{current_gw}-{mgr_me}-{eid}-{ev_code}"
                                 if eid in my_act_ids:
                                     title = f"🟢 FOR YOU • {ev_tag}"
                                     body = f"{ev_desc} (In your active XI) | {scoreline}"
-                                    send_push_to_manager(subs_registry, mgr_me, title, body, tag=f"ev-{current_gw}-{eid}-{ev_tag}")
+                                    push_jobs.append((mgr_me, title, body, unique_tag))
                                 elif eid in my_bench_ids:
                                     title = f"🪑 YOUR BENCH • {ev_tag}"
                                     body = f"{ev_desc} (On your bench) | {scoreline}"
-                                    send_push_to_manager(subs_registry, mgr_me, title, body, tag=f"ev-{current_gw}-{eid}-{ev_tag}")
+                                    push_jobs.append((mgr_me, title, body, unique_tag))
                                 elif eid in opp_act_ids:
                                     title = f"🔴 AGAINST YOU ({mgr_opp}) • {ev_tag}"
                                     body = f"{ev_desc} (In {mgr_opp}'s active XI) | {scoreline}"
-                                    send_push_to_manager(subs_registry, mgr_me, title, body, tag=f"ev-{current_gw}-{eid}-{ev_tag}")
+                                    push_jobs.append((mgr_me, title, body, unique_tag))
                                 elif eid in opp_bench_ids:
                                     title = f"🪑 OPP BENCH ({mgr_opp}) • {ev_tag}"
                                     body = f"{ev_desc} (On {mgr_opp}'s bench) | {scoreline}"
-                                    send_push_to_manager(subs_registry, mgr_me, title, body, tag=f"ev-{current_gw}-{eid}-{ev_tag}")
+                                    push_jobs.append((mgr_me, title, body, unique_tag))
 
-                    dispatch_pair_alerts(a1, a2, act1_ids, bench1_ids, act2_ids, bench2_ids)
-                    dispatch_pair_alerts(a2, a1, act2_ids, bench2_ids, act1_ids, bench1_ids)
+                    queue_pair_alerts(a1, a2, act1_ids, bench1_ids, act2_ids, bench2_ids)
+                    queue_pair_alerts(a2, a1, act2_ids, bench2_ids, act1_ids, bench1_ids)
+
+            if push_jobs:
+                with ThreadPoolExecutor(max_workers=12) as push_ex:
+                    list(push_ex.map(lambda job: send_push_to_manager(subs_registry, job[0], job[1], job[2], tag=job[3]), push_jobs))
 
         if state_dirty:
             upstash_set_json(state_key, gw_state)
             upstash_set_json("cdp_push_subs_v2", subs_registry)
     except Exception as e:
         print("Push scanner error:", e)
+    finally:
+        try:
+            _PUSH_SCAN_LOCK.release()
+        except Exception:
+            pass
+
+@app.on_event("startup")
+def start_background_push_daemon():
+    global _AUTO_LOOP_STARTED
+    if _AUTO_LOOP_STARTED:
+        return
+    _AUTO_LOOP_STARTED = True
+    import threading
+    def _daemon_loop():
+        time.sleep(5)
+        while True:
+            try:
+                run_automated_push_checks()
+            except Exception:
+                pass
+            time.sleep(30)
+    t = threading.Thread(target=_daemon_loop, daemon=True)
+    t.start()
