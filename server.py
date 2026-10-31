@@ -2969,28 +2969,30 @@ def get_gw_timeline_meta(gw: int = 0):
     all_fixtures = cached_all_fixtures() or []
     if not static_data:
         return {"gw": gw, "fixtures": {}}
-    detected_gw, _, _ = get_current_and_last_gw(static_data)
-    target_gw = gw if gw > 0 else detected_gw
+    if gw > 0:
+        target_gw = gw
+    else:
+        gw_info = get_current_and_last_gw(static_data)
+        target_gw = gw_info[0] if isinstance(gw_info, (list, tuple)) else safe_int(gw_info, 1)
+
     team_map = {item["id"]: item["short_name"] for item in static_data.get("teams", [])}
-    gw_fix = [f for f in all_fixtures if f.get("event") == target_gw]
+    gw_fix = [f for f in all_fixtures if safe_int(f.get("event")) == target_gw]
     out = {}
     for f in gw_fix:
         h_s = str(team_map.get(f.get("team_h"), "HOM")).upper()
         a_s = str(team_map.get(f.get("team_a"), "AWY")).upper()
         m_key = f"{h_s} v {a_s}"
-        ko_raw = f.get("kickoff_time") or ""
+        ko_raw = str(f.get("kickoff_time") or "")
         slot_lbl = m_key
         if ko_raw:
             try:
-                dt_utc = datetime.fromisoformat(ko_raw.replace("Z", "+00:00"))
-                try:
-                    from zoneinfo import ZoneInfo
-                    dt_uk = dt_utc.astimezone(ZoneInfo("Europe/London"))
-                except Exception:
-                    dt_uk = dt_utc
+                dt_uk = pd.to_datetime(ko_raw, utc=True).tz_convert("Europe/London")
                 slot_lbl = dt_uk.strftime("%a %H:%M")
             except Exception:
-                pass
+                try:
+                    slot_lbl = pd.to_datetime(ko_raw).strftime("%a %H:%M")
+                except Exception:
+                    pass
         started = bool(f.get("started", False))
         finished = bool(f.get("finished", False) or f.get("finished_provisional", False))
         h_sc = safe_int(f.get("team_h_score", 0))
