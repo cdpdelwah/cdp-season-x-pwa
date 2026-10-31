@@ -1270,11 +1270,16 @@ def fetch_epl_match_lineup(f_obj, home_short, away_short, live_elements, element
     return {"has_lineups": False}
 
 @app.get("/api/epl_scores")
-def get_epl_scores(gw: str = "0"):
+def get_epl_scores(gw: str = "0", force: int = 0):
     try:
         target_gw = int(gw)
     except Exception:
         target_gw = 0
+
+    if force == 1:
+        for k in list(_MEMORY_CACHE.keys()):
+            if k[0] in ("cached_epl_fixtures", "cached_live_event", "cached_all_fixtures"):
+                _MEMORY_CACHE.pop(k, None)
 
     static_data = cached_fpl_static()
     league_details, _ = cached_league_data(63)

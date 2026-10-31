@@ -1717,6 +1717,19 @@
 
         async function fetchEplScores(gw = "0", silentRefresh = false) {
             const listEl = document.getElementById("epl-fixtures-list");
+            const refBtn = document.querySelector("#screen-epl .top-nav-bar .refresh-btn");
+            const isManualRefresh = !silentRefresh && listEl.children.length > 0;
+
+            if (isManualRefresh) {
+                if (refBtn) {
+                    refBtn.innerText = "⏳ Syncing...";
+                    refBtn.style.borderColor = "#f59e0b";
+                    refBtn.style.color = "#f59e0b";
+                }
+                listEl.style.opacity = "0.6";
+                listEl.style.transition = "opacity 0.15s ease";
+            }
+
             const openDrawers = {};
             listEl.querySelectorAll(".exp-body.open").forEach(el => {
                 const fid = el.id.replace("epl-drawer-", "");
@@ -1735,7 +1748,8 @@
             }
 
             try {
-                const res = await fetch(`/api/epl_scores?gw=${gw}`);
+                const forceParam = isManualRefresh ? "&force=1" : "";
+                const res = await fetch(`/api/epl_scores?gw=${gw}${forceParam}`);
                 const data = await res.json();
 
                 const gwSel = document.getElementById("epl-gw-select");
@@ -1905,8 +1919,25 @@
                         if (st.mode === "list") toggleEplLineupMode(fid, "list");
                     }
                 });
+            listEl.style.opacity = "1";
+                if (isManualRefresh && refBtn) {
+                    refBtn.innerText = "✅ Updated";
+                    refBtn.style.borderColor = "#22c55e";
+                    refBtn.style.color = "#22c55e";
+                    setTimeout(() => {
+                        refBtn.innerText = "🔄 Refresh EPL";
+                        refBtn.style.borderColor = "";
+                        refBtn.style.color = "";
+                    }, 1200);
+                }
             } catch (err) {
-                if (!silentRefresh) {
+                listEl.style.opacity = "1";
+                if (refBtn) {
+                    refBtn.innerText = "🔄 Refresh EPL";
+                    refBtn.style.borderColor = "";
+                    refBtn.style.color = "";
+                }
+                if (!silentRefresh && !listEl.children.length) {
                     listEl.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load EPL scores.</p>";
                 }
             }
