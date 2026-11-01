@@ -3844,7 +3844,36 @@ def run_automated_push_checks():
         gw_state["players"] = curr_players
         state_dirty = True
 
-        if player_new_events:
+        # Check if it is Sunday 10:00 AM UK time during an active Gameweek
+        try:
+            from zoneinfo import ZoneInfo
+            now_uk = datetime.now(ZoneInfo("Europe/London"))
+        except Exception:
+            now_uk = now_utc
+
+        gw_still_active = not all(f.get("finished", False) or f.get("finished_provisional", False) for f in gw_fixtures)
+        if not gw_still_active:
+            for f in gw_fixtures:
+                ko_str = f.get("kickoff_time")
+                if ko_str:
+                    try:
+                        ko_dt = datetime.fromisoformat(str(ko_str).replace("Z", "+00:00"))
+                        if 0 <= (now_utc - ko_dt).total_seconds() <= 129600:
+                            gw_still_active = True
+                            break
+                    except Exception:
+                        pass
+
+        send_sunday_briefing = (
+            now_uk.weekday() == 6
+            and now_uk.hour == 10
+            and gw_still_active
+            and not gw_state.get("sunday_10am_sent", False)
+        )
+        if send_sunday_briefing:
+            gw_state["sunday_10am_sent"] = True
+
+        if player_new_events or send_sunday_briefing:
             push_jobs = []
             for l_id in [63, 320, 378, 240]:
                 ld, _ = cached_league_data(l_id)
@@ -3862,42 +3891,61 @@ def run_automated_push_checks():
 
                     p1 = cached_entry_event(e1.get("entry_id"), current_gw)
                     p2 = cached_entry_event(e2.get("entry_id"), current_gw)
-                    s1_recs, b1_recs, s1_live, _, _, _, _, _ = full_evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, gw_fixtures)
-                    s2_recs, b2_recs, s2_live, _, _, _, _, _ = full_evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, gw_fixtures)
+                    s1_recs, b1_recs, s1_live, t1_proj, t1_inp, t1_ytp, _, _ = full_evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, gw_fixtures)
+                    s2_recs, b2_recs, s2_live, t2_proj, t2_inp, t2_ytp, _, _ = full_evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, gw_fixtures)
 
-                    act1, inact1 = split_squad_records(s1_recs, b1_recs)
-                    act2, inact2 = split_squad_records(s2_recs, b2_recs)
+                    if send_sunday_briefing:
+                        rem1 = t1_inp + t1_ytp
+                        rem2 = t2_inp + t2_ytp
 
-                    act1_ids = {p["id"] for p in act1}
-                    bench1_ids = {p["id"] for p in inact1}
-                    act2_ids = {p["id"] for p in act2}
-                    bench2_ids = {p["id"] for p in inact2}
+                        def queue_sunday_score(mgr_me, mgr_opp, my_s, opp_s, my_p, opp_p, my_r, opp_r):
+                            if my_s > opp_s:
+                                st_txt = f"🟢 You lead {mgr_opp} by {my_s - opp_s} pts!"
+                            elif my_s < opp_s:
+                                st_txt = f"🔴 You trail {mgr_opp} by {opp_s - my_s} pts."
+                            else:
+                                st_txt = f"⚖️ Dead level with {mgr_opp}!"
+                            s_title = f"☕ Sunday Scorecheck (GW {current_gw}): {a1} {s1_live} - {s2_live} {a2}"
+                            s_body = f"{st_txt} | Proj: {my_p:.1f} - {opp_p:.1f} | To play: You ({my_r}), {mgr_opp} ({opp_r})"
+                            push_jobs.append((mgr_me, s_title, s_body, f"sun-10am-gw{current_gw}-{mgr_me}"))
 
-                    scoreline = f"Live: {a1} {s1_live} - {s2_live} {a2}"
+                        queue_sunday_score(a1, a2, s1_live, s2_live, t1_proj, t2_proj, rem1, rem2)
+                        queue_sunday_score(a2, a1, s2_live, s1_live, t2_proj, t1_proj, rem2, rem1)
 
-                    def queue_pair_alerts(mgr_me, mgr_opp, my_act_ids, my_bench_ids, opp_act_ids, opp_bench_ids):
-                        for eid, ev_list in player_new_events.items():
-                            for ev_tag, ev_desc, ev_code in ev_list:
-                                unique_tag = f"ev-{current_gw}-{mgr_me}-{eid}-{ev_code}"
-                                if eid in my_act_ids:
-                                    title = f"🟢 FOR YOU • {ev_tag}"
-                                    body = f"{ev_desc} (In your active XI) | {scoreline}"
-                                    push_jobs.append((mgr_me, title, body, unique_tag))
-                                elif eid in my_bench_ids:
-                                    title = f"🪑 YOUR BENCH • {ev_tag}"
-                                    body = f"{ev_desc} (On your bench) | {scoreline}"
-                                    push_jobs.append((mgr_me, title, body, unique_tag))
-                                elif eid in opp_act_ids:
-                                    title = f"🔴 AGAINST YOU ({mgr_opp}) • {ev_tag}"
-                                    body = f"{ev_desc} (In {mgr_opp}'s active XI) | {scoreline}"
-                                    push_jobs.append((mgr_me, title, body, unique_tag))
-                                elif eid in opp_bench_ids:
-                                    title = f"🪑 OPP BENCH ({mgr_opp}) • {ev_tag}"
-                                    body = f"{ev_desc} (On {mgr_opp}'s bench) | {scoreline}"
-                                    push_jobs.append((mgr_me, title, body, unique_tag))
+                    if player_new_events:
+                        act1, inact1 = split_squad_records(s1_recs, b1_recs)
+                        act2, inact2 = split_squad_records(s2_recs, b2_recs)
 
-                    queue_pair_alerts(a1, a2, act1_ids, bench1_ids, act2_ids, bench2_ids)
-                    queue_pair_alerts(a2, a1, act2_ids, bench2_ids, act1_ids, bench1_ids)
+                        act1_ids = {p["id"] for p in act1}
+                        bench1_ids = {p["id"] for p in inact1}
+                        act2_ids = {p["id"] for p in act2}
+                        bench2_ids = {p["id"] for p in inact2}
+
+                        scoreline = f"Live: {a1} {s1_live} - {s2_live} {a2}"
+
+                        def queue_pair_alerts(mgr_me, mgr_opp, my_act_ids, my_bench_ids, opp_act_ids, opp_bench_ids):
+                            for eid, ev_list in player_new_events.items():
+                                for ev_tag, ev_desc, ev_code in ev_list:
+                                    unique_tag = f"ev-{current_gw}-{mgr_me}-{eid}-{ev_code}"
+                                    if eid in my_act_ids:
+                                        title = f"🟢 FOR YOU • {ev_tag}"
+                                        body = f"{ev_desc} (In your active XI) | {scoreline}"
+                                        push_jobs.append((mgr_me, title, body, unique_tag))
+                                    elif eid in my_bench_ids:
+                                        title = f"🪑 YOUR BENCH • {ev_tag}"
+                                        body = f"{ev_desc} (On your bench) | {scoreline}"
+                                        push_jobs.append((mgr_me, title, body, unique_tag))
+                                    elif eid in opp_act_ids:
+                                        title = f"🔴 AGAINST YOU ({mgr_opp}) • {ev_tag}"
+                                        body = f"{ev_desc} (In {mgr_opp}'s active XI) | {scoreline}"
+                                        push_jobs.append((mgr_me, title, body, unique_tag))
+                                    elif eid in opp_bench_ids:
+                                        title = f"🪑 OPP BENCH ({mgr_opp}) • {ev_tag}"
+                                        body = f"{ev_desc} (On {mgr_opp}'s bench) | {scoreline}"
+                                        push_jobs.append((mgr_me, title, body, unique_tag))
+
+                        queue_pair_alerts(a1, a2, act1_ids, bench1_ids, act2_ids, bench2_ids)
+                        queue_pair_alerts(a2, a1, act2_ids, bench2_ids, act1_ids, bench1_ids)
 
             if push_jobs:
                 jobs_by_mgr = {}
