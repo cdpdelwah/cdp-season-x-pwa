@@ -1455,6 +1455,7 @@
         // ==========================================
         function applyHomeSummaryData(data) {
             if (!data || !data.current_gw) return;
+            window.gwIsLive = Boolean(data.gw_is_live);
 
             const scoresBtnSpan = document.querySelector(".home-menu button[onclick=\"navigate('scores')\"] span");
             if (scoresBtnSpan) {
@@ -1463,6 +1464,10 @@
             const dockScoresIcon = document.querySelector('.bottom-dock .dock-btn[data-scr="scores"] .dock-icon');
             if (dockScoresIcon) {
                 dockScoresIcon.innerText = data.gw_is_live ? "🟢" : "🔴";
+            }
+            const gwTitleEl = document.getElementById("gw-title");
+            if (gwTitleEl) {
+                gwTitleEl.innerText = gwTitleEl.innerText.replace(/^[🔴🟢]/, data.gw_is_live ? "🟢" : "🔴");
             }
 
             document.getElementById("home-waiver-gw").innerText = `GW ${data.current_gw}`;
@@ -1633,11 +1638,14 @@
                 }
 
                 const isMgrMode = (json.selected_manager && json.selected_manager !== "All");
+                const isCurrentGw = (Number(json.gw) === Number(json.detected_gw));
+                const anyMatchLive = (json.matches || []).some(m => !m.is_fin);
+                const statusDot = (window.gwIsLive && (isMgrMode || (isCurrentGw && anyMatchLive))) ? "🟢" : "🔴";
                 if (isMgrMode) {
-                    document.getElementById("gw-title").innerText = `🔴 SCORES (${json.selected_manager})`;
+                    document.getElementById("gw-title").innerText = `${statusDot} SCORES (${json.selected_manager})`;
                     gwSelect.style.display = "none";
                 } else {
-                    document.getElementById("gw-title").innerText = `🔴 SCORES (GW ${json.gw})`;
+                    document.getElementById("gw-title").innerText = `${statusDot} SCORES (GW ${json.gw})`;
                     gwSelect.style.display = "block";
                 }
                 
