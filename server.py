@@ -3474,8 +3474,37 @@ def upstash_set_json(key: str, val):
         pass
 
 LAST_PUSH_LOGS = []
+_SUBS_LOCK = None
+_PUSH_SCAN_LOCK = None
+_AUTO_LOOP_STARTED = False
 
-def send_push_to_manager(subs_registry: dict, alias: str, title: str, body: str, tag: str = "cdp-alert"):
+def _get_subs_lock():
+    global _SUBS_LOCK
+    import threading
+    if _SUBS_LOCK is None:
+        _SUBS_LOCK = threading.Lock()
+    return _SUBS_LOCK
+
+def prune_dead_endpoints(dead_eps: set):
+    if not dead_eps:
+        return
+    lock = _get_subs_lock()
+    with lock:
+        latest_reg = upstash_get_json("cdp_push_subs_v2", {})
+        if not isinstance(latest_reg, dict):
+            return
+        changed = False
+        for k, dev_list in list(latest_reg.items()):
+            if isinstance(dev_list, dict):
+                dev_list = [dev_list]
+            kept = [s for s in dev_list if isinstance(s, dict) and s.get("endpoint") not in dead_eps]
+            if len(kept) != len(dev_list):
+                latest_reg[k] = kept
+                changed = True
+        if changed:
+            upstash_set_json("cdp_push_subs_v2", latest_reg)
+
+def send_push_to_manager(subs_registry: dict, alias: str, title: str, body: str, tag: str = "cdp-alert", dead_eps_out: set = None):
     if not isinstance(subs_registry, dict):
         return 0
 
@@ -3491,6 +3520,7 @@ def send_push_to_manager(subs_registry: dict, alias: str, title: str, body: str,
     payload = json.dumps({"title": title, "body": body, "tag": tag})
     sent = 0
     seen_endpoints = set()
+    local_dead = set()
 
     for matched_key in target_keys:
         mgr_subs = subs_registry.get(matched_key, [])
@@ -3499,13 +3529,11 @@ def send_push_to_manager(subs_registry: dict, alias: str, title: str, body: str,
         if not mgr_subs:
             continue
 
-        valid_subs = []
         for sub in mgr_subs:
             if not isinstance(sub, dict):
                 continue
             ep = sub.get("endpoint", "")
-            if ep in seen_endpoints:
-                valid_subs.append(sub)
+            if not ep or ep in seen_endpoints:
                 continue
             seen_endpoints.add(ep)
             for attempt in range(2):
@@ -3518,22 +3546,27 @@ def send_push_to_manager(subs_registry: dict, alias: str, title: str, body: str,
                         vapid_claims=fresh_claims,
                         timeout=10
                     )
-                    valid_subs.append(sub)
                     sent += 1
                     LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | ✅ SENT to {matched_key}: {title}")
                     break
                 except Exception as e:
                     err_str = str(e)
-                    if attempt == 0 and "410" not in err_str and "404" not in err_str:
-                        time.sleep(1.0)
+                    if "410" in err_str or "404" in err_str:
+                        local_dead.add(ep)
+                        LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | 🗑️ PRUNED expired device for {matched_key}")
+                        break
+                    if attempt == 0:
+                        time.sleep(0.8)
                         continue
                     LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | ❌ ERR {matched_key}: {err_str[:90]}")
-                    if "410" not in err_str and "404" not in err_str:
-                        valid_subs.append(sub)
 
-        subs_registry[matched_key] = valid_subs
+    if local_dead:
+        if dead_eps_out is not None:
+            dead_eps_out.update(local_dead)
+        else:
+            prune_dead_endpoints(local_dead)
 
-    del LAST_PUSH_LOGS[:-40]
+    del LAST_PUSH_LOGS[:-50]
     return sent
 
 @app.get("/api/debug_push")
@@ -3553,8 +3586,11 @@ def debug_push_status():
 
 def broadcast_push_to_all(subs_registry: dict, title: str, body: str, tag: str = "cdp-broadcast"):
     keys = list(subs_registry.keys())
-    with ThreadPoolExecutor(max_workers=12) as ex:
-        list(ex.map(lambda a: send_push_to_manager(subs_registry, a, title, body, tag=tag), keys))
+    dead_eps = set()
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        list(ex.map(lambda a: send_push_to_manager(subs_registry, a, title, body, tag=tag, dead_eps_out=dead_eps), keys))
+    if dead_eps:
+        prune_dead_endpoints(dead_eps)
 
 @app.post("/api/save_subscription")
 async def save_subscription(request: Request):
@@ -3574,43 +3610,51 @@ async def save_subscription(request: Request):
     if not upstash_url or not upstash_token:
         return {"status": "DATABASE_MISSING"}
 
-    subs_registry = upstash_get_json("cdp_push_subs_v2", {})
-    if not isinstance(subs_registry, dict):
-        subs_registry = {}
+    lock = _get_subs_lock()
+    with lock:
+        subs_registry = upstash_get_json("cdp_push_subs_v2", {})
+        if not isinstance(subs_registry, dict):
+            subs_registry = {}
 
-    save_keys = [alias]
-    if alias.lower() == "admin":
-        save_keys.append("Andy")
+        save_keys = [alias]
+        if alias.lower() == "admin":
+            save_keys.append("Andy")
 
-    endpoint = sub_obj.get("endpoint")
-    for k in save_keys:
-        existing = subs_registry.get(k, [])
-        if isinstance(existing, dict):
-            existing = [existing]
-        existing = [s for s in existing if s.get("endpoint") != endpoint]
-        existing.append(sub_obj)
-        subs_registry[k] = existing[-3:]
+        endpoint = sub_obj.get("endpoint")
+        changed = False
+        for k in save_keys:
+            existing = subs_registry.get(k, [])
+            if isinstance(existing, dict):
+                existing = [existing]
+            already_last = (len(existing) > 0 and isinstance(existing[-1], dict) and existing[-1].get("endpoint") == endpoint)
+            if not already_last:
+                existing = [s for s in existing if isinstance(s, dict) and s.get("endpoint") != endpoint]
+                existing.append(sub_obj)
+                subs_registry[k] = existing[-3:]
+                changed = True
 
-    upstash_set_json("cdp_push_subs_v2", subs_registry)
+        if changed:
+            upstash_set_json("cdp_push_subs_v2", subs_registry)
+
     return {"status": f"saved subscription for {alias}"}
 
 @app.post("/api/trigger_push")
 def trigger_push(alias: str = "Andy"):
     subs_registry = upstash_get_json("cdp_push_subs_v2", {})
+    dead_eps = set()
     count = send_push_to_manager(
         subs_registry,
         alias,
         f"🚨 CDP Command Center ({alias})",
         "Your live Goal, Assist, Save, Penalty, Own Goal, Clean Sheet & Deadline alerts are active!",
-        tag=f"cdp-test-{int(time.time())}"
+        tag=f"cdp-test-{int(time.time())}",
+        dead_eps_out=dead_eps
     )
-    upstash_set_json("cdp_push_subs_v2", subs_registry)
+    if dead_eps:
+        prune_dead_endpoints(dead_eps)
     if count == 0:
         return {"error": f"No active device registered for {alias}. Tap 'Sync Alerts on This Device' first."}
     return {"status": f"Sent test alert to {count} device(s) for {alias}!"}
-
-_PUSH_SCAN_LOCK = None
-_AUTO_LOOP_STARTED = False
 
 def run_automated_push_checks():
     global _PUSH_SCAN_LOCK
@@ -3664,7 +3708,6 @@ def run_automated_push_checks():
             "lineup_passed_sent": False,
             "players": {}
         })
-        dl_dirty = False
         now_utc = datetime.now(timezone.utc)
 
         if waiver_iso:
@@ -3672,24 +3715,24 @@ def run_automated_push_checks():
                 w_dt = datetime.fromisoformat(waiver_iso.replace("Z", "+00:00"))
                 secs_left = (w_dt - now_utc).total_seconds()
                 if not dl_state.get("waiver_1h_sent") and 0 < secs_left <= 3900:
+                    dl_state["waiver_1h_sent"] = True
+                    upstash_set_json(dl_state_key, dl_state)
                     broadcast_push_to_all(
                         subs_registry,
                         f"⚡ 1 Hour to Waiver Deadline (GW {deadline_gw})",
                         f"Gameweek {deadline_gw} waivers process in under an hour. Lock in your claims!",
                         tag=f"waiver-1h-gw{deadline_gw}"
                     )
-                    dl_state["waiver_1h_sent"] = True
-                    dl_dirty = True
 
                 if not dl_state.get("waiver_passed_sent") and -3600 <= secs_left <= 0:
+                    dl_state["waiver_passed_sent"] = True
+                    upstash_set_json(dl_state_key, dl_state)
                     broadcast_push_to_all(
                         subs_registry,
                         f"🚨 Waiver Deadline Passed (GW {deadline_gw})",
                         f"Gameweek {deadline_gw} waivers are now locked and processing! Free agency is open.",
                         tag=f"waiver-passed-gw{deadline_gw}"
                     )
-                    dl_state["waiver_passed_sent"] = True
-                    dl_dirty = True
             except Exception:
                 pass
 
@@ -3698,29 +3741,26 @@ def run_automated_push_checks():
                 l_dt = datetime.fromisoformat(lineup_iso.replace("Z", "+00:00"))
                 secs_left = (l_dt - now_utc).total_seconds()
                 if not dl_state.get("lineup_1h_sent") and 0 < secs_left <= 3900:
+                    dl_state["lineup_1h_sent"] = True
+                    upstash_set_json(dl_state_key, dl_state)
                     broadcast_push_to_all(
                         subs_registry,
                         f"🔒 1 Hour to Lineup Lock (GW {deadline_gw})",
                         f"Gameweek {deadline_gw} lineups lock in under an hour. Set your starting XI and bench order!",
                         tag=f"lineup-1h-gw{deadline_gw}"
                     )
-                    dl_state["lineup_1h_sent"] = True
-                    dl_dirty = True
 
                 if not dl_state.get("lineup_passed_sent") and -3600 <= secs_left <= 0:
+                    dl_state["lineup_passed_sent"] = True
+                    upstash_set_json(dl_state_key, dl_state)
                     broadcast_push_to_all(
                         subs_registry,
                         f"Gameweek {deadline_gw} Locked and Loaded 🔫",
                         f"Gameweek {deadline_gw} lineups are now locked! Head to the app to scout your opponent's starting XI.",
                         tag=f"lineup-passed-gw{deadline_gw}"
                     )
-                    dl_state["lineup_passed_sent"] = True
-                    dl_dirty = True
             except Exception:
                 pass
-
-        if dl_dirty and deadline_gw != current_gw:
-            upstash_set_json(dl_state_key, dl_state)
 
         state_key = f"cdp_push_state_gw_{current_gw}"
         gw_state = dl_state if deadline_gw == current_gw else upstash_get_json(state_key, {
@@ -3730,7 +3770,6 @@ def run_automated_push_checks():
             "lineup_passed_sent": False,
             "players": {}
         })
-        state_dirty = dl_dirty if deadline_gw == current_gw else False
 
         # 2. Check Live EPL Player Events Across All 4 Leagues
         for k in list(_MEMORY_CACHE.keys()):
@@ -3741,10 +3780,7 @@ def run_automated_push_checks():
         if not static_data or not any(f.get("started", False) for f in gw_fixtures):
             if not gw_state.get("players"):
                 gw_state["players"] = {"_seeded": True}
-                state_dirty = True
-            if state_dirty:
                 upstash_set_json(state_key, gw_state)
-                upstash_set_json("cdp_push_subs_v2", subs_registry)
             return
 
         live_data = cached_live_event(current_gw)
@@ -3842,41 +3878,27 @@ def run_automated_push_checks():
                     player_new_events[eid] = evs
 
         gw_state["players"] = curr_players
-        state_dirty = True
+        # Save state to Upstash BEFORE dispatching pushes so overlapping pings/deploys never double-send
+        upstash_set_json(state_key, gw_state)
 
-        # Check if it is Sunday 10:00 AM UK time during an active Gameweek
-        try:
-            from zoneinfo import ZoneInfo
-            now_uk = datetime.now(ZoneInfo("Europe/London"))
-        except Exception:
-            now_uk = now_utc
+        if player_new_events:
+            # 1. Fetch all 4 division details in parallel
+            with ThreadPoolExecutor(max_workers=4) as l_ex:
+                div_list = list(l_ex.map(lambda lid: (lid, cached_league_data(lid)[0]), [63, 320, 378, 240]))
 
-        gw_still_active = not all(f.get("finished", False) or f.get("finished_provisional", False) for f in gw_fixtures)
-        if not gw_still_active:
-            for f in gw_fixtures:
-                ko_str = f.get("kickoff_time")
-                if ko_str:
-                    try:
-                        ko_dt = datetime.fromisoformat(str(ko_str).replace("Z", "+00:00"))
-                        if 0 <= (now_utc - ko_dt).total_seconds() <= 129600:
-                            gw_still_active = True
-                            break
-                    except Exception:
-                        pass
+            # 2. Pre-warm all 32 managers' GW picks in parallel so cache expiry never causes sequential delays
+            all_entry_ids = []
+            for _, ld in div_list:
+                if ld:
+                    for e in ld.get("league_entries", []):
+                        if e.get("entry_id"):
+                            all_entry_ids.append(e["entry_id"])
+            if all_entry_ids:
+                with ThreadPoolExecutor(max_workers=10) as p_ex:
+                    list(p_ex.map(lambda eid: cached_entry_event(eid, current_gw), all_entry_ids))
 
-        send_sunday_briefing = (
-            now_uk.weekday() == 6
-            and now_uk.hour == 10
-            and gw_still_active
-            and not gw_state.get("sunday_10am_sent", False)
-        )
-        if send_sunday_briefing:
-            gw_state["sunday_10am_sent"] = True
-
-        if player_new_events or send_sunday_briefing:
             push_jobs = []
-            for l_id in [63, 320, 378, 240]:
-                ld, _ = cached_league_data(l_id)
+            for _, ld in div_list:
                 if not ld:
                     continue
                 entries = ld.get("league_entries", [])
@@ -3891,79 +3913,60 @@ def run_automated_push_checks():
 
                     p1 = cached_entry_event(e1.get("entry_id"), current_gw)
                     p2 = cached_entry_event(e2.get("entry_id"), current_gw)
-                    s1_recs, b1_recs, s1_live, t1_proj, t1_inp, t1_ytp, _, _ = full_evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, gw_fixtures)
-                    s2_recs, b2_recs, s2_live, t2_proj, t2_inp, t2_ytp, _, _ = full_evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, gw_fixtures)
+                    s1_recs, b1_recs, s1_live, _, _, _, _, _ = full_evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, gw_fixtures)
+                    s2_recs, b2_recs, s2_live, _, _, _, _, _ = full_evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, gw_fixtures)
 
-                    if send_sunday_briefing:
-                        rem1 = t1_inp + t1_ytp
-                        rem2 = t2_inp + t2_ytp
+                    act1, inact1 = split_squad_records(s1_recs, b1_recs)
+                    act2, inact2 = split_squad_records(s2_recs, b2_recs)
 
-                        def queue_sunday_score(mgr_me, mgr_opp, my_s, opp_s, my_p, opp_p, my_r, opp_r):
-                            if my_s > opp_s:
-                                st_txt = f"🟢 You lead {mgr_opp} by {my_s - opp_s} pts!"
-                            elif my_s < opp_s:
-                                st_txt = f"🔴 You trail {mgr_opp} by {opp_s - my_s} pts."
-                            else:
-                                st_txt = f"⚖️ Dead level with {mgr_opp}!"
-                            s_title = f"☕ Sunday Scorecheck (GW {current_gw}): {a1} {s1_live} - {s2_live} {a2}"
-                            s_body = f"{st_txt} | Proj: {my_p:.1f} - {opp_p:.1f} | To play: You ({my_r}), {mgr_opp} ({opp_r})"
-                            push_jobs.append((mgr_me, s_title, s_body, f"sun-10am-gw{current_gw}-{mgr_me}"))
+                    act1_ids = {p["id"] for p in act1}
+                    bench1_ids = {p["id"] for p in inact1}
+                    act2_ids = {p["id"] for p in act2}
+                    bench2_ids = {p["id"] for p in inact2}
 
-                        queue_sunday_score(a1, a2, s1_live, s2_live, t1_proj, t2_proj, rem1, rem2)
-                        queue_sunday_score(a2, a1, s2_live, s1_live, t2_proj, t1_proj, rem2, rem1)
+                    scoreline = f"Live: {a1} {s1_live} - {s2_live} {a2}"
 
-                    if player_new_events:
-                        act1, inact1 = split_squad_records(s1_recs, b1_recs)
-                        act2, inact2 = split_squad_records(s2_recs, b2_recs)
+                    def queue_pair_alerts(mgr_me, mgr_opp, my_act_ids, my_bench_ids, opp_act_ids, opp_bench_ids):
+                        for eid, ev_list in player_new_events.items():
+                            for ev_tag, ev_desc, ev_code in ev_list:
+                                unique_tag = f"ev-{current_gw}-{mgr_me}-{eid}-{ev_code}"
+                                if eid in my_act_ids:
+                                    title = f"🟢 FOR YOU • {ev_tag}"
+                                    body = f"{ev_desc} (In your active XI) | {scoreline}"
+                                    push_jobs.append((mgr_me, title, body, unique_tag))
+                                elif eid in my_bench_ids:
+                                    title = f"🪑 YOUR BENCH • {ev_tag}"
+                                    body = f"{ev_desc} (On your bench) | {scoreline}"
+                                    push_jobs.append((mgr_me, title, body, unique_tag))
+                                elif eid in opp_act_ids:
+                                    title = f"🔴 AGAINST YOU ({mgr_opp}) • {ev_tag}"
+                                    body = f"{ev_desc} (In {mgr_opp}'s active XI) | {scoreline}"
+                                    push_jobs.append((mgr_me, title, body, unique_tag))
+                                elif eid in opp_bench_ids:
+                                    title = f"🪑 OPP BENCH ({mgr_opp}) • {ev_tag}"
+                                    body = f"{ev_desc} (On {mgr_opp}'s bench) | {scoreline}"
+                                    push_jobs.append((mgr_me, title, body, unique_tag))
 
-                        act1_ids = {p["id"] for p in act1}
-                        bench1_ids = {p["id"] for p in inact1}
-                        act2_ids = {p["id"] for p in act2}
-                        bench2_ids = {p["id"] for p in inact2}
-
-                        scoreline = f"Live: {a1} {s1_live} - {s2_live} {a2}"
-
-                        def queue_pair_alerts(mgr_me, mgr_opp, my_act_ids, my_bench_ids, opp_act_ids, opp_bench_ids):
-                            for eid, ev_list in player_new_events.items():
-                                for ev_tag, ev_desc, ev_code in ev_list:
-                                    unique_tag = f"ev-{current_gw}-{mgr_me}-{eid}-{ev_code}"
-                                    if eid in my_act_ids:
-                                        title = f"🟢 FOR YOU • {ev_tag}"
-                                        body = f"{ev_desc} (In your active XI) | {scoreline}"
-                                        push_jobs.append((mgr_me, title, body, unique_tag))
-                                    elif eid in my_bench_ids:
-                                        title = f"🪑 YOUR BENCH • {ev_tag}"
-                                        body = f"{ev_desc} (On your bench) | {scoreline}"
-                                        push_jobs.append((mgr_me, title, body, unique_tag))
-                                    elif eid in opp_act_ids:
-                                        title = f"🔴 AGAINST YOU ({mgr_opp}) • {ev_tag}"
-                                        body = f"{ev_desc} (In {mgr_opp}'s active XI) | {scoreline}"
-                                        push_jobs.append((mgr_me, title, body, unique_tag))
-                                    elif eid in opp_bench_ids:
-                                        title = f"🪑 OPP BENCH ({mgr_opp}) • {ev_tag}"
-                                        body = f"{ev_desc} (On {mgr_opp}'s bench) | {scoreline}"
-                                        push_jobs.append((mgr_me, title, body, unique_tag))
-
-                        queue_pair_alerts(a1, a2, act1_ids, bench1_ids, act2_ids, bench2_ids)
-                        queue_pair_alerts(a2, a1, act2_ids, bench2_ids, act1_ids, bench1_ids)
+                    queue_pair_alerts(a1, a2, act1_ids, bench1_ids, act2_ids, bench2_ids)
+                    queue_pair_alerts(a2, a1, act2_ids, bench2_ids, act1_ids, bench1_ids)
 
             if push_jobs:
                 jobs_by_mgr = {}
                 for job in push_jobs:
                     jobs_by_mgr.setdefault(job[0], []).append(job)
 
+                dead_eps = set()
                 def _send_mgr_queue(m_jobs):
                     for idx, j in enumerate(m_jobs):
                         if idx > 0:
-                            time.sleep(0.4)
-                        send_push_to_manager(subs_registry, j[0], j[1], j[2], tag=j[3])
+                            time.sleep(0.35)
+                        send_push_to_manager(subs_registry, j[0], j[1], j[2], tag=j[3], dead_eps_out=dead_eps)
 
-                with ThreadPoolExecutor(max_workers=8) as push_ex:
+                with ThreadPoolExecutor(max_workers=10) as push_ex:
                     list(push_ex.map(_send_mgr_queue, jobs_by_mgr.values()))
 
-        if state_dirty:
-            upstash_set_json(state_key, gw_state)
-            upstash_set_json("cdp_push_subs_v2", subs_registry)
+                if dead_eps:
+                    prune_dead_endpoints(dead_eps)
     except Exception as e:
         print("Push scanner error:", e)
     finally:
