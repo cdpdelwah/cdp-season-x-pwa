@@ -1119,6 +1119,7 @@ def fetch_espn_fixture_summary(event_id):
     return None
 
 @ttl_cache(120)
+@ttl_cache(120)
 def _fetch_espn_lineup_backup(home_short, away_short):
     pos_order_map = {"GKP": 1, "DEF": 2, "MID": 3, "FWD": 4}
     events = get_espn_scoreboard()
@@ -1138,6 +1139,17 @@ def _fetch_espn_lineup_backup(home_short, away_short):
     if not sum_data or len(sum_data.get("rosters", [])) < 2:
         return None
 
+    def is_espn_sub(e_obj, key):
+        val = e_obj.get(key)
+        if isinstance(val, dict):
+            return bool(val.get("didSub", False))
+        if isinstance(val, bool):
+            return val
+        for pl in (e_obj.get("plays") or []):
+            if isinstance(pl, dict) and pl.get(key) is True:
+                return True
+        return False
+
     def parse_espn_roster(r_obj):
         starters, subs_used, subs_unused = [], [], []
         for entry in r_obj.get("roster", []):
@@ -1156,10 +1168,10 @@ def _fetch_espn_lineup_backup(home_short, away_short):
                 clean_pos = "MID"
             capt = " (C)" if entry.get("captain", False) else ""
             if entry.get("starter", False):
-                sub_tag = " <span style='color:#f43f5e; font-weight:700;'>▼</span>" if entry.get("subbedOut", False) else ""
+                sub_tag = " <span style='color:#f43f5e; font-weight:700;'>▼</span>" if is_espn_sub(entry, "subbedOut") else ""
                 starters.append((pos_order_map.get(clean_pos, 3), f"{num_str}<b>{name}</b>{capt} • <i>{clean_pos}</i>{sub_tag}"))
             else:
-                if entry.get("subbedIn", False):
+                if is_espn_sub(entry, "subbedIn"):
                     subs_used.append(f"{num_str}<b>{name}</b> • <i>{clean_pos}</i> <span style='color:#22c55e; font-weight:800;'>▲</span>")
                 else:
                     subs_unused.append(f"{num_str}{name} ({clean_pos})")
@@ -1178,7 +1190,7 @@ def _fetch_espn_lineup_backup(home_short, away_short):
         }
     return None
 
-def build_epl_pitch_payload_from_lists(starters_list, subs_used_list, subs_unused_list, club_short, team_id, live_elements, element_lookup):
+def build_epl_pitch_payload_from_lists(starters_list, subs_used_list, subs_unused_list, club_short, team_id, live_elements, element_lookup, is_started=False, is_finished=False):
     club_fpl_players = []
     if element_lookup and team_id:
         for eid, raw_elem in element_lookup.items():
@@ -1191,6 +1203,7 @@ def build_epl_pitch_payload_from_lists(starters_list, subs_used_list, subs_unuse
         return "".join(c for c in unicodedata.normalize("NFD", str(s).lower()) if unicodedata.category(c) != "Mn")
 
     used_fpl_ids = set()
+    match_active = bool(is_started or is_finished)
 
     def parse_entry(entry_str, is_sub=False, sub_action=""):
         clean = re.sub(r"<[^>]*>", "", str(entry_str)).strip()
@@ -1214,12 +1227,14 @@ def build_epl_pitch_payload_from_lists(starters_list, subs_used_list, subs_unuse
             name = parts_num[1] if len(parts_num) > 1 else parts_num[0]
         name = re.sub(r"[▼▲].*$", "", name).replace("**", "").replace("(C)", "").strip()
 
+        eff_sub_action = sub_action if match_active else ""
+
         rec = {
             "Player": name, "Pos": espn_pos, "fpl_pos": espn_pos, "Club": club_short, "Opp": "",
             "Pts": 0, "Proj": 0.0, "Mins": 0, "State": "FT",
             "G": 0, "A": 0, "CS": 0, "GC": 0, "Bonus": 0, "Saves": 0,
             "Penalties_Saved": 0, "Penalties_Missed": 0, "YC": 0, "RC": 0,
-            "DEFCON_Achieved": False, "sub_action": sub_action, "status": "a", "chance_of_playing_next_round": 100
+            "DEFCON_Achieved": False, "sub_action": eff_sub_action, "status": "a", "chance_of_playing_next_round": 100
         }
 
         name_norm = _norm_str(name)
@@ -1302,6 +1317,25 @@ def build_epl_pitch_payload_from_lists(starters_list, subs_used_list, subs_unuse
 
     s_recs = [parse_entry(s, is_sub=False, sub_action=("Subbed Off" if "▼" in str(s) else "")) for s in starters_list]
     b_recs = [parse_entry(su, is_sub=True, sub_action="Subbed On") for su in subs_used_list] + [parse_entry(sun, is_sub=True, sub_action="") for sun in subs_unused_list]
+
+    # Live FPL minutes sub detection (only once the match has kicked off)
+    if match_active:
+        subs_on_count = 0
+        for b in b_recs:
+            if b["sub_action"] == "Subbed On" or safe_int(b.get("Mins", 0)) > 0:
+                b["sub_action"] = "Subbed On"
+                subs_on_count += 1
+        max_s_mins = max([safe_int(s.get("Mins", 0)) for s in s_recs], default=0)
+        if subs_on_count > 0 and max_s_mins > 0:
+            already_off = sum(1 for s in s_recs if s["sub_action"] == "Subbed Off")
+            needed_off = max(0, subs_on_count - already_off)
+            if needed_off > 0:
+                candidates = sorted(
+                    [s for s in s_recs if s["sub_action"] != "Subbed Off" and 0 < safe_int(s.get("Mins", 0)) < (max_s_mins - 1) and safe_int(s.get("RC", 0)) == 0],
+                    key=lambda x: safe_int(x.get("Mins", 0))
+                )
+                for c in candidates[:needed_off]:
+                    c["sub_action"] = "Subbed Off"
 
     # Guarantee 4 distinct lines on every pitch: 1 GKP, 3-5 DEF, 2-5 MID, 1-3 FWD
     gkps = [r for r in s_recs if r["Pos"] == "GKP"]
@@ -1413,11 +1447,11 @@ def fetch_epl_match_lineup(f_obj, home_short, away_short, live_elements, element
     if raw_lineup and raw_lineup.get("has_lineups"):
         raw_lineup["pitch_h"] = build_epl_pitch_payload_from_lists(
             raw_lineup["h_starters"], raw_lineup["h_subs_used"], raw_lineup["h_subs_unused"],
-            home_short, home_team_id, live_elements, element_lookup
+            home_short, home_team_id, live_elements, element_lookup, is_started, is_finished
         )
         raw_lineup["pitch_a"] = build_epl_pitch_payload_from_lists(
             raw_lineup["a_starters"], raw_lineup["a_subs_used"], raw_lineup["a_subs_unused"],
-            away_short, away_team_id, live_elements, element_lookup
+            away_short, away_team_id, live_elements, element_lookup, is_started, is_finished
         )
         return raw_lineup
 
