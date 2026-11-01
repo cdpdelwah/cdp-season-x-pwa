@@ -3709,6 +3709,68 @@ def run_automated_push_checks():
         all_fixtures = cached_all_fixtures() or []
         current_gw, _ = detect_current_gw(league_details)
 
+        # 1B. Confirm Official Locked-In Results when FPL finishes a Gameweek & advances current_gw
+        all_lg_matches = (league_details or {}).get("matches", [])
+        finished_gws = sorted(list({m["event"] for m in all_lg_matches if m.get("finished", False)}))
+        if finished_gws:
+            locked_gw = finished_gws[-1]
+            locked_gw_matches = [m for m in all_lg_matches if m.get("event") == locked_gw]
+            if locked_gw_matches and all(m.get("finished", False) for m in locked_gw_matches):
+                locked_state_key = f"cdp_push_state_gw_{locked_gw}"
+                locked_state = upstash_get_json(locked_state_key, {})
+                tracked_players = locked_state.get("players", {}) if isinstance(locked_state, dict) else {}
+                was_tracked_live = any(k != "_seeded" for k in tracked_players.keys())
+
+                if was_tracked_live and not locked_state.get("results_locked_sent", False):
+                    locked_state["results_locked_sent"] = True
+                    upstash_set_json(locked_state_key, locked_state)
+
+                    for k in list(_MEMORY_CACHE.keys()):
+                        if k[0] == "cached_league_data":
+                            _MEMORY_CACHE.pop(k, None)
+
+                    with ThreadPoolExecutor(max_workers=4) as l_ex:
+                        locked_divs = list(l_ex.map(lambda lid: (lid, cached_league_data(lid)[0]), [63, 320, 378, 240]))
+
+                    result_jobs = []
+                    for lid, ld_fin in locked_divs:
+                        if not ld_fin:
+                            continue
+                        div_short = LEAGUE_ID_TO_KEY.get(lid, "CDP").split(" ")[0]
+                        entries = ld_fin.get("league_entries", [])
+                        lentry_map = {e["id"]: e for e in entries}
+                        div_matches = [m for m in ld_fin.get("matches", []) if m.get("event") == locked_gw]
+
+                        for m in div_matches:
+                            e1 = lentry_map.get(m["league_entry_1"], {})
+                            e2 = lentry_map.get(m["league_entry_2"], {})
+                            a1 = engine.get_manager_alias(e1.get("player_first_name", ""), e1.get("player_last_name", ""))
+                            a2 = engine.get_manager_alias(e2.get("player_first_name", ""), e2.get("player_last_name", ""))
+                            s1 = safe_int(m.get("league_entry_1_points", 0))
+                            s2 = safe_int(m.get("league_entry_2_points", 0))
+
+                            def queue_locked_result(mgr_me, mgr_opp, my_s, opp_s):
+                                if my_s > opp_s:
+                                    r_title = f"🏆 GW {locked_gw} Result Confirmed: VICTORY!"
+                                    r_body = f"Final ({div_short}): {a1} {s1} - {s2} {a2} | You beat {mgr_opp} by {my_s - opp_s} pts (+3 pts)!"
+                                elif my_s < opp_s:
+                                    r_title = f"💀 GW {locked_gw} Result Confirmed: DEFEAT"
+                                    r_body = f"Final ({div_short}): {a1} {s1} - {s2} {a2} | {mgr_opp} beat you by {opp_s - my_s} pts."
+                                else:
+                                    r_title = f"🤝 GW {locked_gw} Result Confirmed: DRAW"
+                                    r_body = f"Final ({div_short}): {a1} {s1} - {s2} {a2} | Honours even with {mgr_opp} (+1 pt)."
+                                result_jobs.append((mgr_me, r_title, r_body, f"gw-locked-{locked_gw}-{mgr_me}"))
+
+                            queue_locked_result(a1, a2, s1, s2)
+                            queue_locked_result(a2, a1, s2, s1)
+
+                    if result_jobs:
+                        dead_eps = set()
+                        with ThreadPoolExecutor(max_workers=10) as r_ex:
+                            list(r_ex.map(lambda job: send_push_to_manager(subs_registry, job[0], job[1], job[2], tag=job[3], dead_eps_out=dead_eps), result_jobs))
+                        if dead_eps:
+                            prune_dead_endpoints(dead_eps)
+
         upcoming_fixes = [f for f in all_fixtures if not f.get("started", False) and f.get("kickoff_time") and safe_int(f.get("event", 0)) > 0]
         deadline_gw = min((safe_int(f.get("event")) for f in upcoming_fixes), default=current_gw)
 
