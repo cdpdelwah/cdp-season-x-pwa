@@ -3605,6 +3605,15 @@ def send_push_to_manager(subs_registry: dict, alias: str, title: str, body: str,
     del LAST_PUSH_LOGS[:-50]
     return sent
 
+@app.get("/api/push_ack")
+def push_ack(status: str = "displayed", tag: str = "", title: str = "", err: str = ""):
+    if status == "displayed":
+        LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | 📱 HANDSET DISPLAYED ({tag}): {title}")
+    else:
+        LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | ⚠️ HANDSET SW ERROR ({tag}): {err}")
+    del LAST_PUSH_LOGS[:-60]
+    return {"ok": True}
+
 @app.get("/api/debug_push")
 def debug_push_status():
     subs_registry = upstash_get_json("cdp_push_subs_v2", {})
@@ -3613,7 +3622,7 @@ def debug_push_status():
         for mgr, dev_list in subs_registry.items():
             if isinstance(dev_list, dict):
                 dev_list = [dev_list]
-            endpoints = [d.get("endpoint", "")[:40] + "..." for d in dev_list if isinstance(d, dict)]
+            endpoints = [f"{d.get('endpoint', '')[:35]}...{d.get('endpoint', '')[-8:]}" for d in dev_list if isinstance(d, dict)]
             summary[mgr] = {"devices": len(endpoints), "endpoints": endpoints}
     return {
         "registered_managers": summary,
