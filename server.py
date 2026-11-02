@@ -1874,6 +1874,7 @@ def get_standings(league_id: int = 63):
 
     # Monte Carlo Season Projections (2,000 simulations of remaining schedule)
     import random
+    _, element_status = cached_league_data(league_id)
     owner_map = {item["element"]: item.get("owner") for item in (element_status or {}).get("element_status", [])}
     roster_power = {e["id"]: [] for e in entries}
     entry_id_to_tid = {e.get("entry_id"): e["id"] for e in entries if e.get("entry_id")}
