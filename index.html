@@ -797,6 +797,7 @@
         <div class="sub-tabs">
             <button class="sub-tab-btn active" id="st-sub-live" onclick="switchStandingsSubTab('live')">🟢 Live Standings</button>
             <button class="sub-tab-btn" id="st-sub-off" onclick="switchStandingsSubTab('off')">📊 Official Standings</button>
+            <button class="sub-tab-btn" id="st-sub-proj" onclick="switchStandingsSubTab('proj')">🔮 Projections</button>
             <button class="sub-tab-btn" id="st-sub-gacs" onclick="switchStandingsSubTab('gacs')">🎯 GACS</button>
             <button class="sub-tab-btn" id="st-sub-disc" onclick="switchStandingsSubTab('disc')">🟨🟥 Discipline</button>
         </div>
@@ -894,9 +895,11 @@
             <p>🛒 The League Transfer List & Calculator: Broadcast your trade targets, scout active listings in your division and evaluate trades.</p>
         </div>
         <div class="sub-tabs">
-            <button class="sub-tab-btn active" id="tr-sub-browse" onclick="switchTradeSubTab('browse')">🛒 League Transfer List</button>
-            <button class="sub-tab-btn" id="tr-sub-manage" onclick="switchTradeSubTab('manage')">📋 Manage My Listings</button>
-            <button class="sub-tab-btn" id="tr-sub-calc" onclick="switchTradeSubTab('calc')">⚖️ Trade Calculator</button>
+            <button class="sub-tab-btn active" id="tr-sub-browse" onclick="switchTradeSubTab('browse')">🛒 Transfer List</button>
+            <button class="sub-tab-btn" id="tr-sub-manage" onclick="switchTradeSubTab('manage')">📋 My Listings</button>
+            <button class="sub-tab-btn" id="tr-sub-calc" onclick="switchTradeSubTab('calc')">⚖️ Calculator & Propose</button>
+            <button class="sub-tab-btn" id="tr-sub-offers" onclick="switchTradeSubTab('offers')">📬 Trade Offers</button>
+            <button class="sub-tab-btn" id="tr-sub-waivers" onclick="switchTradeSubTab('waivers')">⚡ Waiver Wire</button>
         </div>
 
         <!-- TAB 1: BROWSE -->
@@ -917,8 +920,9 @@
         <!-- TAB 2: MANAGE -->
         <div id="trade-manage-pane" style="width: 100%; display: none;"></div>
 
-        <!-- TAB 3: CALCULATOR -->
+        <!-- TAB 3: CALCULATOR & PROPOSE -->
         <div id="trade-calc-pane" style="width: 100%; display: none;">
+            <div id="tr-counter-banner" style="display:none; width:100%; margin-bottom:12px;"></div>
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
                 <span style="font-size: 0.9rem; font-weight: 800; color: #cbd5e1;">Select Trade Format:</span>
                 <select id="tr-calc-mode" class="white-select" onchange="renderTradeCalculatorSelectors()">
@@ -940,6 +944,31 @@
                 </div>
             </div>
             <div id="tr-calc-results" style="width: 100%;"></div>
+        </div>
+
+        <!-- TAB 4: LIVE TRADE OFFERS -->
+        <div id="trade-offers-pane" style="width: 100%; display: none;"></div>
+
+        <!-- TAB 5: WAIVER WIRE & TRANSACTIONS TICKER -->
+        <div id="trade-waivers-pane" style="width: 100%; display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <div style="font-size: 1rem; font-weight: 800; color: #fff;">⚡ Official Division Waiver & Free Agent Ticker</div>
+                    <div style="font-size: 0.78rem; color: #94a3b8;">Tracks approved claims, free agency pickups and rejected/sniped waiver bids</div>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <select id="tr-waiver-div-sel" class="white-select" onchange="fetchWaiverTicker(this.value, '0')">
+                        <option value="63">CDP</option>
+                        <option value="320">SDM</option>
+                        <option value="378">BDR</option>
+                        <option value="240">LDE</option>
+                    </select>
+                    <select id="tr-waiver-gw-sel" class="white-select" onchange="fetchWaiverTicker(document.getElementById('tr-waiver-div-sel').value, this.value)">
+                        <option value="0">Latest GW</option>
+                    </select>
+                </div>
+            </div>
+            <div id="trade-waivers-box" style="width: 100%;"></div>
         </div>
     </div>
 
@@ -1992,7 +2021,7 @@
 
         function switchStandingsSubTab(subTab) {
             window.standingsSubTab = subTab;
-            ['live', 'off', 'gacs', 'disc'].forEach(k => {
+            ['live', 'off', 'proj', 'gacs', 'disc'].forEach(k => {
                 const btn = document.getElementById(`st-sub-${k}`);
                 if (btn) btn.classList.toggle('active', k === subTab);
             });
@@ -2001,7 +2030,7 @@
 
         async function fetchStandings(leagueId) {
             const box = document.getElementById('standings-content');
-            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Calculating league tables...</p>";
+            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Calculating league tables & running 2,000 Monte Carlo simulations...</p>";
             try {
                 const res = await fetch(`/api/standings?league_id=${leagueId}`);
                 window.standingsCache = await res.json();
@@ -2034,6 +2063,47 @@
                     <tbody>`;
                 (d.official_table || []).forEach(r => {
                     html += `<tr><td>${r.pos}</td><td>${r.move_html}</td><td style="text-align:left; color:#fff; font-weight:700;">${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#fff;">${r.pts}</td></tr>`;
+                });
+                html += `</tbody></table></div>`;
+                box.innerHTML = html;
+            } else if (window.standingsSubTab === 'proj') {
+                const lid = Number(d.league_id || activeLeagueId);
+                let rulesDesc = "";
+                let headersHtml = "";
+                if (lid === 63) {
+                    rulesDesc = "CDP Pyramid Rules: 1st = Champion 🏆 • No Promotion • Bottom 3 (6th to 8th) = Relegated to SDM 💀";
+                    headersHtml = "<th>Pos</th><th>Manager</th><th>Proj Pts</th><th>Proj PF</th><th>Avg Pos</th><th>🏆 Title %</th><th>💀 Relegation % (Bot 3)</th>";
+                } else if (lid === 320) {
+                    rulesDesc = "SDM Pyramid Rules: 1st = Title 🏆 • Top 2 = Promoted to CDP ⬆️ • Bottom 3 (6th to 8th) = Relegated to BDR 💀";
+                    headersHtml = "<th>Pos</th><th>Manager</th><th>Proj Pts</th><th>Proj PF</th><th>Avg Pos</th><th>🏆 Title %</th><th>⬆️ Promo to CDP % (Top 2)</th><th>💀 Relegation % (Bot 3)</th>";
+                } else if (lid === 378) {
+                    rulesDesc = "BDR Pyramid Rules: 1st = Title & Double Promoted to CDP 🚀 • 2nd = Promoted to SDM ⬆️ • Bottom 3 (6th to 8th) = Relegated to LDE 💀";
+                    headersHtml = "<th>Pos</th><th>Manager</th><th>Proj Pts</th><th>Proj PF</th><th>🚀 1st / 2x Promo (CDP)</th><th>⬆️ 2nd / Promo (SDM)</th><th>📈 Total Promo %</th><th>💀 Relegation % (Bot 3)</th>";
+                } else {
+                    rulesDesc = "LDE Pyramid Rules: 1st = Title & Double Promoted to SDM 🚀 • 2nd & 3rd = Promoted to BDR ⬆️ • No Relegation 🛡️";
+                    headersHtml = "<th>Pos</th><th>Manager</th><th>Proj Pts</th><th>Proj PF</th><th>🚀 1st / 2x Promo (SDM)</th><th>⬆️ 2nd-3rd / Promo (BDR)</th><th>📈 Total Promo %</th><th>💀 Relegation</th>";
+                }
+
+                const fmtPct = (val, color) => {
+                    const num = Number(val || 0);
+                    if (num <= 0) return `<span style="color:#475569;">0%</span>`;
+                    return `<span style="color:${color}; font-weight:800;">${num.toFixed(1)}%</span>`;
+                };
+
+                let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">🔮 2,000 Monte Carlo Season Simulations • ${rulesDesc}</p>
+                <div class="table-wrap"><table class="clean-table">
+                    <thead><tr>${headersHtml}</tr></thead>
+                    <tbody>`;
+                (d.projected_table || []).forEach(r => {
+                    if (lid === 63) {
+                        html += `<tr><td>${r.pos}</td><td style="text-align:left; color:#fff; font-weight:800;">${r.manager}</td><td style="color:#f59e0b; font-weight:900;">${r.proj_pts.toFixed(1)}</td><td>${r.proj_pf}</td><td>#${r.avg_pos.toFixed(1)}</td><td>${fmtPct(r.title_pct, '#fde047')}</td><td>${fmtPct(r.relegation_pct, '#ef4444')}</td></tr>`;
+                    } else if (lid === 320) {
+                        html += `<tr><td>${r.pos}</td><td style="text-align:left; color:#fff; font-weight:800;">${r.manager}</td><td style="color:#f59e0b; font-weight:900;">${r.proj_pts.toFixed(1)}</td><td>${r.proj_pf}</td><td>#${r.avg_pos.toFixed(1)}</td><td>${fmtPct(r.title_pct, '#fde047')}</td><td>${fmtPct(r.any_promo_pct, '#22c55e')}</td><td>${fmtPct(r.relegation_pct, '#ef4444')}</td></tr>`;
+                    } else if (lid === 378) {
+                        html += `<tr><td>${r.pos}</td><td style="text-align:left; color:#fff; font-weight:800;">${r.manager}</td><td style="color:#f59e0b; font-weight:900;">${r.proj_pts.toFixed(1)}</td><td>${r.proj_pf}</td><td>${fmtPct(r.double_promo_pct, '#fde047')}</td><td>${fmtPct(r.single_promo_pct, '#38bdf8')}</td><td>${fmtPct(r.any_promo_pct, '#22c55e')}</td><td>${fmtPct(r.relegation_pct, '#ef4444')}</td></tr>`;
+                    } else {
+                        html += `<tr><td>${r.pos}</td><td style="text-align:left; color:#fff; font-weight:800;">${r.manager}</td><td style="color:#f59e0b; font-weight:900;">${r.proj_pts.toFixed(1)}</td><td>${r.proj_pf}</td><td>${fmtPct(r.double_promo_pct, '#fde047')}</td><td>${fmtPct(r.single_promo_pct, '#38bdf8')}</td><td>${fmtPct(r.any_promo_pct, '#22c55e')}</td><td><span style="color:#475569;">—</span></td></tr>`;
+                    }
                 });
                 html += `</tbody></table></div>`;
                 box.innerHTML = html;
@@ -2416,25 +2486,39 @@
         // ==========================================
         // TRADE HUB SCREEN (LOCKED TO USER LEAGUE)
         // ==========================================
+        window.activeCounterPropId = "";
+        window.tradeProposalsList = [];
+        window.currentCalcDraft = null;
+
         function switchTradeLeague() {
             const homeLid = parseInt(localStorage.getItem("cdp_league")) || 63;
             document.getElementById('trade-title').innerText = `🤝 Trade Hub - ${LEAGUE_NAMES[homeLid]}`;
             document.getElementById('tr-browse-subtitle').innerText = `Active Transfer List — ${LEAGUE_NAMES[homeLid]}`;
+            const wDivSel = document.getElementById('tr-waiver-div-sel');
+            if (wDivSel) wDivSel.value = String(homeLid);
             fetchTradeHub();
+            fetchTradeProposals();
         }
 
         function switchTradeSubTab(tab) {
-            ['browse', 'manage', 'calc'].forEach(k => {
-                document.getElementById(`tr-sub-${k}`).classList.toggle('active', k === tab);
-                document.getElementById(`trade-${k}-pane`).style.display = (k === tab) ? 'block' : 'none';
+            ['browse', 'manage', 'calc', 'offers', 'waivers'].forEach(k => {
+                const btn = document.getElementById(`tr-sub-${k}`);
+                const pane = document.getElementById(`trade-${k}-pane`);
+                if (btn) btn.classList.toggle('active', k === tab);
+                if (pane) pane.style.display = (k === tab) ? 'block' : 'none';
             });
+            if (tab === 'offers') fetchTradeProposals();
+            if (tab === 'waivers') {
+                const wDivSel = document.getElementById('tr-waiver-div-sel');
+                const wGwSel = document.getElementById('tr-waiver-gw-sel');
+                fetchWaiverTicker(wDivSel ? wDivSel.value : activeLeagueId, wGwSel ? wGwSel.value : '0');
+            }
         }
 
         async function fetchTradeHub() {
             const homeLid = parseInt(localStorage.getItem("cdp_league")) || 63;
             document.getElementById('trade-browse-table').innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading Trade Hub...</p>";
             try {
-                // Appended Date.now() cache-buster to prevent mobile browsers from showing stale data
                 const res = await fetch(`/api/trade_hub?league_id=${homeLid}&alias=${encodeURIComponent(savedAlias)}&t=${Date.now()}`);
                 window.tradeHubData = await res.json();
                 renderTradeBrowseTable();
@@ -2454,7 +2538,7 @@
             if (posF !== "All") list = list.filter(item => item.position === posF);
 
             if (!list.length) {
-                box.innerHTML = `<div class="alert-box alert-info">The trading block is currently empty for ${window.tradeHubData.league_key}. Add players under 'Manage My Listings'!</div>`;
+                box.innerHTML = `<div class="alert-box alert-info">The trading block is currently empty for ${window.tradeHubData.league_key}. Add players under 'My Listings'!</div>`;
                 return;
             }
             box.innerHTML = `<div class="table-wrap"><table class="clean-table">
@@ -2595,8 +2679,8 @@
 
             const selTeamAText = document.getElementById('tr-team-a').selectedOptions[0].text;
             const selTeamBText = document.getElementById('tr-team-b').selectedOptions[0].text;
-            const mgrA = selTeamAText !== "All Players" ? selTeamAText.split(" (")[0] : "Side A Manager";
-            const mgrB = selTeamBText !== "All Players" ? selTeamBText.split(" (")[0] : "Side B Manager";
+            const mgrA = selTeamAText !== "All Players" ? selTeamAText.split(" (")[0] : (listA[0] ? listA[0].owner_alias : "Side A Manager");
+            const mgrB = selTeamBText !== "All Players" ? selTeamBText.split(" (")[0] : (listB[0] ? listB[0].owner_alias : "Side B Manager");
 
             const winnerMgr = valDiff >= 0 ? mgrB : mgrA;
             const loserMgr = valDiff >= 0 ? mgrA : mgrB;
@@ -2630,6 +2714,28 @@
                 </div>
             `;
 
+            let proposeBoxHtml = "";
+            if (listA.length > 0 && listB.length > 0 && mgrB && mgrB !== "Side B Manager" && mgrB !== "Free Agent" && mgrA !== mgrB) {
+                window.currentCalcDraft = {
+                    sender: d.active_manager_alias || savedAlias,
+                    receiver: mgrB,
+                    send_ids: listA.map(p => p.id),
+                    receive_ids: listB.map(p => p.id),
+                    send_names: listA.map(p => `${p.web_name} (${p.club})`),
+                    receive_names: listB.map(p => `${p.web_name} (${p.club})`)
+                };
+                const btnLabel = window.activeCounterPropId
+                    ? `🔄 Send Official Counter Offer to ${mgrB}`
+                    : `📨 Send Official Trade Proposal to ${mgrB}`;
+                proposeBoxHtml = `
+                    <div style="background:#090c13; border:1px solid #f59e0b; border-radius:10px; padding:14px; margin-top:14px;">
+                        <div style="font-size:0.95rem; font-weight:800; color:#f59e0b; margin-bottom:8px;">📲 Dispatch Trade Offer to ${mgrB}'s Phone</div>
+                        <input id="tr-propose-notes" type="text" class="dark-input" placeholder="Add an optional message or sweetener note for ${mgrB}..." style="margin-bottom:10px;">
+                        <button onclick="sendOfficialTradeProposal()" style="width:100%; background:#22c55e; color:#000; padding:12px; border:none; border-radius:8px; font-weight:900; font-size:0.95rem; cursor:pointer;">${btnLabel}</button>
+                    </div>
+                `;
+            }
+
             resBox.innerHTML = `
                 ${verdictHtml}
                 ${medHtml}
@@ -2643,7 +2749,210 @@
                     ${buildPkgTable(listA, `Side A Package (${listA.length}/${mode} Players)`)}
                     ${buildPkgTable(listB, `Side B Package (${listB.length}/${mode} Players)`)}
                 </div>
+                ${proposeBoxHtml}
             `;
+        }
+
+        async function sendOfficialTradeProposal() {
+            const draft = window.currentCalcDraft;
+            if (!draft) return;
+            const homeLid = parseInt(localStorage.getItem("cdp_league")) || 63;
+            const notesEl = document.getElementById('tr-propose-notes');
+            const notes = notesEl ? notesEl.value : "";
+
+            const res = await fetch('/api/trade_hub/propose', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    league_id: homeLid,
+                    sender: draft.sender,
+                    receiver: draft.receiver,
+                    send_ids: draft.send_ids,
+                    receive_ids: draft.receive_ids,
+                    send_names: draft.send_names,
+                    receive_names: draft.receive_names,
+                    notes: notes,
+                    counter_to_id: window.activeCounterPropId || ""
+                })
+            });
+            const data = await res.json();
+            if (data.status === "ok") {
+                window.activeCounterPropId = "";
+                const cBanner = document.getElementById('tr-counter-banner');
+                if (cBanner) cBanner.style.display = 'none';
+                alert(`✅ Trade proposal sent to ${draft.receiver}!`);
+                switchTradeSubTab('offers');
+            } else {
+                alert(data.message || "Could not send proposal.");
+            }
+        }
+
+        async function fetchTradeProposals() {
+            const homeLid = parseInt(localStorage.getItem("cdp_league")) || 63;
+            const pane = document.getElementById('trade-offers-pane');
+            if (!pane) return;
+            try {
+                const res = await fetch(`/api/trade_hub/proposals?league_id=${homeLid}&alias=${encodeURIComponent(savedAlias)}&t=${Date.now()}`);
+                const data = await res.json();
+                window.tradeProposalsList = data.proposals || [];
+                const myAlias = (window.tradeHubData && window.tradeHubData.active_manager_alias) ? window.tradeHubData.active_manager_alias : savedAlias;
+
+                const incomingPending = window.tradeProposalsList.filter(p => p.receiver.toLowerCase() === myAlias.toLowerCase() && p.status === 'Pending');
+                const offersTabBtn = document.getElementById('tr-sub-offers');
+                if (offersTabBtn) {
+                    offersTabBtn.innerText = incomingPending.length > 0 ? `📬 Trade Offers (${incomingPending.length})` : `📬 Trade Offers`;
+                }
+
+                if (!window.tradeProposalsList.length) {
+                    pane.innerHTML = `<div class="alert-box alert-info">No trade proposals have been submitted in your division yet. Head to 'Calculator & Propose' to build a package and send an offer!</div>`;
+                    return;
+                }
+
+                let html = "";
+                window.tradeProposalsList.forEach(p => {
+                    const isIncoming = (p.receiver.toLowerCase() === myAlias.toLowerCase());
+                    const isOutgoing = (p.sender.toLowerCase() === myAlias.toLowerCase());
+                    let badgeColor = "#f59e0b";
+                    if (p.status === "Accepted") badgeColor = "#22c55e";
+                    else if (p.status === "Rejected" || p.status === "Withdrawn") badgeColor = "#ef4444";
+                    else if (p.status.startsWith("Countered")) badgeColor = "#38bdf8";
+
+                    let actionsHtml = "";
+                    if (p.status === "Pending" && isIncoming) {
+                        actionsHtml = `
+                            <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+                                <button onclick="respondToTradeProposal('${p.id}', 'accept')" style="flex:1; background:#22c55e; color:#000; border:none; border-radius:6px; padding:9px 12px; font-weight:900; cursor:pointer;">✅ Accept</button>
+                                <button onclick="startCounterOffer('${p.id}')" style="flex:1; background:#38bdf8; color:#000; border:none; border-radius:6px; padding:9px 12px; font-weight:900; cursor:pointer;">🔄 Counter Offer</button>
+                                <button onclick="respondToTradeProposal('${p.id}', 'reject')" style="flex:1; background:#ef4444; color:#fff; border:none; border-radius:6px; padding:9px 12px; font-weight:900; cursor:pointer;">❌ Reject</button>
+                            </div>
+                        `;
+                    } else if (p.status === "Pending" && isOutgoing) {
+                        actionsHtml = `
+                            <div style="margin-top:10px;">
+                                <button onclick="respondToTradeProposal('${p.id}', 'withdraw')" class="refresh-btn" style="border-color:#ef4444; color:#ef4444;">🗑️ Withdraw Offer</button>
+                            </div>
+                        `;
+                    }
+
+                    html += `
+                        <div class="exp-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                <div style="font-size:0.95rem; font-weight:900; color:#fff;">${p.is_counter ? '🔄 Counter: ' : '🤝 '}${p.sender} ➔ ${p.receiver} <span style="font-size:0.75rem; color:#64748b;">(${p.created_at})</span></div>
+                                <span style="font-size:0.75rem; font-weight:800; color:${badgeColor}; border:1px solid ${badgeColor}; padding:2px 8px; border-radius:999px;">${p.status}</span>
+                            </div>
+                            <div style="font-size:0.86rem; color:#cbd5e1; margin-bottom:4px;"><b style="color:#f59e0b;">${p.sender} sends:</b> ${(p.send_names || []).join(', ')}</div>
+                            <div style="font-size:0.86rem; color:#cbd5e1;"><b style="color:#38bdf8;">${p.receiver} sends:</b> ${(p.receive_names || []).join(', ')}</div>
+                            ${p.notes ? `<div style="font-size:0.8rem; color:#94a3b8; font-style:italic; margin-top:6px;">💬 "${p.notes}"</div>` : ''}
+                            ${actionsHtml}
+                        </div>
+                    `;
+                });
+                pane.innerHTML = html;
+            } catch (e) {
+                pane.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load trade offers.</p>";
+            }
+        }
+
+        async function respondToTradeProposal(propId, action) {
+            await fetch('/api/trade_hub/respond', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: propId, action: action, alias: savedAlias })
+            });
+            fetchTradeProposals();
+        }
+
+        function startCounterOffer(propId) {
+            const p = (window.tradeProposalsList || []).find(x => x.id === propId);
+            const d = window.tradeHubData;
+            if (!p || !d) return;
+
+            window.activeCounterPropId = p.id;
+            const cBanner = document.getElementById('tr-counter-banner');
+            if (cBanner) {
+                cBanner.style.display = 'block';
+                cBanner.innerHTML = `<div class="alert-box alert-info" style="display:flex; justify-content:space-between; align-items:center;">
+                    <span>🔄 <b>Countering ${p.sender}'s Offer:</b> Adjust the players below and send back your counter package.</span>
+                    <button class="refresh-btn" onclick="window.activeCounterPropId=''; document.getElementById('tr-counter-banner').style.display='none'; evaluateTradePackages();">Cancel</button>
+                </div>`;
+            }
+
+            switchTradeSubTab('calc');
+            const maxLen = Math.max(1, (p.receive_ids || []).length, (p.send_ids || []).length);
+            document.getElementById('tr-calc-mode').value = String(Math.min(3, maxLen));
+
+            const findTeamId = (mgrAlias) => {
+                const t = (d.teams || []).find(x => x.label.toLowerCase().startsWith(mgrAlias.toLowerCase() + " ("));
+                return t ? t.entry_id : 0;
+            };
+
+            document.getElementById('tr-team-a').value = String(findTeamId(p.receiver));
+            document.getElementById('tr-team-b').value = String(findTeamId(p.sender));
+            renderTradeCalculatorSelectors();
+
+            (p.receive_ids || []).forEach((id, idx) => {
+                const el = document.getElementById(`tr-sel-a-${idx + 1}`);
+                if (el) el.value = String(id);
+            });
+            (p.send_ids || []).forEach((id, idx) => {
+                const el = document.getElementById(`tr-sel-b-${idx + 1}`);
+                if (el) el.value = String(id);
+            });
+            evaluateTradePackages();
+        }
+
+        async function fetchWaiverTicker(leagueId, gw = "0") {
+            const box = document.getElementById('trade-waivers-box');
+            if (!box) return;
+            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading official FPL Draft transactions...</p>";
+            try {
+                const res = await fetch(`/api/waiver_ticker?league_id=${leagueId}&alias=${encodeURIComponent(savedAlias)}&gw=${gw}&t=${Date.now()}`);
+                const data = await res.json();
+
+                const gwSel = document.getElementById('tr-waiver-gw-sel');
+                if (gwSel && data.all_gws) {
+                    gwSel.innerHTML = data.all_gws.map(g => `<option value="${g}">Gameweek ${g}</option>`).join('') + `<option value="all">All Season</option>`;
+                    gwSel.value = String(data.selected);
+                }
+
+                let appHtml = `<div class="alert-box alert-info">No approved waivers or free agent transfers recorded for this filter.</div>`;
+                if (data.approved && data.approved.length > 0) {
+                    appHtml = `<div class="table-wrap"><table class="clean-table">
+                        <thead><tr><th>GW</th><th>Manager</th><th>Type</th><th>🟢 Player In</th><th>🔴 Player Out</th><th>Status</th></tr></thead>
+                        <tbody>${data.approved.map(r => `<tr>
+                            <td>GW ${r.gw}</td>
+                            <td style="font-weight:800; color:#fff;">${r.manager}</td>
+                            <td>${r.type}</td>
+                            <td style="color:#22c55e; font-weight:700;">+ ${r.player_in}</td>
+                            <td style="color:#ef4444; font-weight:700;">- ${r.player_out}</td>
+                            <td style="color:#22c55e; font-weight:800;">${r.status}</td>
+                        </tr>`).join('')}</tbody>
+                    </table></div>`;
+                }
+
+                let rejHtml = `<div class="alert-box alert-info">No rejected or sniped waiver claims recorded for this filter.</div>`;
+                if (data.rejected && data.rejected.length > 0) {
+                    rejHtml = `<div class="table-wrap"><table class="clean-table">
+                        <thead><tr><th>GW</th><th>Manager</th><th>Wanted (In)</th><th>Offered (Out)</th><th>Outcome / Sniper</th></tr></thead>
+                        <tbody>${data.rejected.map(r => `<tr>
+                            <td>GW ${r.gw}</td>
+                            <td style="font-weight:800; color:#fff;">${r.manager}</td>
+                            <td>${r.player_in}</td>
+                            <td style="color:#94a3b8;">${r.player_out}</td>
+                            <td style="color:#f59e0b; font-weight:800;">${r.reason}</td>
+                        </tr>`).join('')}</tbody>
+                    </table></div>`;
+                }
+
+                box.innerHTML = `
+                    <div style="font-size:0.95rem; font-weight:800; color:#22c55e; margin-bottom:8px;">✅ Approved Waivers & Free Agency Signings</div>
+                    ${appHtml}
+                    <div style="font-size:0.95rem; font-weight:800; color:#f59e0b; margin:16px 0 8px 0;">🕵️ Failed & Sniped Waiver Claims</div>
+                    ${rejHtml}
+                `;
+            } catch (e) {
+                box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load waiver transactions.</p>";
+            }
         }
 
         // ==========================================

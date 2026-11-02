@@ -827,7 +827,7 @@ def compute_cbwcbw_tracker(gw_num: int):
 @app.get("/api/home_summary")
 def get_home_summary(league_id: int = 63):
     static_data = cached_fpl_static()
-    league_details, _ = cached_league_data(league_id)
+    league_details, element_status = cached_league_data(league_id)
     all_fixtures = cached_all_fixtures()
 
     current_gw, _ = detect_current_gw(league_details)
@@ -1872,11 +1872,136 @@ def get_standings(league_id: int = 63):
         else:
             r["move_html"] = "<span style='color:#64748b; font-weight:700;'>▬</span>"
 
+    # Monte Carlo Season Projections (2,000 simulations of remaining schedule)
+    import random
+    owner_map = {item["element"]: item.get("owner") for item in (element_status or {}).get("element_status", [])}
+    roster_power = {e["id"]: [] for e in entries}
+    entry_id_to_tid = {e.get("entry_id"): e["id"] for e in entries if e.get("entry_id")}
+
+    for raw_elem in (static_data or {}).get("elements", []):
+        owner_eid = owner_map.get(raw_elem["id"])
+        if owner_eid in entry_id_to_tid:
+            tid = entry_id_to_tid[owner_eid]
+            avail = get_availability_multiplier(raw_elem)
+            ppg_v = float(raw_elem.get("points_per_game") or 2.0)
+            form_v = float(raw_elem.get("form") or 0.0)
+            exp_wk = ((ppg_v * 0.65) + (form_v * 0.35)) * max(0.4, avail)
+            roster_power[tid].append(exp_wk)
+
+    team_mu = {}
+    for e in entries:
+        tid = e["id"]
+        st = live_stats[tid]
+        gp = max(1, st["wins"] + st["draws"] + st["losses"])
+        hist_avg = float(st["pf"]) / float(gp) if (st["wins"] + st["draws"] + st["losses"]) > 0 else 38.0
+        top11 = sorted(roster_power.get(tid, []), reverse=True)[:11]
+        ros_avg = sum(top11) if len(top11) >= 8 else 38.0
+        w_hist = min(0.65, gp * 0.06)
+        team_mu[tid] = (hist_avg * w_hist) + (ros_avg * (1.0 - w_hist))
+
+    rem_matches = [
+        (m["league_entry_1"], m["league_entry_2"])
+        for m in sorted_matches
+        if (m["event"] > current_gw or (m["event"] == current_gw and not gw_started))
+        and m["league_entry_1"] in live_stats and m["league_entry_2"] in live_stats
+    ]
+
+    n_sims = 2000
+    tids = [e["id"] for e in entries]
+    n_teams = len(tids)
+    rank_counts = {tid: [0] * (n_teams + 1) for tid in tids}
+    sum_pts = {tid: 0.0 for tid in tids}
+    sum_pf = {tid: 0.0 for tid in tids}
+    base_pts = {tid: live_stats[tid]["pts"] for tid in tids}
+    base_pf = {tid: live_stats[tid]["pf"] for tid in tids}
+    gauss = random.gauss
+
+    for _ in range(n_sims):
+        sim_pts = base_pts.copy()
+        sim_pf = base_pf.copy()
+        for t1, t2 in rem_matches:
+            s1 = int(gauss(team_mu[t1], 11.0))
+            s2 = int(gauss(team_mu[t2], 11.0))
+            if s1 < 10: s1 = 10
+            if s2 < 10: s2 = 10
+            sim_pf[t1] += s1
+            sim_pf[t2] += s2
+            if s1 > s2:
+                sim_pts[t1] += 3
+            elif s2 > s1:
+                sim_pts[t2] += 3
+            else:
+                sim_pts[t1] += 1
+                sim_pts[t2] += 1
+        ranked = sorted(tids, key=lambda x: (sim_pts[x], sim_pf[x]), reverse=True)
+        for r_idx, tid in enumerate(ranked, 1):
+            rank_counts[tid][r_idx] += 1
+            sum_pts[tid] += sim_pts[tid]
+            sum_pf[tid] += sim_pf[tid]
+
+    proj_rows = []
+    for e in entries:
+        tid = e["id"]
+        rc = rank_counts[tid]
+        alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
+        avg_pts = round(sum_pts[tid] / n_sims, 1)
+        avg_pf = int(round(sum_pf[tid] / n_sims))
+        avg_pos = round(sum(pos_i * rc[pos_i] for pos_i in range(1, n_teams + 1)) / float(n_sims), 1)
+
+        title_pct = round((rc[1] / float(n_sims)) * 100.0, 1) if n_teams >= 1 else 0.0
+        rel_start = max(1, n_teams - 2)
+        rel_raw = round((sum(rc[rel_start:]) / float(n_sims)) * 100.0, 1)
+
+        if league_id == 63:
+            # CDP: Title = 1st, No Promotion, Relegation = Bottom 3
+            double_promo_pct = 0.0
+            single_promo_pct = 0.0
+            any_promo_pct = 0.0
+            relegation_pct = rel_raw
+        elif league_id == 320:
+            # SDM: Title = 1st, Promotion = Top 2 (to CDP), Relegation = Bottom 3
+            double_promo_pct = 0.0
+            single_promo_pct = round(((rc[1] + rc[2]) / float(n_sims)) * 100.0, 1)
+            any_promo_pct = single_promo_pct
+            relegation_pct = rel_raw
+        elif league_id == 378:
+            # BDR: Title = 1st (Double Promo to CDP), 2nd = Single Promo to SDM, Relegation = Bottom 3
+            double_promo_pct = title_pct
+            single_promo_pct = round((rc[2] / float(n_sims)) * 100.0, 1) if n_teams >= 2 else 0.0
+            any_promo_pct = round(((rc[1] + rc[2]) / float(n_sims)) * 100.0, 1)
+            relegation_pct = rel_raw
+        else:
+            # LDE (240): Title = 1st (Double Promo to SDM), 2nd & 3rd = Single Promo to BDR, No Relegation
+            double_promo_pct = title_pct
+            single_promo_pct = round(((rc[2] + rc[3]) / float(n_sims)) * 100.0, 1) if n_teams >= 3 else 0.0
+            any_promo_pct = round(((rc[1] + rc[2] + rc[3]) / float(n_sims)) * 100.0, 1)
+            relegation_pct = 0.0
+
+        proj_rows.append({
+            "team_id": tid,
+            "manager": alias,
+            "cur_pts": live_stats[tid]["pts"],
+            "proj_pts": avg_pts,
+            "proj_pf": avg_pf,
+            "avg_pos": avg_pos,
+            "title_pct": title_pct,
+            "double_promo_pct": double_promo_pct,
+            "single_promo_pct": single_promo_pct,
+            "any_promo_pct": any_promo_pct,
+            "relegation_pct": relegation_pct
+        })
+
+    proj_rows = sorted(proj_rows, key=lambda x: (-x["proj_pts"], -x["proj_pf"]))
+    for idx, r in enumerate(proj_rows, 1):
+        r["pos"] = idx
+
     return {
+        "league_id": league_id,
         "current_gw": current_gw,
         "last_completed_gw": last_completed_gw,
         "live_table": live_rows,
-        "official_table": off_rows
+        "official_table": off_rows,
+        "projected_table": proj_rows
     }
 
 # ==========================================
@@ -2361,15 +2486,257 @@ async def remove_trade_hub_item(request: Request):
     for t in listings:
         t_pid = str(t.get("player_id", "")).strip()
         t_alias = str(t.get("manager_alias", "")).strip().lower()
-        
-        # If the IDs and Aliases match, skip this one to permanently remove it
         if t_pid == player_id and t_alias == alias:
             continue
-            
         kept_listings.append(t)
         
     save_trade_block_file(kept_listings)
     return {"status": "ok"}
+
+
+def load_trade_proposals():
+    data = upstash_get_json("cdp_trade_proposals_v1", [])
+    return data if isinstance(data, list) else []
+
+def save_trade_proposals(proposals):
+    upstash_set_json("cdp_trade_proposals_v1", proposals[-100:])
+
+@app.get("/api/trade_hub/proposals")
+def get_trade_proposals(league_id: int = 63, alias: str = ""):
+    clean_alias = alias.strip()
+    user_lid = MANAGER_LEAGUES.get(clean_alias, league_id)
+    all_props = load_trade_proposals()
+    div_props = [p for p in all_props if safe_int(p.get("league_id", 0)) == user_lid]
+    return {"proposals": list(reversed(div_props))}
+
+@app.post("/api/trade_hub/propose")
+async def propose_trade_offer(request: Request, background_tasks: BackgroundTasks):
+    body = await request.json()
+    sender = str(body.get("sender", "")).strip()
+    receiver = str(body.get("receiver", "")).strip()
+    user_lid = MANAGER_LEAGUES.get(sender, safe_int(body.get("league_id", 63)))
+    div_short = LEAGUE_ID_TO_KEY.get(user_lid, "CDP").split(" ")[0]
+
+    send_ids = [safe_int(x) for x in (body.get("send_ids") or []) if safe_int(x) > 0]
+    recv_ids = [safe_int(x) for x in (body.get("receive_ids") or []) if safe_int(x) > 0]
+    send_names = [str(x) for x in (body.get("send_names") or [])]
+    recv_names = [str(x) for x in (body.get("receive_names") or [])]
+    notes = str(body.get("notes", "")).strip()
+    counter_to_id = str(body.get("counter_to_id", "")).strip()
+
+    if not sender or not receiver or not send_ids or not recv_ids:
+        return {"status": "error", "message": "Select at least one player on each side and a target manager."}
+
+    proposals = load_trade_proposals()
+    if counter_to_id:
+        for p in proposals:
+            if str(p.get("id")) == counter_to_id and p.get("status") == "Pending":
+                p["status"] = f"Countered by {sender}"
+
+    prop_id = f"tr-{int(time.time() * 1000)}"
+    new_prop = {
+        "id": prop_id,
+        "league_id": user_lid,
+        "div": div_short,
+        "sender": sender,
+        "receiver": receiver,
+        "send_ids": send_ids,
+        "receive_ids": recv_ids,
+        "send_names": send_names,
+        "receive_names": recv_names,
+        "notes": notes,
+        "status": "Pending",
+        "is_counter": bool(counter_to_id),
+        "created_at": datetime.now().strftime("%d %b, %H:%M")
+    }
+    proposals.append(new_prop)
+    save_trade_proposals(proposals)
+
+    def _notify_receiver():
+        subs_registry = upstash_get_json("cdp_push_subs_v2", {})
+        if subs_registry:
+            s_str = ", ".join(send_names)
+            r_str = ", ".join(recv_names)
+            prefix = "🔄 Counter Offer" if counter_to_id else "📨 New Trade Offer"
+            msg_body = f"{sender} offers {s_str} for your {r_str}" + (f" | \"{notes}\"" if notes else "")
+            send_push_to_manager(subs_registry, receiver, f"{prefix} from {sender} ({div_short})", msg_body, tag=prop_id)
+
+    background_tasks.add_task(_notify_receiver)
+    return {"status": "ok", "proposal": new_prop}
+
+@app.post("/api/trade_hub/respond")
+async def respond_trade_offer(request: Request, background_tasks: BackgroundTasks):
+    body = await request.json()
+    prop_id = str(body.get("id", "")).strip()
+    action = str(body.get("action", "")).strip().lower()
+    actor = str(body.get("alias", "")).strip()
+
+    proposals = load_trade_proposals()
+    target = next((p for p in proposals if str(p.get("id")) == prop_id), None)
+    if not target:
+        return {"status": "error", "message": "Proposal not found."}
+
+    if action == "accept":
+        target["status"] = "Accepted"
+    elif action == "reject":
+        target["status"] = "Rejected"
+    elif action == "withdraw":
+        target["status"] = "Withdrawn"
+    else:
+        return {"status": "error", "message": "Invalid action."}
+
+    target["resolved_at"] = datetime.now().strftime("%d %b, %H:%M")
+    save_trade_proposals(proposals)
+
+    def _notify_resolution():
+        subs_registry = upstash_get_json("cdp_push_subs_v2", {})
+        if not subs_registry:
+            return
+        s_mgr = target.get("sender", "")
+        r_mgr = target.get("receiver", "")
+        div_short = target.get("div", "CDP")
+        s_str = ", ".join(target.get("send_names") or [])
+        r_str = ", ".join(target.get("receive_names") or [])
+
+        if action == "accept":
+            # Notify the proposer and broadcast to the division
+            league_details, _ = cached_league_data(safe_int(target.get("league_id", 63)))
+            for e in (league_details or {}).get("league_entries", []):
+                m_a = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
+                send_push_to_manager(
+                    subs_registry,
+                    m_a,
+                    f"🤝 TRADE AGREED ({div_short}): {s_mgr} ⇄ {r_mgr}",
+                    f"{s_mgr} sends {s_str} to {r_mgr} for {r_str}! Lock it in on the official FPL site.",
+                    tag=f"tr-acc-{prop_id}"
+                )
+        elif action == "reject":
+            send_push_to_manager(
+                subs_registry,
+                s_mgr,
+                f"❌ Trade Offer Declined by {r_mgr}",
+                f"{r_mgr} rejected your offer of {s_str} for {r_str}.",
+                tag=f"tr-rej-{prop_id}"
+            )
+
+    background_tasks.add_task(_notify_resolution)
+    return {"status": "ok"}
+
+
+@ttl_cache(60)
+def fetch_draft_league_transactions(league_id: int):
+    try:
+        url = f"https://draft.premierleague.com/api/draft/league/{league_id}/transactions"
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200:
+            return r.json().get("transactions", [])
+    except Exception:
+        pass
+    return []
+
+@app.get("/api/waiver_ticker")
+def get_waiver_ticker(league_id: int = 63, alias: str = "", gw: str = "0"):
+    clean_alias = alias.strip()
+    user_lid = safe_int(league_id) if safe_int(league_id) in (63, 320, 378, 240) else MANAGER_LEAGUES.get(clean_alias, 63)
+    div_short = LEAGUE_ID_TO_KEY.get(user_lid, "CDP").split(" ")[0]
+
+    static_data = cached_fpl_static() or {}
+    league_details, _ = cached_league_data(user_lid)
+    current_gw, _ = detect_current_gw(league_details)
+
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data.get("element_types", [])}
+    team_map = {item["id"]: item["short_name"] for item in static_data.get("teams", [])}
+    element_lookup = {item["id"]: item for item in static_data.get("elements", [])}
+
+    entry_to_alias = {}
+    for e in (league_details or {}).get("league_entries", []):
+        m_a = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
+        if e.get("entry_id"):
+            entry_to_alias[safe_int(e["entry_id"])] = m_a
+        if e.get("id"):
+            entry_to_alias[safe_int(e["id"])] = m_a
+
+    raw_tx = fetch_draft_league_transactions(user_lid) or []
+    all_tx_gws = sorted(list({safe_int(t.get("event")) for t in raw_tx if safe_int(t.get("event")) > 0}), reverse=True)
+    default_gw = all_tx_gws[0] if all_tx_gws else current_gw
+
+    sel_gw_str = str(gw).strip().lower()
+    if sel_gw_str in ("0", ""):
+        target_gw = default_gw
+        filtered_tx = [t for t in raw_tx if safe_int(t.get("event")) == target_gw]
+        selected_val = str(target_gw)
+    elif sel_gw_str == "all":
+        filtered_tx = raw_tx
+        selected_val = "all"
+    else:
+        target_gw = safe_int(sel_gw_str)
+        filtered_tx = [t for t in raw_tx if safe_int(t.get("event")) == target_gw]
+        selected_val = str(target_gw)
+
+    # Identify who won each player in each GW so rejected "di" claims can show who sniped them
+    sniped_by_map = {}
+    for t in filtered_tx:
+        if t.get("result") == "a":
+            ev_num = safe_int(t.get("event"))
+            el_in = safe_int(t.get("element_in"))
+            mgr_win = entry_to_alias.get(safe_int(t.get("entry")), "Manager")
+            sniped_by_map[(ev_num, el_in)] = mgr_win
+
+    def fmt_player(eid):
+        el = element_lookup.get(safe_int(eid), {})
+        if not el:
+            return "Unknown"
+        name = el.get("web_name", "Unknown")
+        club = team_map.get(el.get("team"), "PL")
+        pos = pos_map.get(el.get("element_type", 1), "MID")
+        return f"{name} ({club} • {pos})"
+
+    rows_approved = []
+    rows_rejected = []
+    for t in sorted(filtered_tx, key=lambda x: safe_int(x.get("id")), reverse=True):
+        ev_num = safe_int(t.get("event"))
+        mgr = entry_to_alias.get(safe_int(t.get("entry")), "Manager")
+        el_in = safe_int(t.get("element_in"))
+        el_out = safe_int(t.get("element_out"))
+        kind_lbl = "Waiver" if str(t.get("kind", "")).lower() == "w" else "Free Agent"
+        res_code = str(t.get("result", "")).lower()
+
+        if res_code == "a":
+            rows_approved.append({
+                "gw": ev_num,
+                "manager": mgr,
+                "type": kind_lbl,
+                "player_in": fmt_player(el_in),
+                "player_out": fmt_player(el_out),
+                "status": "✅ Approved"
+            })
+        else:
+            sniper = sniped_by_map.get((ev_num, el_in))
+            if res_code == "di" and sniper:
+                reason = f"❌ Sniped by {sniper}"
+            elif res_code == "di":
+                reason = "❌ Player In already claimed"
+            elif res_code == "do":
+                reason = "⚠️ Player Out already swapped"
+            else:
+                reason = "❌ Rejected"
+            rows_rejected.append({
+                "gw": ev_num,
+                "manager": mgr,
+                "type": kind_lbl,
+                "player_in": fmt_player(el_in),
+                "player_out": fmt_player(el_out),
+                "reason": reason
+            })
+
+    return {
+        "league_id": user_lid,
+        "div": div_short,
+        "all_gws": all_tx_gws or [current_gw],
+        "selected": selected_val,
+        "approved": rows_approved,
+        "rejected": rows_rejected
+    }
 
 
 @app.get("/api/player_hub")
@@ -3847,6 +4214,66 @@ def run_automated_push_checks():
                         f"Gameweek {deadline_gw} waivers are now locked and processing! Free agency is open.",
                         tag=f"waiver-passed-gw{deadline_gw}"
                     )
+
+                if not dl_state.get("waiver_results_sent") and -43200 <= secs_left <= -60:
+                    for k in list(_MEMORY_CACHE.keys()):
+                        if k[0] == "fetch_draft_league_transactions":
+                            _MEMORY_CACHE.pop(k, None)
+                    cdp_tx = [
+                        t for t in (fetch_draft_league_transactions(63) or [])
+                        if safe_int(t.get("event")) == deadline_gw and str(t.get("kind", "")).lower() == "w"
+                    ]
+                    if cdp_tx:
+                        dl_state["waiver_results_sent"] = True
+                        upstash_set_json(dl_state_key, dl_state)
+                        elem_map_w = {item["id"]: item.get("web_name", "Player") for item in (static_data or {}).get("elements", [])}
+                        waiver_jobs = []
+                        for lid in [63, 320, 378, 240]:
+                            ld_w, _ = cached_league_data(lid)
+                            div_tx = [
+                                t for t in (fetch_draft_league_transactions(lid) or [])
+                                if safe_int(t.get("event")) == deadline_gw and str(t.get("kind", "")).lower() == "w"
+                            ]
+                            if not ld_w or not div_tx:
+                                continue
+                            e_to_a = {}
+                            for e_obj in ld_w.get("league_entries", []):
+                                ma = engine.get_manager_alias(e_obj.get("player_first_name", ""), e_obj.get("player_last_name", ""))
+                                if e_obj.get("entry_id"): e_to_a[safe_int(e_obj["entry_id"])] = ma
+                                if e_obj.get("id"): e_to_a[safe_int(e_obj["id"])] = ma
+
+                            winners_map = {
+                                safe_int(t.get("element_in")): e_to_a.get(safe_int(t.get("entry")), "Manager")
+                                for t in div_tx if str(t.get("result", "")).lower() == "a"
+                            }
+                            by_mgr = {}
+                            for t in div_tx:
+                                ma = e_to_a.get(safe_int(t.get("entry")))
+                                if ma:
+                                    by_mgr.setdefault(ma, []).append(t)
+
+                            for ma, m_txs in by_mgr.items():
+                                app_list, rej_list = [], []
+                                for t in m_txs:
+                                    pin = elem_map_w.get(safe_int(t.get("element_in")), "Player")
+                                    pout = elem_map_w.get(safe_int(t.get("element_out")), "Player")
+                                    if str(t.get("result", "")).lower() == "a":
+                                        app_list.append(f"+{pin} (-{pout})")
+                                    else:
+                                        sniper = winners_map.get(safe_int(t.get("element_in")))
+                                        rej_list.append(f"{pin} (sniped by {sniper})" if sniper else pin)
+                                parts = []
+                                if app_list: parts.append("✅ Signed: " + ", ".join(app_list))
+                                if rej_list: parts.append("❌ Missed: " + ", ".join(rej_list))
+                                if parts:
+                                    waiver_jobs.append((ma, f"📋 GW {deadline_gw} Waiver Results ({ma})", " | ".join(parts), f"wres-gw{deadline_gw}-{ma}"))
+
+                        if waiver_jobs:
+                            dead_eps = set()
+                            with ThreadPoolExecutor(max_workers=8) as w_ex:
+                                list(w_ex.map(lambda j: send_push_to_manager(subs_registry, j[0], j[1], j[2], tag=j[3], dead_eps_out=dead_eps), waiver_jobs))
+                            if dead_eps:
+                                prune_dead_endpoints(dead_eps)
             except Exception:
                 pass
 
