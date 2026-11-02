@@ -699,15 +699,17 @@ def serve_badge():
             return FileResponse(p, media_type="image/png")
     return FileResponse(base_dir / "icon.png", media_type="image/png")
 
-@app.get("/api/logo_secondary")
-def serve_secondary_logo():
+@app.get("/api/logo")
+def serve_primary_logo():
     candidates = [
-        base_dir / "Splash_Logo_2.png",
-        base_dir / "Splash_Logo_2.jpg",
-        base_dir / "Splash_Logo_2.jpeg",
-        assets_folder / "Splash_Logo_2.png",
-        assets_folder / "Splash_Logo_2.jpg",
-        base_dir / "icon.png"
+        base_dir / "icon.png",
+        base_dir / "logo.png",
+        base_dir / "logo.jpg",
+        assets_folder / "icon.png",
+        assets_folder / "logo.png",
+        assets_folder / "logo.jpg",
+        base_dir / "Splash_Logo_1.png",
+        assets_folder / "Splash_Logo_1.png"
     ]
     for p in candidates:
         if p.exists() and p.is_file():
