@@ -692,6 +692,13 @@ def serve_manifest():
 def serve_icon():
     return FileResponse(base_dir / "icon.png", media_type="image/png")
 
+@app.get("/badge.png")
+def serve_badge():
+    for p in [base_dir / "badge.png", assets_folder / "badge.png"]:
+        if p.exists() and p.is_file():
+            return FileResponse(p, media_type="image/png")
+    return FileResponse(base_dir / "icon.png", media_type="image/png")
+
 @app.get("/api/logo_secondary")
 def serve_secondary_logo():
     candidates = [
