@@ -719,15 +719,25 @@ def serve_primary_logo():
 @app.get("/api/logo_secondary")
 def serve_secondary_logo():
     candidates = [
+        base_dir / "Splash_Logo_2.png",
+        base_dir / "Splash_Logo_2.jpg",
+        base_dir / "Splash_Logo_2.jpeg",
+        base_dir / "Splash_Logo2.png",
+        base_dir / "Splash_Logo2.jpg",
         assets_folder / "Splash_Logo_2.png",
         assets_folder / "Splash_Logo_2.jpg",
-        base_dir / "Assets" / "Splash_Logo_2.png",
-        base_dir / "Assets" / "Splash_Logo_2.jpg",
-        base_dir / "icon.png"
+        assets_folder / "Splash_Logo_2.jpeg",
+        assets_folder / "Splash_Logo2.png",
+        assets_folder / "Splash_Logo2.jpg"
     ]
     for p in candidates:
         if p.exists() and p.is_file():
             return FileResponse(p)
+    for folder in [base_dir, assets_folder]:
+        if folder.exists() and folder.is_dir():
+            for f in folder.iterdir():
+                if f.is_file() and f.stem.lower().replace("_", "") == "splashlogo2":
+                    return FileResponse(f)
     return Response(status_code=404)
 
 @app.get("/api/league_data")
