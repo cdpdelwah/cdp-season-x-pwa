@@ -717,7 +717,7 @@
             <button class="menu-btn" onclick="navigate('cup')"><span>🪣 Cup & Bucket</span> <span>➔</span></button>
             <button class="menu-btn" onclick="navigate('squad')"><span>🧠 Squad Analyser</span> <span>➔</span></button>
             <button class="menu-btn" onclick="navigate('trade')"><span>🤝 Trade Hub</span> <span>➔</span></button>
-            <button class="menu-btn" onclick="navigate('players')"><span>🔍 Player Hub</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="navigate('players')"><span>🔍 Players and Waivers</span> <span>➔</span></button>
             <button class="menu-btn" onclick="navigate('gacs')"><span>🎯 GACS</span> <span>➔</span></button>
             <button class="menu-btn" onclick="navigate('disc')"><span>🟨🟥 Disciplinary</span> <span>➔</span></button>
             <button class="menu-btn" onclick="navigate('news')"><span>📰 Newsletters</span> <span>➔</span></button>
@@ -899,7 +899,6 @@
             <button class="sub-tab-btn" id="tr-sub-manage" onclick="switchTradeSubTab('manage')">📋 My Listings</button>
             <button class="sub-tab-btn" id="tr-sub-calc" onclick="switchTradeSubTab('calc')">⚖️ Calculator & Propose</button>
             <button class="sub-tab-btn" id="tr-sub-offers" onclick="switchTradeSubTab('offers')">📬 Trade Offers</button>
-            <button class="sub-tab-btn" id="tr-sub-waivers" onclick="switchTradeSubTab('waivers')">⚡ Waiver Wire</button>
         </div>
 
         <!-- TAB 1: BROWSE -->
@@ -948,39 +947,17 @@
 
         <!-- TAB 4: LIVE TRADE OFFERS -->
         <div id="trade-offers-pane" style="width: 100%; display: none;"></div>
-
-        <!-- TAB 5: WAIVER WIRE & TRANSACTIONS TICKER -->
-        <div id="trade-waivers-pane" style="width: 100%; display: none;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
-                <div>
-                    <div style="font-size: 1rem; font-weight: 800; color: #fff;">⚡ Official Division Waiver & Free Agent Ticker</div>
-                    <div style="font-size: 0.78rem; color: #94a3b8;">Tracks approved claims, free agency pickups and rejected/sniped waiver bids</div>
-                </div>
-                <div style="display: flex; gap: 8px; align-items: center;">
-                    <select id="tr-waiver-div-sel" class="white-select" onchange="fetchWaiverTicker(this.value, '0')">
-                        <option value="63">CDP</option>
-                        <option value="320">SDM</option>
-                        <option value="378">BDR</option>
-                        <option value="240">LDE</option>
-                    </select>
-                    <select id="tr-waiver-gw-sel" class="white-select" onchange="fetchWaiverTicker(document.getElementById('tr-waiver-div-sel').value, this.value)">
-                        <option value="0">Latest GW</option>
-                    </select>
-                </div>
-            </div>
-            <div id="trade-waivers-box" style="width: 100%;"></div>
-        </div>
     </div>
 
-    <!-- SCREEN 8.5: PLAYER HUB -->
+    <!-- SCREEN 8.5: PLAYERS AND WAIVERS -->
     <div id="screen-players" class="app-screen">
         <div class="top-nav-bar">
             <button class="back-home-btn" onclick="navigate('home')">← Home</button>
-            <button class="refresh-btn" onclick="fetchPlayerHub(activeLeagueId)">🔄 Refresh</button>
+            <button class="refresh-btn" onclick="refreshPlayersScreen()">🔄 Refresh</button>
         </div>
         <div class="header">
-            <h1 id="ph-title">🔍 Player Hub</h1>
-            <p>Scout the entire player universe, filter by availability and track upcoming fixtures.</p>
+            <h1 id="ph-title">🔍 Players and Waivers</h1>
+            <p>Scout the player database, check availability and track official division waiver and free agent claims.</p>
         </div>
         <div class="league-tabs">
             <button class="tab-btn ph-l-tab" data-lid="63" onclick="switchPlayerHubLeague(63)">CDP</button>
@@ -988,30 +965,51 @@
             <button class="tab-btn ph-l-tab" data-lid="378" onclick="switchPlayerHubLeague(378)">BDR</button>
             <button class="tab-btn ph-l-tab" data-lid="240" onclick="switchPlayerHubLeague(240)">LDE</button>
         </div>
-        
-        <div style="width: 100%; display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; background: #090c13; padding: 12px; border-radius: 8px; border: 1px solid #182030;">
-            <input type="text" id="ph-search" class="dark-input" placeholder="🔍 Search by player name..." onkeyup="renderPlayerHubTable()">
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <select id="ph-view" class="white-select" style="flex: 1; min-width: 100px;" onchange="renderPlayerHubTable()">
-                    <option value="All">All Players</option>
-                    <option value="Free Agent">Free Agents</option>
-                    <option value="Owned">Owned</option>
-                </select>
-                <select id="ph-pos" class="white-select" style="flex: 1; min-width: 100px;" onchange="renderPlayerHubTable()">
-                    <option value="All">All Positions</option>
-                    <option value="GKP">GKP</option>
-                    <option value="DEF">DEF</option>
-                    <option value="MID">MID</option>
-                    <option value="FWD">FWD</option>
-                </select>
-                <select id="ph-sort" class="white-select" style="flex: 1; min-width: 100px;" onchange="renderPlayerHubTable()">
-                    <option value="pts">Sort: Total Pts</option>
-                    <option value="form">Sort: Form</option>
-                    <option value="ppg">Sort: PPG</option>
+        <div class="sub-tabs">
+            <button class="sub-tab-btn active" id="ph-sub-db" onclick="switchPlayersSubTab('db')">🔍 Player Database</button>
+            <button class="sub-tab-btn" id="ph-sub-waivers" onclick="switchPlayersSubTab('waivers')">⚡ Waiver & FA Ticker</button>
+        </div>
+
+        <!-- SUB-TAB 1: PLAYER DATABASE -->
+        <div id="ph-db-pane" style="width: 100%;">
+            <div style="width: 100%; display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; background: #090c13; padding: 12px; border-radius: 8px; border: 1px solid #182030;">
+                <input type="text" id="ph-search" class="dark-input" placeholder="🔍 Search by player name..." onkeyup="renderPlayerHubTable()">
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <select id="ph-view" class="white-select" style="flex: 1; min-width: 100px;" onchange="renderPlayerHubTable()">
+                        <option value="All">All Players</option>
+                        <option value="Free Agent">Free Agents</option>
+                        <option value="Owned">Owned</option>
+                    </select>
+                    <select id="ph-pos" class="white-select" style="flex: 1; min-width: 100px;" onchange="renderPlayerHubTable()">
+                        <option value="All">All Positions</option>
+                        <option value="GKP">GKP</option>
+                        <option value="DEF">DEF</option>
+                        <option value="MID">MID</option>
+                        <option value="FWD">FWD</option>
+                    </select>
+                    <select id="ph-sort" class="white-select" style="flex: 1; min-width: 100px;" onchange="renderPlayerHubTable()">
+                        <option value="pts">Sort: Total Pts</option>
+                        <option value="form">Sort: Form</option>
+                        <option value="ppg">Sort: PPG</option>
+                    </select>
+                </div>
+            </div>
+            <div id="ph-table-container" style="width: 100%;"></div>
+        </div>
+
+        <!-- SUB-TAB 2: WAIVER & FREE AGENT TICKER -->
+        <div id="ph-waivers-pane" style="width: 100%; display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <div style="font-size: 1rem; font-weight: 800; color: #fff;">⚡ Official Division Waiver & Free Agent Ticker</div>
+                    <div style="font-size: 0.78rem; color: #94a3b8;">Tracks approved claims, free agency pickups and rejected or sniped waiver bids</div>
+                </div>
+                <select id="tr-waiver-gw-sel" class="white-select" onchange="fetchWaiverTicker(activeLeagueId, this.value)">
+                    <option value="0">Latest GW</option>
                 </select>
             </div>
+            <div id="trade-waivers-box" style="width: 100%;"></div>
         </div>
-        <div id="ph-table-container" style="width: 100%;"></div>
     </div>
 
     <!-- SCREEN 9: GACS -->
@@ -2494,25 +2492,18 @@
             const homeLid = parseInt(localStorage.getItem("cdp_league")) || 63;
             document.getElementById('trade-title').innerText = `🤝 Trade Hub - ${LEAGUE_NAMES[homeLid]}`;
             document.getElementById('tr-browse-subtitle').innerText = `Active Transfer List — ${LEAGUE_NAMES[homeLid]}`;
-            const wDivSel = document.getElementById('tr-waiver-div-sel');
-            if (wDivSel) wDivSel.value = String(homeLid);
             fetchTradeHub();
             fetchTradeProposals();
         }
 
         function switchTradeSubTab(tab) {
-            ['browse', 'manage', 'calc', 'offers', 'waivers'].forEach(k => {
+            ['browse', 'manage', 'calc', 'offers'].forEach(k => {
                 const btn = document.getElementById(`tr-sub-${k}`);
                 const pane = document.getElementById(`trade-${k}-pane`);
                 if (btn) btn.classList.toggle('active', k === tab);
                 if (pane) pane.style.display = (k === tab) ? 'block' : 'none';
             });
             if (tab === 'offers') fetchTradeProposals();
-            if (tab === 'waivers') {
-                const wDivSel = document.getElementById('tr-waiver-div-sel');
-                const wGwSel = document.getElementById('tr-waiver-gw-sel');
-                fetchWaiverTicker(wDivSel ? wDivSel.value : activeLeagueId, wGwSel ? wGwSel.value : '0');
-            }
         }
 
         async function fetchTradeHub() {
@@ -3063,12 +3054,41 @@
         // PLAYER HUB
         // ==========================================
         window.playerHubData = [];
-        
+        window.playersSubTab = 'db';
+
+        function switchPlayersSubTab(tab) {
+            window.playersSubTab = tab;
+            document.getElementById('ph-sub-db').classList.toggle('active', tab === 'db');
+            document.getElementById('ph-sub-waivers').classList.toggle('active', tab === 'waivers');
+            document.getElementById('ph-db-pane').style.display = (tab === 'db') ? 'block' : 'none';
+            document.getElementById('ph-waivers-pane').style.display = (tab === 'waivers') ? 'block' : 'none';
+            if (tab === 'waivers') {
+                const wGwSel = document.getElementById('tr-waiver-gw-sel');
+                fetchWaiverTicker(activeLeagueId, wGwSel ? wGwSel.value : '0');
+            } else if (!window.playerHubData || !window.playerHubData.length) {
+                fetchPlayerHub(activeLeagueId);
+            }
+        }
+
+        function refreshPlayersScreen() {
+            if (window.playersSubTab === 'waivers') {
+                const wGwSel = document.getElementById('tr-waiver-gw-sel');
+                fetchWaiverTicker(activeLeagueId, wGwSel ? wGwSel.value : '0');
+            } else {
+                fetchPlayerHub(activeLeagueId);
+            }
+        }
+
         function switchPlayerHubLeague(leagueId) {
             activeLeagueId = leagueId;
             highlightLeagueButtons('.ph-l-tab', leagueId);
-            document.getElementById('ph-title').innerText = `🔍 Player Hub - ${LEAGUE_NAMES[leagueId]}`;
-            fetchPlayerHub(leagueId);
+            document.getElementById('ph-title').innerText = `🔍 Players and Waivers - ${LEAGUE_NAMES[leagueId]}`;
+            if (window.playersSubTab === 'waivers') {
+                const wGwSel = document.getElementById('tr-waiver-gw-sel');
+                fetchWaiverTicker(leagueId, wGwSel ? wGwSel.value : '0');
+            } else {
+                fetchPlayerHub(leagueId);
+            }
         }
 
         async function fetchPlayerHub(leagueId) {
