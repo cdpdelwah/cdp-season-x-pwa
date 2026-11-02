@@ -3852,6 +3852,7 @@ def get_cup_standings():
 # ==========================================
 bet_hector_file = base_dir / "bet_hector.json"
 _BET_HECTOR_LOCK = None
+_BET_HECTOR_MEM_CACHE = None
 
 def _get_bet_lock():
     global _BET_HECTOR_LOCK
@@ -3864,16 +3865,41 @@ def get_all_32_manager_aliases():
     return sorted([k for k in MANAGER_LEAGUES.keys() if k.lower() != "admin"], key=lambda x: x.lower())
 
 def load_bet_hector_state():
-    default_state = {"balances": {}, "bets": []}
-    data = upstash_get_json("cdp_bet_hector_v1", None)
+    global _BET_HECTOR_MEM_CACHE
+    upstash_url = os.getenv("UPSTASH_URL")
+    upstash_token = os.getenv("UPSTASH_TOKEN")
+    data = None
+    upstash_network_err = False
+
+    if upstash_url and upstash_token:
+        clean_url = upstash_url.rstrip("/")
+        try:
+            headers = {"Authorization": f"Bearer {upstash_token}"}
+            r = requests.get(f"{clean_url}/get/cdp_bet_hector_v1", headers=headers, timeout=6)
+            if r.status_code == 200:
+                res_str = r.json().get("result")
+                if res_str:
+                    data = json.loads(res_str)
+            else:
+                upstash_network_err = True
+        except Exception:
+            upstash_network_err = True
+
+    if not isinstance(data, dict) and _BET_HECTOR_MEM_CACHE is not None:
+        data = json.loads(json.dumps(_BET_HECTOR_MEM_CACHE))
+
     if not isinstance(data, dict) and bet_hector_file.exists():
         try:
             with open(bet_hector_file, "r", encoding="utf-8") as bf:
                 data = json.load(bf)
         except Exception:
             data = None
+
     if not isinstance(data, dict):
-        data = default_state
+        if upstash_network_err:
+            raise RuntimeError("Temporary Upstash connection error — aborting to protect HBX balances.")
+        data = {"balances": {}, "bets": []}
+
     balances = data.get("balances") if isinstance(data.get("balances"), dict) else {}
     for mgr in get_all_32_manager_aliases():
         if mgr not in balances:
@@ -3881,9 +3907,13 @@ def load_bet_hector_state():
     data["balances"] = balances
     if not isinstance(data.get("bets"), list):
         data["bets"] = []
+
+    _BET_HECTOR_MEM_CACHE = json.loads(json.dumps(data))
     return data
 
 def save_bet_hector_state(state):
+    global _BET_HECTOR_MEM_CACHE
+    _BET_HECTOR_MEM_CACHE = json.loads(json.dumps(state))
     upstash_set_json("cdp_bet_hector_v1", state)
     try:
         with open(bet_hector_file, "w", encoding="utf-8") as bf:
@@ -4036,14 +4066,11 @@ def evaluate_bet_hector_settlements():
                     s_opp = mgr_gw_scores.get((b_gw, opp.lower()))
                     if s_prop is None or s_opp is None:
                         continue
-                    hcap = float(b.get("handicap") or 0.0)
-                    adj_prop = float(s_prop) + hcap
-                    hcap_str = f" ({'+' if hcap > 0 else ''}{hcap:g} hcap)" if hcap != 0 else ""
-                    score_note = f"GW {b_gw}: {prop} {s_prop}{hcap_str} vs {s_opp} {opp}"
+                    score_note = f"GW {b_gw}: {prop} ({s_prop} pts) vs {opp} ({s_opp} pts)"
 
-                    if adj_prop > float(s_opp):
+                    if s_prop > s_opp:
                         settle_single_bet(state, b, prop, score_note)
-                    elif float(s_opp) > adj_prop:
+                    elif s_opp > s_prop:
                         settle_single_bet(state, b, opp, score_note)
                     else:
                         settle_single_bet(state, b, "Push", f"{score_note} (Tie / Push)")
@@ -4219,7 +4246,7 @@ async def propose_bet_hector(request: Request, background_tasks: BackgroundTasks
     proposer = str(body.get("proposer", "")).strip()
     if proposer.lower() == "admin":
         proposer = "Andy"
-    opponent = str(body.get("opponent", "Open")).strip() or "Open"
+    opponent = str(body.get("opponent", "")).strip()
     bet_type = str(body.get("bet_type", "gw_score")).strip()
     gw = safe_int(body.get("gw", 0))
     hbx_stake = max(0, safe_int(body.get("hbx_stake", 0)))
@@ -4227,8 +4254,8 @@ async def propose_bet_hector(request: Request, background_tasks: BackgroundTasks
 
     if not proposer or proposer not in MANAGER_LEAGUES:
         return {"status": "error", "message": "Invalid proposer identity."}
-    if opponent != "Open" and opponent.lower() == proposer.lower():
-        return {"status": "error", "message": "You cannot lay a bet against yourself."}
+    if not opponent or opponent not in MANAGER_LEAGUES or opponent.lower() == proposer.lower():
+        return {"status": "error", "message": "Select a valid rival manager to challenge."}
     if hbx_stake <= 0 and not custom_stake:
         return {"status": "error", "message": "Enter a Hectorbux (HBX) stake or custom terms (or both)."}
 
@@ -4258,23 +4285,16 @@ async def propose_bet_hector(request: Request, background_tasks: BackgroundTasks
         my_avail = get_available_hbx(state, proposer)
         if hbx_stake > my_avail:
             return {"status": "error", "message": f"Insufficient available Hectorbux. You have {my_avail} HBX unencumbered."}
-        if opponent != "Open" and hbx_stake > 0:
+        if hbx_stake > 0:
             opp_avail = get_available_hbx(state, opponent)
             if hbx_stake > opp_avail:
                 return {"status": "error", "message": f"{opponent} only has {opp_avail} available HBX to cover this stake."}
 
-        handicap = 0.0
         player_a_id, player_b_id = 0, 0
         player_a_name, player_b_name = "", ""
 
         if bet_type == "gw_score":
-            try:
-                handicap = round(float(body.get("handicap") or 0.0), 1)
-            except Exception:
-                handicap = 0.0
-            h_str = f" ({'+' if handicap > 0 else ''}{handicap:g} pts)" if handicap != 0 else ""
-            opp_lbl = "Open Challenger" if opponent == "Open" else opponent
-            summary = f"GW {gw} H2H Shootout: {proposer}{h_str} to outscore {opp_lbl}"
+            summary = f"GW {gw} H2H Shootout: {proposer} to outscore {opponent}"
         elif bet_type == "player_duel":
             player_a_id = safe_int(body.get("player_a_id", 0))
             player_b_id = safe_int(body.get("player_b_id", 0))
@@ -4283,7 +4303,7 @@ async def propose_bet_hector(request: Request, background_tasks: BackgroundTasks
             el_lookup = {item["id"]: item.get("web_name", "Player") for item in static_data.get("elements", [])}
             player_a_name = el_lookup.get(player_a_id, "Player A")
             player_b_name = el_lookup.get(player_b_id, "Player B")
-            summary = f"GW {gw} Player Duel: {player_a_name} ({proposer}) to outscore {player_b_name}"
+            summary = f"GW {gw} Player Duel: {player_a_name} ({proposer}) to outscore {player_b_name} ({opponent})"
         else:
             custom_desc = str(body.get("custom_desc", "")).strip()
             if not custom_desc:
@@ -4298,7 +4318,6 @@ async def propose_bet_hector(request: Request, background_tasks: BackgroundTasks
             "bet_type": bet_type,
             "gw": gw,
             "summary": summary,
-            "handicap": handicap,
             "player_a_id": player_a_id,
             "player_b_id": player_b_id,
             "player_a_name": player_a_name,
@@ -4322,21 +4341,13 @@ async def propose_bet_hector(request: Request, background_tasks: BackgroundTasks
         if hbx_stake > 0: stake_parts.append(f"{hbx_stake} HBX")
         if custom_stake: stake_parts.append(custom_stake)
         s_txt = " + ".join(stake_parts)
-        if opponent != "Open":
-            send_push_to_manager(
-                subs_registry,
-                opponent,
-                f"🎰 Bet Hector Challenge from {proposer}!",
-                f"{summary} | Stake: {s_txt}. Open Bet Hector to Accept or Reject!",
-                tag=bet_id
-            )
-        else:
-            broadcast_push_to_all(
-                subs_registry,
-                f"🎰 Bet Hector Open Challenge ({proposer})",
-                f"{summary} | Stake: {s_txt}. First manager to accept locks it in!",
-                tag=bet_id
-            )
+        send_push_to_manager(
+            subs_registry,
+            opponent,
+            f"🎰 Bet Hector Challenge from {proposer}!",
+            f"{summary} | Stake: {s_txt}. Open Bet Hector to Accept or Reject!",
+            tag=bet_id
+        )
 
     background_tasks.add_task(_notify_bet_challenge)
     return {"status": "ok", "bet": new_bet}
@@ -4364,7 +4375,7 @@ async def respond_bet_hector(request: Request, background_tasks: BackgroundTasks
             return {"status": "error", "message": f"This wager is already {target.get('status')}."}
 
         proposer = str(target.get("proposer", "")).strip()
-        opp = str(target.get("opponent", "Open")).strip()
+        opp = str(target.get("opponent", "")).strip()
         stake = safe_int(target.get("hbx_stake", 0))
         b_gw = safe_int(target.get("gw", 0))
 
@@ -4376,14 +4387,12 @@ async def respond_bet_hector(request: Request, background_tasks: BackgroundTasks
             return {"status": "ok"}
 
         if action == "reject":
-            if opp != "Open" and actor.lower() != opp.lower():
+            if actor.lower() != opp.lower():
                 return {"status": "error", "message": "Only the challenged opponent can reject this bet."}
             target["status"] = "Rejected"
             save_bet_hector_state(state)
         elif action == "accept":
-            if actor.lower() == proposer.lower():
-                return {"status": "error", "message": "You cannot accept your own wager."}
-            if opp != "Open" and actor.lower() != opp.lower():
+            if actor.lower() != opp.lower():
                 return {"status": "error", "message": f"This wager is reserved for {opp}."}
 
             if target.get("bet_type") in ("gw_score", "player_duel") and b_gw <= current_gw:
@@ -4406,10 +4415,6 @@ async def respond_bet_hector(request: Request, background_tasks: BackgroundTasks
             if stake > actor_avail:
                 return {"status": "error", "message": f"You need {stake} available HBX to accept this bet (you have {actor_avail} HBX)."}
 
-            if opp == "Open":
-                target["opponent"] = actor
-                if target.get("bet_type") == "gw_score":
-                    target["summary"] = str(target.get("summary", "")).replace("Open Challenger", actor)
             target["status"] = "Active"
             target["accepted_at"] = datetime.now().strftime("%d %b, %H:%M")
             save_bet_hector_state(state)

@@ -722,8 +722,8 @@
             <button class="menu-btn" onclick="navigate('disc')"><span>🟨🟥 Disciplinary</span> <span>➔</span></button>
             <button class="menu-btn" onclick="navigate('news')"><span>📰 Newsletters</span> <span>➔</span></button>
             <button class="menu-btn" onclick="navigate('power')"><span>⚡ Power Rankings</span> <span>➔</span></button>
-            <button class="menu-btn" onclick="navigate('asterisk')"><span>📜 Asterisk*</span> <span>➔</span></button>
-            <button class="menu-btn" onclick="navigate('hector')" style="background: linear-gradient(145deg, rgba(127, 29, 29, 0.92) 0%, rgba(42, 10, 10, 0.98) 100%); border-color: rgba(239, 68, 68, 0.65); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 6px 16px rgba(239, 68, 68, 0.25);"><span>🎰 Bet Hector</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="navigate('asterisk')" style="grid-column: span 1;"><span>📜 Asterisk*</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="navigate('hector')" style="grid-column: span 1; background: linear-gradient(145deg, rgba(127, 29, 29, 0.92) 0%, rgba(42, 10, 10, 0.98) 100%); border-color: rgba(239, 68, 68, 0.65); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 6px 16px rgba(239, 68, 68, 0.25);"><span>🎰 Bet Hector</span> <span>➔</span></button>
         </div>
         
         <div style="width: 100%; display: flex; gap: 8px; margin-top: 20px;">
@@ -1215,16 +1215,10 @@
                     </div>
                 </div>
 
-                <!-- GW & Handicap Row -->
-                <div id="bh-gw-row" class="spotlight-grid" style="margin-bottom: 12px;">
-                    <div>
-                        <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">Target Gameweek</label>
-                        <select id="bh-gw-sel" class="white-select" style="width: 100%;"></select>
-                    </div>
-                    <div id="bh-hcap-box">
-                        <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">Your Handicap Line (Optional, e.g. 0, +4.5, -3.5)</label>
-                        <input id="bh-hcap-input" type="number" step="0.5" value="0" class="dark-input" placeholder="0">
-                    </div>
+                <!-- GW Row -->
+                <div id="bh-gw-row" style="margin-bottom: 12px;">
+                    <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">Target Gameweek</label>
+                    <select id="bh-gw-sel" class="white-select" style="width: 100%;"></select>
                 </div>
 
                 <!-- Player Duel Selectors -->
@@ -1563,8 +1557,7 @@
 
         function onBetHectorTypeChange() {
             const bType = document.getElementById('bh-type-sel').value;
-            document.getElementById('bh-gw-row').style.display = (bType === 'custom') ? 'none' : 'grid';
-            document.getElementById('bh-hcap-box').style.display = (bType === 'gw_score') ? 'block' : 'none';
+            document.getElementById('bh-gw-row').style.display = (bType === 'custom') ? 'none' : 'block';
             document.getElementById('bh-duel-row').style.display = (bType === 'player_duel') ? 'grid' : 'none';
             document.getElementById('bh-custom-row').style.display = (bType === 'custom') ? 'block' : 'none';
         }
@@ -1585,16 +1578,15 @@
                     walletEl.innerHTML = `${Number(data.my_balance || 0).toLocaleString()} HBX${lockedTxt}`;
                 }
 
-                // Populate Opponent Selector
+                // Populate Opponent Selector (Direct Manager to Manager only)
                 const oppSel = document.getElementById('bh-opp-sel');
                 if (oppSel) {
                     const prevOpp = oppSel.value;
                     const myClean = (data.active_alias || savedAlias || '').toLowerCase();
-                    oppSel.innerHTML = `<option value="Open">🌐 Open Floor Challenge (Any Manager)</option>` +
-                        (data.managers || [])
-                            .filter(m => m.alias.toLowerCase() !== myClean)
-                            .map(m => `<option value="${m.alias}">👤 ${m.alias} (${m.div} • ${m.available} HBX avail)</option>`)
-                            .join('');
+                    oppSel.innerHTML = (data.managers || [])
+                        .filter(m => m.alias.toLowerCase() !== myClean)
+                        .map(m => `<option value="${m.alias}">👤 ${m.alias} (${m.div} • ${m.available} HBX avail)</option>`)
+                        .join('');
                     if (prevOpp && [...oppSel.options].some(o => o.value === prevOpp)) oppSel.value = prevOpp;
                 }
 
@@ -1647,7 +1639,7 @@
             });
 
             if (!filtered.length) {
-                box.innerHTML = `<div class="alert-box alert-info">No wagers match this filter yet. Tap <b>🎲 Lay a Bet</b> to post the first challenge!</div>`;
+                box.innerHTML = `<div class="alert-box alert-info">No wagers match this filter yet. Tap <b>🎲 Lay a Bet</b> to post a challenge!</div>`;
                 return;
             }
 
@@ -1655,7 +1647,6 @@
             filtered.forEach(b => {
                 const isProp = (b.proposer.toLowerCase() === myClean);
                 const isOpp = (b.opponent.toLowerCase() === myClean);
-                const isOpen = (b.opponent === 'Open');
 
                 const stakeParts = [];
                 if (Number(b.hbx_stake) > 0) stakeParts.push(`<span style="color:#f59e0b; font-weight:900;">${Number(b.hbx_stake).toLocaleString()} HBX</span>`);
@@ -1674,11 +1665,11 @@
 
                 let actionsHtml = '';
                 if (b.status === 'Pending') {
-                    if (!isProp && (isOpp || isOpen)) {
+                    if (isOpp) {
                         actionsHtml = `
                             <div style="display:flex; gap:8px; margin-top:10px;">
                                 <button onclick="respondBetHector('${b.id}', 'accept')" style="flex:1; background:#22c55e; color:#000; border:none; border-radius:6px; padding:9px 12px; font-weight:900; cursor:pointer;">🤝 Accept Wager</button>
-                                ${isOpp ? `<button onclick="respondBetHector('${b.id}', 'reject')" style="flex:1; background:#ef4444; color:#fff; border:none; border-radius:6px; padding:9px 12px; font-weight:900; cursor:pointer;">❌ Decline</button>` : ''}
+                                <button onclick="respondBetHector('${b.id}', 'reject')" style="flex:1; background:#ef4444; color:#fff; border:none; border-radius:6px; padding:9px 12px; font-weight:900; cursor:pointer;">❌ Decline</button>
                             </div>
                         `;
                     } else if (isProp) {
@@ -1701,11 +1692,10 @@
                     `;
                 }
 
-                const oppLabel = isOpen ? `<span style="color:#22c55e;">🌐 Open Challenge</span>` : `<span style="color:#38bdf8;">${b.opponent}</span>`;
                 html += `
                     <div class="exp-card">
                         <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px;">
-                            <div style="font-size:0.94rem; font-weight:900; color:#fff;"><span style="color:#f59e0b;">${b.proposer}</span> vs ${oppLabel} <span style="font-size:0.72rem; color:#64748b;">(${b.created_at})</span></div>
+                            <div style="font-size:0.94rem; font-weight:900; color:#fff;"><span style="color:#f59e0b;">${b.proposer}</span> vs <span style="color:#38bdf8;">${b.opponent}</span> <span style="font-size:0.72rem; color:#64748b;">(${b.created_at})</span></div>
                             <span style="font-size:0.74rem; font-weight:800; color:${badgeColor}; border:1px solid ${badgeColor}; padding:2px 8px; border-radius:999px; white-space:nowrap;">${badgeText}</span>
                         </div>
                         <div style="font-size:0.88rem; font-weight:700; color:#e2e8f0; margin-bottom:6px;">${b.summary}</div>
@@ -1779,7 +1769,6 @@
             const opp = document.getElementById('bh-opp-sel').value;
             const bType = document.getElementById('bh-type-sel').value;
             const gw = parseInt(document.getElementById('bh-gw-sel').value) || 0;
-            const hcap = parseFloat(document.getElementById('bh-hcap-input').value) || 0.0;
             const paId = parseInt(document.getElementById('bh-pa-sel').value) || 0;
             const pbId = parseInt(document.getElementById('bh-pb-sel').value) || 0;
             const cDesc = document.getElementById('bh-custom-desc').value;
@@ -1794,7 +1783,6 @@
                     opponent: opp,
                     bet_type: bType,
                     gw: gw,
-                    handicap: hcap,
                     player_a_id: paId,
                     player_b_id: pbId,
                     custom_desc: cDesc,
