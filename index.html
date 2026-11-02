@@ -723,6 +723,7 @@
             <button class="menu-btn" onclick="navigate('news')"><span>📰 Newsletters</span> <span>➔</span></button>
             <button class="menu-btn" onclick="navigate('power')"><span>⚡ Power Rankings</span> <span>➔</span></button>
             <button class="menu-btn" onclick="navigate('asterisk')"><span>📜 Asterisk*</span> <span>➔</span></button>
+            <button class="menu-btn" onclick="navigate('hector')" style="background: linear-gradient(145deg, rgba(127, 29, 29, 0.92) 0%, rgba(42, 10, 10, 0.98) 100%); border-color: rgba(239, 68, 68, 0.65); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 6px 16px rgba(239, 68, 68, 0.25);"><span>🎰 Bet Hector</span> <span>➔</span></button>
         </div>
         
         <div style="width: 100%; display: flex; gap: 8px; margin-top: 20px;">
@@ -1156,6 +1157,119 @@
         <div id="ast-pane-lore" style="width: 100%; display: none;"></div>
     </div>
 
+    <!-- SCREEN 14: BET HECTOR (PEER TO PEER WAGERS & HECTORBUX) -->
+    <div id="screen-hector" class="app-screen">
+        <div class="top-nav-bar">
+            <button class="back-home-btn" onclick="navigate('home')">← Home</button>
+            <button class="refresh-btn" onclick="fetchBetHector()">🔄 Refresh Book</button>
+        </div>
+        <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <h1>🎰 Bet Hector • The Dellarverse Book</h1>
+                <p>Peer to peer wagers across all 32 managers • 1,000 Hectorbux (HBX) starting stack & custom forfeits</p>
+            </div>
+            <div id="bh-wallet-pill" style="background: rgba(245, 158, 11, 0.14); border: 1.5px solid #f59e0b; border-radius: 10px; padding: 8px 14px; text-align: right;">
+                <div style="font-size: 0.68rem; font-weight: 800; color: #94a3b8; text-transform: uppercase;">Your Wallet</div>
+                <div id="bh-wallet-val" style="font-family: 'JetBrains Mono', monospace; font-size: 1.15rem; font-weight: 900; color: #f59e0b;">1,000 HBX</div>
+            </div>
+        </div>
+
+        <div class="sub-tabs">
+            <button class="sub-tab-btn active" id="bh-tab-book" onclick="switchBetHectorTab('book')">📋 The Book</button>
+            <button class="sub-tab-btn" id="bh-tab-create" onclick="switchBetHectorTab('create')">🎲 Lay a Bet</button>
+            <button class="sub-tab-btn" id="bh-tab-standings" onclick="switchBetHectorTab('standings')">🏆 HBX Standings & Forfeits</button>
+        </div>
+
+        <!-- PANE 1: THE BOOK (INCOMING, ACTIVE & SETTLED WAGERS) -->
+        <div id="bh-pane-book" style="width: 100%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                <span style="font-size: 0.88rem; font-weight: 800; color: #f59e0b;">Filter Wagers:</span>
+                <select id="bh-filter-sel" class="white-select" onchange="renderBetHectorBook()">
+                    <option value="all">All Wagers</option>
+                    <option value="mine">My Wagers & Action</option>
+                    <option value="open">Pending & Open Challenges</option>
+                    <option value="active">Active (Locked In)</option>
+                    <option value="settled">Settled Results</option>
+                </select>
+            </div>
+            <div id="bh-book-list" style="width: 100%;"></div>
+        </div>
+
+        <!-- PANE 2: LAY A BET (CREATE WAGER) -->
+        <div id="bh-pane-create" style="width: 100%; display: none;">
+            <div style="background: #090c13; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; width: 100%;">
+                <div style="font-size: 1.05rem; font-weight: 900; color: #f59e0b; margin-bottom: 12px;">🎲 Lay a New Wager</div>
+
+                <div class="spotlight-grid" style="margin-bottom: 12px;">
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">1. Select Opponent (All 32 Managers)</label>
+                        <select id="bh-opp-sel" class="white-select" style="width: 100%;"></select>
+                    </div>
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">2. Select Market Type</label>
+                        <select id="bh-type-sel" class="white-select" style="width: 100%;" onchange="onBetHectorTypeChange()">
+                            <option value="gw_score">⚔️ GW Score Shootout (Auto Settled)</option>
+                            <option value="player_duel">⚡ Player vs Player Duel (Auto Settled)</option>
+                            <option value="custom">🗣️ Custom Prop Callout (Manual Settlement)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- GW & Handicap Row -->
+                <div id="bh-gw-row" class="spotlight-grid" style="margin-bottom: 12px;">
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">Target Gameweek</label>
+                        <select id="bh-gw-sel" class="white-select" style="width: 100%;"></select>
+                    </div>
+                    <div id="bh-hcap-box">
+                        <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">Your Handicap Line (Optional, e.g. 0, +4.5, -3.5)</label>
+                        <input id="bh-hcap-input" type="number" step="0.5" value="0" class="dark-input" placeholder="0">
+                    </div>
+                </div>
+
+                <!-- Player Duel Selectors -->
+                <div id="bh-duel-row" class="spotlight-grid" style="margin-bottom: 12px; display: none;">
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 800; color: #f59e0b; display: block; margin-bottom: 5px;">Your Pick (Player A)</label>
+                        <select id="bh-pa-sel" class="white-select" style="width: 100%;"></select>
+                    </div>
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 800; color: #38bdf8; display: block; margin-bottom: 5px;">Opponent's Pick (Player B)</label>
+                        <select id="bh-pb-sel" class="white-select" style="width: 100%;"></select>
+                    </div>
+                </div>
+
+                <!-- Custom Prop Description -->
+                <div id="bh-custom-row" style="margin-bottom: 12px; display: none;">
+                    <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">Proposition Terms (Be specific!)</label>
+                    <input id="bh-custom-desc" type="text" class="dark-input" placeholder="e.g. My bench outscores your starting forwards in GW 11">
+                </div>
+
+                <!-- Stakes Row (Hectorbux + Custom Terms) -->
+                <div class="spotlight-grid" style="margin-bottom: 16px;">
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 800; color: #f59e0b; display: block; margin-bottom: 5px;">💰 Hectorbux Stake (HBX)</label>
+                        <input id="bh-stake-hbx" type="number" min="0" step="10" value="100" class="dark-input" placeholder="e.g. 100">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.78rem; font-weight: 800; color: #38bdf8; display: block; margin-bottom: 5px;">🍺 Custom Terms / Pint / Forfeit (Optional)</label>
+                        <input id="bh-stake-custom" type="text" class="dark-input" placeholder="e.g. 1 Pint at Survivor Series X">
+                    </div>
+                </div>
+
+                <button onclick="submitBetHectorWager()" style="width: 100%; background: #22c55e; color: #000; padding: 13px; border: none; border-radius: 8px; font-weight: 900; font-size: 0.98rem; cursor: pointer;">🎰 Post Wager & Ping Opponent</button>
+            </div>
+        </div>
+
+        <!-- PANE 3: HBX LEADERBOARD & FORFEIT LEDGER -->
+        <div id="bh-pane-standings" style="width: 100%; display: none;">
+            <div style="font-size: 1.05rem; font-weight: 800; color: #fff; margin-bottom: 8px;">🏆 Hectorbux (HBX) Punter Standings (All 32 Managers)</div>
+            <div id="bh-leaderboard-box" style="width: 100%; margin-bottom: 18px;"></div>
+            <div style="font-size: 1.05rem; font-weight: 800; color: #f59e0b; margin-bottom: 8px;">🍺 The Pint & Custom Forfeit Ledger</div>
+            <div id="bh-forfeits-box" style="width: 100%;"></div>
+        </div>
+    </div>
+
     <!-- MATCH SPOTLIGHT MODAL -->
     <div id="match-modal" class="modal-overlay hidden" onclick="if(event.target.id==='match-modal') closeModal()">
         <div class="modal-content">
@@ -1428,6 +1542,311 @@
             else if (screenId === 'news') fetchNewsletter('league');
             else if (screenId === 'power') fetchPowerRankings();
             else if (screenId === 'asterisk') fetchAsterisk();
+            else if (screenId === 'hector') fetchBetHector();
+        }
+
+        // ==========================================
+        // BET HECTOR (HBX & PEER TO PEER WAGERS)
+        // ==========================================
+        window.betHectorData = null;
+        window.activeBetHectorTab = 'book';
+
+        function switchBetHectorTab(tab) {
+            window.activeBetHectorTab = tab;
+            ['book', 'create', 'standings'].forEach(t => {
+                const btn = document.getElementById(`bh-tab-${t}`);
+                const pane = document.getElementById(`bh-pane-${t}`);
+                if (btn) btn.classList.toggle('active', t === tab);
+                if (pane) pane.style.display = (t === tab) ? 'block' : 'none';
+            });
+        }
+
+        function onBetHectorTypeChange() {
+            const bType = document.getElementById('bh-type-sel').value;
+            document.getElementById('bh-gw-row').style.display = (bType === 'custom') ? 'none' : 'grid';
+            document.getElementById('bh-hcap-box').style.display = (bType === 'gw_score') ? 'block' : 'none';
+            document.getElementById('bh-duel-row').style.display = (bType === 'player_duel') ? 'grid' : 'none';
+            document.getElementById('bh-custom-row').style.display = (bType === 'custom') ? 'block' : 'none';
+        }
+
+        async function fetchBetHector() {
+            const bookEl = document.getElementById('bh-book-list');
+            if (bookEl && !window.betHectorData) {
+                bookEl.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Opening Bet Hector ledger...</p>";
+            }
+            try {
+                const res = await fetch(`/api/bet_hector?alias=${encodeURIComponent(savedAlias)}&t=${Date.now()}`);
+                const data = await res.json();
+                window.betHectorData = data;
+
+                const walletEl = document.getElementById('bh-wallet-val');
+                if (walletEl) {
+                    const lockedTxt = data.my_locked > 0 ? ` <span style="font-size:0.74rem; color:#94a3b8;">(${data.my_available} avail)</span>` : '';
+                    walletEl.innerHTML = `${Number(data.my_balance || 0).toLocaleString()} HBX${lockedTxt}`;
+                }
+
+                // Populate Opponent Selector
+                const oppSel = document.getElementById('bh-opp-sel');
+                if (oppSel) {
+                    const prevOpp = oppSel.value;
+                    const myClean = (data.active_alias || savedAlias || '').toLowerCase();
+                    oppSel.innerHTML = `<option value="Open">🌐 Open Floor Challenge (Any Manager)</option>` +
+                        (data.managers || [])
+                            .filter(m => m.alias.toLowerCase() !== myClean)
+                            .map(m => `<option value="${m.alias}">👤 ${m.alias} (${m.div} • ${m.available} HBX avail)</option>`)
+                            .join('');
+                    if (prevOpp && [...oppSel.options].some(o => o.value === prevOpp)) oppSel.value = prevOpp;
+                }
+
+                // Populate GW Selector
+                const gwSel = document.getElementById('bh-gw-sel');
+                if (gwSel && data.future_gws) {
+                    gwSel.innerHTML = data.future_gws.map(g => `<option value="${g}">Gameweek ${g}</option>`).join('');
+                }
+
+                // Populate Player Duel Selectors
+                const paSel = document.getElementById('bh-pa-sel');
+                const pbSel = document.getElementById('bh-pb-sel');
+                if (paSel && pbSel && data.top_players && !paSel.innerHTML) {
+                    const pOpts = data.top_players.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
+                    paSel.innerHTML = pOpts;
+                    pbSel.innerHTML = pOpts;
+                    if (pbSel.options.length > 1) pbSel.selectedIndex = 1;
+                }
+
+                renderBetHectorBook();
+                renderBetHectorStandings();
+            } catch (e) {
+                if (bookEl) bookEl.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load Bet Hector.</p>";
+            }
+        }
+
+        function renderBetHectorBook() {
+            const box = document.getElementById('bh-book-list');
+            const d = window.betHectorData;
+            if (!box || !d) return;
+
+            const filterVal = (document.getElementById('bh-filter-sel') || {}).value || 'all';
+            const myClean = (d.active_alias || savedAlias || '').toLowerCase();
+            const isAdmin = (savedAlias.toLowerCase() === 'admin' || savedAlias.toLowerCase() === 'andy');
+
+            const allBets = d.bets || [];
+            const incomingCount = allBets.filter(b => b.status === 'Pending' && b.opponent.toLowerCase() === myClean).length;
+            const bookTabBtn = document.getElementById('bh-tab-book');
+            if (bookTabBtn) {
+                bookTabBtn.innerText = incomingCount > 0 ? `📋 The Book (${incomingCount})` : `📋 The Book`;
+            }
+
+            const filtered = allBets.filter(b => {
+                const isMine = (b.proposer.toLowerCase() === myClean || b.opponent.toLowerCase() === myClean);
+                if (filterVal === 'mine') return isMine;
+                if (filterVal === 'open') return b.status === 'Pending';
+                if (filterVal === 'active') return b.status === 'Active';
+                if (filterVal === 'settled') return b.status === 'Settled';
+                return true;
+            });
+
+            if (!filtered.length) {
+                box.innerHTML = `<div class="alert-box alert-info">No wagers match this filter yet. Tap <b>🎲 Lay a Bet</b> to post the first challenge!</div>`;
+                return;
+            }
+
+            let html = '';
+            filtered.forEach(b => {
+                const isProp = (b.proposer.toLowerCase() === myClean);
+                const isOpp = (b.opponent.toLowerCase() === myClean);
+                const isOpen = (b.opponent === 'Open');
+
+                const stakeParts = [];
+                if (Number(b.hbx_stake) > 0) stakeParts.push(`<span style="color:#f59e0b; font-weight:900;">${Number(b.hbx_stake).toLocaleString()} HBX</span>`);
+                if (b.custom_stake) stakeParts.push(`<span style="color:#38bdf8; font-weight:800;">🍺 ${b.custom_stake}</span>`);
+                const stakeHtml = stakeParts.join(' <span style="color:#64748b;">+</span> ');
+
+                let badgeColor = '#f59e0b';
+                let badgeText = b.status;
+                if (b.status === 'Active') { badgeColor = '#38bdf8'; badgeText = '🔒 Locked In'; }
+                else if (b.status === 'Settled') {
+                    badgeColor = b.winner === 'Push' ? '#94a3b8' : '#22c55e';
+                    badgeText = b.winner === 'Push' ? '🤝 Push' : `🏆 Won by ${b.winner}`;
+                } else if (['Rejected', 'Withdrawn', 'Expired'].includes(b.status)) {
+                    badgeColor = '#ef4444';
+                }
+
+                let actionsHtml = '';
+                if (b.status === 'Pending') {
+                    if (!isProp && (isOpp || isOpen)) {
+                        actionsHtml = `
+                            <div style="display:flex; gap:8px; margin-top:10px;">
+                                <button onclick="respondBetHector('${b.id}', 'accept')" style="flex:1; background:#22c55e; color:#000; border:none; border-radius:6px; padding:9px 12px; font-weight:900; cursor:pointer;">🤝 Accept Wager</button>
+                                ${isOpp ? `<button onclick="respondBetHector('${b.id}', 'reject')" style="flex:1; background:#ef4444; color:#fff; border:none; border-radius:6px; padding:9px 12px; font-weight:900; cursor:pointer;">❌ Decline</button>` : ''}
+                            </div>
+                        `;
+                    } else if (isProp) {
+                        actionsHtml = `
+                            <div style="margin-top:10px;">
+                                <button onclick="respondBetHector('${b.id}', 'withdraw')" class="refresh-btn" style="border-color:#ef4444; color:#ef4444;">🗑️ Withdraw Wager</button>
+                            </div>
+                        `;
+                    }
+                } else if (b.status === 'Active' && (b.bet_type === 'custom' || isAdmin) && (isProp || isOpp || isAdmin)) {
+                    actionsHtml = `
+                        <div style="margin-top:10px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.06);">
+                            <div style="font-size:0.72rem; color:#94a3b8; font-weight:700; margin-bottom:6px;">Settle Outcome:</div>
+                            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                                <button onclick="settleBetHector('${b.id}', '${b.proposer}')" class="refresh-btn" style="flex:1; border-color:#22c55e; color:#22c55e;">🏆 ${b.proposer} Won</button>
+                                <button onclick="settleBetHector('${b.id}', '${b.opponent}')" class="refresh-btn" style="flex:1; border-color:#38bdf8; color:#38bdf8;">🏆 ${b.opponent} Won</button>
+                                <button onclick="settleBetHector('${b.id}', 'Push')" class="refresh-btn" style="border-color:#94a3b8; color:#94a3b8;">🤝 Push</button>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                const oppLabel = isOpen ? `<span style="color:#22c55e;">🌐 Open Challenge</span>` : `<span style="color:#38bdf8;">${b.opponent}</span>`;
+                html += `
+                    <div class="exp-card">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px;">
+                            <div style="font-size:0.94rem; font-weight:900; color:#fff;"><span style="color:#f59e0b;">${b.proposer}</span> vs ${oppLabel} <span style="font-size:0.72rem; color:#64748b;">(${b.created_at})</span></div>
+                            <span style="font-size:0.74rem; font-weight:800; color:${badgeColor}; border:1px solid ${badgeColor}; padding:2px 8px; border-radius:999px; white-space:nowrap;">${badgeText}</span>
+                        </div>
+                        <div style="font-size:0.88rem; font-weight:700; color:#e2e8f0; margin-bottom:6px;">${b.summary}</div>
+                        <div style="font-size:0.82rem; color:#94a3b8;">Stake: ${stakeHtml}</div>
+                        ${b.resolution_note ? `<div style="font-size:0.78rem; color:#86efac; margin-top:4px; font-weight:700;">📊 ${b.resolution_note}</div>` : ''}
+                        ${actionsHtml}
+                    </div>
+                `;
+            });
+            box.innerHTML = html;
+        }
+
+        function renderBetHectorStandings() {
+            const d = window.betHectorData;
+            if (!d) return;
+
+            const lbBox = document.getElementById('bh-leaderboard-box');
+            if (lbBox) {
+                lbBox.innerHTML = `<div class="table-wrap"><table class="clean-table">
+                    <thead><tr><th>Rank</th><th>Manager</th><th>Div</th><th>Balance (HBX)</th><th>Net P/L</th><th>Avail</th><th>In Play</th><th>W - L - P</th><th>Unpaid Forfeits</th></tr></thead>
+                    <tbody>${(d.leaderboard || []).map(r => {
+                        const netColor = r.net > 0 ? '#22c55e' : (r.net < 0 ? '#ef4444' : '#94a3b8');
+                        const netStr = r.net > 0 ? `+${r.net}` : `${r.net}`;
+                        return `<tr>
+                            <td>${r.rank}</td>
+                            <td style="font-weight:800; color:#fff;">${r.manager}</td>
+                            <td>${r.div}</td>
+                            <td style="font-family:'JetBrains Mono',monospace; font-weight:900; color:#f59e0b;">${r.balance.toLocaleString()} HBX</td>
+                            <td style="font-family:'JetBrains Mono',monospace; font-weight:800; color:${netColor};">${netStr}</td>
+                            <td>${r.available}</td>
+                            <td>${r.locked > 0 ? `<span style="color:#38bdf8; font-weight:700;">${r.locked}</span>` : '-'}</td>
+                            <td style="font-weight:700;">${r.w}W - ${r.l}L - ${r.push}P</td>
+                            <td>${r.forfeits_owed > 0 ? `<span style="color:#ef4444; font-weight:900;">🍺 ${r.forfeits_owed} Owed</span>` : '<span style="color:#64748b;">-</span>'}</td>
+                        </tr>`;
+                    }).join('')}</tbody>
+                </table></div>`;
+            }
+
+            const fBox = document.getElementById('bh-forfeits-box');
+            if (fBox) {
+                const fList = d.forfeits || [];
+                if (!fList.length) {
+                    fBox.innerHTML = `<div class="alert-box alert-info">No custom forfeits or pints have been settled yet.</div>`;
+                    return;
+                }
+                const myClean = (d.active_alias || savedAlias || '').toLowerCase();
+                const isAdmin = (savedAlias.toLowerCase() === 'admin' || savedAlias.toLowerCase() === 'andy');
+
+                fBox.innerHTML = `<div class="table-wrap"><table class="clean-table">
+                    <thead><tr><th>Debtor (Loser)</th><th>Owed To (Winner)</th><th>Forfeit / Pint Terms</th><th>Wager</th><th>Status</th></tr></thead>
+                    <tbody>${fList.map(f => {
+                        const canClear = (!f.paid && (isAdmin || f.winner.toLowerCase() === myClean || f.loser.toLowerCase() === myClean));
+                        const statusHtml = f.paid
+                            ? `<span style="color:#22c55e; font-weight:800;">✅ Paid</span>`
+                            : (canClear
+                                ? `<button onclick="markForfeitPaid('${f.id}')" class="refresh-btn" style="padding:4px 8px; font-size:0.74rem; border-color:#f59e0b; color:#f59e0b;">🍺 Mark Paid</button>`
+                                : `<span style="color:#ef4444; font-weight:800;">⏳ Owed</span>`);
+                        return `<tr>
+                            <td style="color:#ef4444; font-weight:800;">${f.loser}</td>
+                            <td style="color:#22c55e; font-weight:800;">${f.winner}</td>
+                            <td style="color:#f59e0b; font-weight:800;">🍺 ${f.custom_stake}</td>
+                            <td style="font-size:0.75rem; color:#cbd5e1;">${f.summary}</td>
+                            <td>${statusHtml}</td>
+                        </tr>`;
+                    }).join('')}</tbody>
+                </table></div>`;
+            }
+        }
+
+        async function submitBetHectorWager() {
+            const opp = document.getElementById('bh-opp-sel').value;
+            const bType = document.getElementById('bh-type-sel').value;
+            const gw = parseInt(document.getElementById('bh-gw-sel').value) || 0;
+            const hcap = parseFloat(document.getElementById('bh-hcap-input').value) || 0.0;
+            const paId = parseInt(document.getElementById('bh-pa-sel').value) || 0;
+            const pbId = parseInt(document.getElementById('bh-pb-sel').value) || 0;
+            const cDesc = document.getElementById('bh-custom-desc').value;
+            const hbxStake = parseInt(document.getElementById('bh-stake-hbx').value) || 0;
+            const cStake = document.getElementById('bh-stake-custom').value;
+
+            const res = await fetch('/api/bet_hector/propose', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    proposer: savedAlias,
+                    opponent: opp,
+                    bet_type: bType,
+                    gw: gw,
+                    handicap: hcap,
+                    player_a_id: paId,
+                    player_b_id: pbId,
+                    custom_desc: cDesc,
+                    hbx_stake: hbxStake,
+                    custom_stake: cStake
+                })
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                document.getElementById('bh-custom-desc').value = '';
+                document.getElementById('bh-stake-custom').value = '';
+                alert('✅ Wager posted to Bet Hector!');
+                await fetchBetHector();
+                switchBetHectorTab('book');
+            } else {
+                alert(data.message || 'Could not post wager.');
+            }
+        }
+
+        async function respondBetHector(betId, action) {
+            const res = await fetch('/api/bet_hector/respond', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: betId, action: action, alias: savedAlias })
+            });
+            const data = await res.json();
+            if (data.status !== 'ok') {
+                alert(data.message || 'Action failed.');
+            }
+            fetchBetHector();
+        }
+
+        async function settleBetHector(betId, winnerAlias) {
+            const res = await fetch('/api/bet_hector/settle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: betId, winner: winnerAlias, alias: savedAlias, action: 'settle' })
+            });
+            const data = await res.json();
+            if (data.status !== 'ok') {
+                alert(data.message || 'Could not settle wager.');
+            }
+            fetchBetHector();
+        }
+
+        async function markForfeitPaid(betId) {
+            await fetch('/api/bet_hector/settle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: betId, alias: savedAlias, action: 'mark_paid' })
+            });
+            fetchBetHector();
         }
 
         async function attemptLogin() {

@@ -3848,6 +3848,663 @@ def get_cup_standings():
     return {"rows": rows}
 
 # ==========================================
+# 12. BET HECTOR (PEER TO PEER WAGERS & HBX)
+# ==========================================
+bet_hector_file = base_dir / "bet_hector.json"
+_BET_HECTOR_LOCK = None
+
+def _get_bet_lock():
+    global _BET_HECTOR_LOCK
+    import threading
+    if _BET_HECTOR_LOCK is None:
+        _BET_HECTOR_LOCK = threading.Lock()
+    return _BET_HECTOR_LOCK
+
+def get_all_32_manager_aliases():
+    return sorted([k for k in MANAGER_LEAGUES.keys() if k.lower() != "admin"], key=lambda x: x.lower())
+
+def load_bet_hector_state():
+    default_state = {"balances": {}, "bets": []}
+    data = upstash_get_json("cdp_bet_hector_v1", None)
+    if not isinstance(data, dict) and bet_hector_file.exists():
+        try:
+            with open(bet_hector_file, "r", encoding="utf-8") as bf:
+                data = json.load(bf)
+        except Exception:
+            data = None
+    if not isinstance(data, dict):
+        data = default_state
+    balances = data.get("balances") if isinstance(data.get("balances"), dict) else {}
+    for mgr in get_all_32_manager_aliases():
+        if mgr not in balances:
+            balances[mgr] = 1000
+    data["balances"] = balances
+    if not isinstance(data.get("bets"), list):
+        data["bets"] = []
+    return data
+
+def save_bet_hector_state(state):
+    upstash_set_json("cdp_bet_hector_v1", state)
+    try:
+        with open(bet_hector_file, "w", encoding="utf-8") as bf:
+            json.dump(state, bf, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+def get_locked_hbx(state, alias: str):
+    clean = str(alias).strip().lower()
+    locked = 0
+    for b in state.get("bets", []):
+        st = str(b.get("status", ""))
+        stake = safe_int(b.get("hbx_stake", 0))
+        if stake <= 0:
+            continue
+        if st == "Pending" and str(b.get("proposer", "")).strip().lower() == clean:
+            locked += stake
+        elif st == "Active":
+            if str(b.get("proposer", "")).strip().lower() == clean or str(b.get("opponent", "")).strip().lower() == clean:
+                locked += stake
+    return locked
+
+def get_available_hbx(state, alias: str):
+    bal_map = state.get("balances", {})
+    clean = str(alias).strip().lower()
+    actual_key = next((k for k in bal_map.keys() if k.lower() == clean), alias)
+    bal = safe_int(bal_map.get(actual_key, 1000))
+    return max(0, bal - get_locked_hbx(state, actual_key))
+
+def settle_single_bet(state, bet, winner_alias: str, resolution_note: str):
+    bal_map = state.get("balances", {})
+    prop = str(bet.get("proposer", "")).strip()
+    opp = str(bet.get("opponent", "")).strip()
+    stake = safe_int(bet.get("hbx_stake", 0))
+
+    if winner_alias == "Push":
+        bet["status"] = "Settled"
+        bet["winner"] = "Push"
+        bet["loser"] = ""
+        bet["resolution_note"] = resolution_note
+        bet["settled_at"] = datetime.now().strftime("%d %b, %H:%M")
+        return
+
+    loser_alias = opp if winner_alias.lower() == prop.lower() else prop
+    if stake > 0:
+        bal_map[winner_alias] = safe_int(bal_map.get(winner_alias, 1000)) + stake
+        bal_map[loser_alias] = max(0, safe_int(bal_map.get(loser_alias, 1000)) - stake)
+
+    bet["status"] = "Settled"
+    bet["winner"] = winner_alias
+    bet["loser"] = loser_alias
+    bet["resolution_note"] = resolution_note
+    bet["settled_at"] = datetime.now().strftime("%d %b, %H:%M")
+    if str(bet.get("custom_stake", "")).strip():
+        bet["forfeit_paid"] = False
+
+def evaluate_bet_hector_settlements():
+    lock = _get_bet_lock()
+    if not lock.acquire(blocking=False):
+        return
+    try:
+        state = load_bet_hector_state()
+        bets = state.get("bets", [])
+        if not bets:
+            return
+
+        static_data = cached_fpl_static() or {}
+        league_details, _ = cached_league_data(63)
+        current_gw, _ = detect_current_gw(league_details)
+        all_fixtures = cached_all_fixtures() or []
+
+        events_list = static_data.get("events", [])
+        if isinstance(events_list, dict):
+            events_list = events_list.get("data", [])
+        target_ev = next((ev for ev in events_list if ev.get("id") == current_gw), None)
+        lineup_iso = target_ev.get("deadline_time") if target_ev else None
+        if not lineup_iso and all_fixtures:
+            gw_fixes = [f for f in all_fixtures if f.get("event") == current_gw and f.get("kickoff_time")]
+            if gw_fixes:
+                earliest_ko = sorted(gw_fixes, key=lambda x: x.get("kickoff_time"))[0].get("kickoff_time")
+                try:
+                    lineup_iso = (pd.to_datetime(earliest_ko) - pd.Timedelta(minutes=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                except Exception:
+                    pass
+
+        gw_deadline_passed = False
+        if lineup_iso:
+            try:
+                dl_dt = datetime.fromisoformat(str(lineup_iso).replace("Z", "+00:00"))
+                if datetime.now(timezone.utc) >= dl_dt:
+                    gw_deadline_passed = True
+            except Exception:
+                pass
+
+        all_lg_matches = (league_details or {}).get("matches", [])
+        finished_gws = {
+            g for g in {m.get("event") for m in all_lg_matches if m.get("event")}
+            if all(m.get("finished", False) for m in all_lg_matches if m.get("event") == g)
+        }
+
+        dirty = False
+        push_notifications = []
+
+        # 1. Auto expire unaccepted Pending GW bets whose deadline has passed
+        for b in bets:
+            if b.get("status") == "Pending" and b.get("bet_type") in ("gw_score", "player_duel"):
+                b_gw = safe_int(b.get("gw", 0))
+                if b_gw < current_gw or (b_gw == current_gw and gw_deadline_passed) or (b_gw in finished_gws):
+                    b["status"] = "Expired"
+                    b["resolution_note"] = f"Expired at GW {b_gw} deadline"
+                    dirty = True
+
+        # 2. Auto settle Active GW bets where the GW is officially finished
+        active_auto_bets = [
+            b for b in bets
+            if b.get("status") == "Active"
+            and b.get("bet_type") in ("gw_score", "player_duel")
+            and safe_int(b.get("gw", 0)) in finished_gws
+        ]
+
+        if active_auto_bets:
+            with ThreadPoolExecutor(max_workers=4) as l_ex:
+                all_divs = list(l_ex.map(lambda lid: (lid, cached_league_data(lid)[0]), [63, 320, 378, 240]))
+
+            mgr_gw_scores = {}
+            for _, ld in all_divs:
+                if not ld:
+                    continue
+                lentry_map = {e["id"]: e for e in ld.get("league_entries", [])}
+                for m in ld.get("matches", []):
+                    if not m.get("finished", False):
+                        continue
+                    ev = safe_int(m.get("event", 0))
+                    e1 = lentry_map.get(m.get("league_entry_1"), {})
+                    e2 = lentry_map.get(m.get("league_entry_2"), {})
+                    a1 = engine.get_manager_alias(e1.get("player_first_name", ""), e1.get("player_last_name", "")).lower()
+                    a2 = engine.get_manager_alias(e2.get("player_first_name", ""), e2.get("player_last_name", "")).lower()
+                    mgr_gw_scores[(ev, a1)] = safe_int(m.get("league_entry_1_points", 0))
+                    mgr_gw_scores[(ev, a2)] = safe_int(m.get("league_entry_2_points", 0))
+
+            for b in active_auto_bets:
+                b_gw = safe_int(b.get("gw", 0))
+                prop = str(b.get("proposer", "")).strip()
+                opp = str(b.get("opponent", "")).strip()
+                stake = safe_int(b.get("hbx_stake", 0))
+                c_stake = str(b.get("custom_stake", "")).strip()
+
+                if b.get("bet_type") == "gw_score":
+                    s_prop = mgr_gw_scores.get((b_gw, prop.lower()))
+                    s_opp = mgr_gw_scores.get((b_gw, opp.lower()))
+                    if s_prop is None or s_opp is None:
+                        continue
+                    hcap = float(b.get("handicap") or 0.0)
+                    adj_prop = float(s_prop) + hcap
+                    hcap_str = f" ({'+' if hcap > 0 else ''}{hcap:g} hcap)" if hcap != 0 else ""
+                    score_note = f"GW {b_gw}: {prop} {s_prop}{hcap_str} vs {s_opp} {opp}"
+
+                    if adj_prop > float(s_opp):
+                        settle_single_bet(state, b, prop, score_note)
+                    elif float(s_opp) > adj_prop:
+                        settle_single_bet(state, b, opp, score_note)
+                    else:
+                        settle_single_bet(state, b, "Push", f"{score_note} (Tie / Push)")
+                    dirty = True
+
+                elif b.get("bet_type") == "player_duel":
+                    live_gw = cached_live_event(b_gw) or {}
+                    l_elems = live_gw.get("elements", {})
+                    pa_id = safe_int(b.get("player_a_id", 0))
+                    pb_id = safe_int(b.get("player_b_id", 0))
+                    pa_name = str(b.get("player_a_name", "Player A"))
+                    pb_name = str(b.get("player_b_name", "Player B"))
+                    pa_pts = safe_int((l_elems.get(str(pa_id)) or l_elems.get(pa_id) or {}).get("stats", {}).get("total_points", 0))
+                    pb_pts = safe_int((l_elems.get(str(pb_id)) or l_elems.get(pb_id) or {}).get("stats", {}).get("total_points", 0))
+                    duel_note = f"GW {b_gw}: {pa_name} ({pa_pts} pts) vs {pb_name} ({pb_pts} pts)"
+
+                    if pa_pts > pb_pts:
+                        settle_single_bet(state, b, prop, duel_note)
+                    elif pb_pts > pa_pts:
+                        settle_single_bet(state, b, opp, duel_note)
+                    else:
+                        settle_single_bet(state, b, "Push", f"{duel_note} (Tie / Push)")
+                    dirty = True
+
+                if b.get("status") == "Settled":
+                    win_m = b.get("winner", "")
+                    lose_m = b.get("loser", "")
+                    stake_lbl = []
+                    if stake > 0: stake_lbl.append(f"{stake} HBX")
+                    if c_stake: stake_lbl.append(c_stake)
+                    s_txt = " + ".join(stake_lbl)
+                    if win_m == "Push":
+                        push_notifications.append((prop, f"🤝 Bet Hector Push (GW {b_gw})", f"{b.get('resolution_note')} | Stake refunded.", f"bh-settle-{b['id']}-p"))
+                        push_notifications.append((opp, f"🤝 Bet Hector Push (GW {b_gw})", f"{b.get('resolution_note')} | Stake refunded.", f"bh-settle-{b['id']}-o"))
+                    else:
+                        push_notifications.append((win_m, f"🎰 Bet Hector WON! (+{s_txt})", f"You beat {lose_m}! {b.get('resolution_note')}", f"bh-settle-{b['id']}-w"))
+                        push_notifications.append((lose_m, f"💸 Bet Hector LOST (-{s_txt})", f"You lost to {win_m}. {b.get('resolution_note')}", f"bh-settle-{b['id']}-l"))
+
+        if dirty:
+            save_bet_hector_state(state)
+
+        if push_notifications:
+            subs_registry = upstash_get_json("cdp_push_subs_v2", {})
+            if subs_registry:
+                dead_eps = set()
+                for mgr_t, t_str, b_str, tag_str in push_notifications:
+                    send_push_to_manager(subs_registry, mgr_t, t_str, b_str, tag=tag_str, dead_eps_out=dead_eps)
+                if dead_eps:
+                    prune_dead_endpoints(dead_eps)
+    except Exception as e:
+        print("Bet Hector settlement error:", e)
+    finally:
+        try:
+            lock.release()
+        except Exception:
+            pass
+
+@app.get("/api/bet_hector")
+def get_bet_hector(alias: str = ""):
+    evaluate_bet_hector_settlements()
+    state = load_bet_hector_state()
+    clean_alias = str(alias).strip()
+    if clean_alias.lower() == "admin":
+        clean_alias = "Andy"
+
+    static_data = cached_fpl_static() or {}
+    league_details, _ = cached_league_data(63)
+    current_gw, all_events = detect_current_gw(league_details)
+    future_gws = [g for g in all_events if g >= current_gw] or [current_gw]
+
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data.get("element_types", [])}
+    team_map = {item["id"]: item["short_name"] for item in static_data.get("teams", [])}
+
+    top_players = []
+    for el in sorted(static_data.get("elements", []), key=lambda x: safe_int(x.get("total_points", 0)), reverse=True)[:220]:
+        top_players.append({
+            "id": el["id"],
+            "label": f"{el.get('web_name', 'Unknown')} ({team_map.get(el.get('team'), 'PL')} • {pos_map.get(el.get('element_type', 1), 'MID')}) - {safe_int(el.get('total_points', 0))} pts"
+        })
+
+    balances = state.get("balances", {})
+    bets = state.get("bets", [])
+
+    mgr_records = {
+        m: {"w": 0, "l": 0, "push": 0, "active": 0, "forfeits_owed": 0}
+        for m in get_all_32_manager_aliases()
+    }
+    forfeits_list = []
+
+    for b in bets:
+        st = b.get("status", "")
+        p_m = str(b.get("proposer", "")).strip()
+        o_m = str(b.get("opponent", "")).strip()
+        if st == "Active":
+            if p_m in mgr_records: mgr_records[p_m]["active"] += 1
+            if o_m in mgr_records: mgr_records[o_m]["active"] += 1
+        elif st == "Settled":
+            win_m = str(b.get("winner", "")).strip()
+            lose_m = str(b.get("loser", "")).strip()
+            if win_m == "Push":
+                if p_m in mgr_records: mgr_records[p_m]["push"] += 1
+                if o_m in mgr_records: mgr_records[o_m]["push"] += 1
+            else:
+                if win_m in mgr_records: mgr_records[win_m]["w"] += 1
+                if lose_m in mgr_records: mgr_records[lose_m]["l"] += 1
+                c_stake = str(b.get("custom_stake", "")).strip()
+                if c_stake:
+                    paid = bool(b.get("forfeit_paid", False))
+                    if not paid and lose_m in mgr_records:
+                        mgr_records[lose_m]["forfeits_owed"] += 1
+                    forfeits_list.append({
+                        "id": b.get("id"),
+                        "loser": lose_m,
+                        "winner": win_m,
+                        "custom_stake": c_stake,
+                        "summary": b.get("summary", ""),
+                        "settled_at": b.get("settled_at", ""),
+                        "paid": paid
+                    })
+
+    leaderboard = []
+    for m in get_all_32_manager_aliases():
+        bal = safe_int(balances.get(m, 1000))
+        locked = get_locked_hbx(state, m)
+        avail = max(0, bal - locked)
+        rec = mgr_records.get(m, {"w": 0, "l": 0, "push": 0, "active": 0, "forfeits_owed": 0})
+        lid = MANAGER_LEAGUES.get(m, 63)
+        div_short = LEAGUE_ID_TO_KEY.get(lid, "CDP").split(" ")[0]
+        leaderboard.append({
+            "manager": m,
+            "div": div_short,
+            "balance": bal,
+            "available": avail,
+            "locked": locked,
+            "net": bal - 1000,
+            "w": rec["w"],
+            "l": rec["l"],
+            "push": rec["push"],
+            "active": rec["active"],
+            "forfeits_owed": rec["forfeits_owed"]
+        })
+
+    leaderboard = sorted(leaderboard, key=lambda x: (-x["balance"], -x["w"], x["manager"].lower()))
+    for idx, r in enumerate(leaderboard, 1):
+        r["rank"] = idx
+
+    my_bal = safe_int(balances.get(clean_alias, 1000))
+    my_locked = get_locked_hbx(state, clean_alias)
+    my_avail = max(0, my_bal - my_locked)
+
+    managers_meta = [
+        {"alias": m, "div": LEAGUE_ID_TO_KEY.get(MANAGER_LEAGUES.get(m, 63), "CDP").split(" ")[0], "available": get_available_hbx(state, m)}
+        for m in get_all_32_manager_aliases()
+    ]
+
+    return {
+        "current_gw": current_gw,
+        "future_gws": future_gws,
+        "active_alias": clean_alias,
+        "my_balance": my_bal,
+        "my_available": my_avail,
+        "my_locked": my_locked,
+        "managers": managers_meta,
+        "top_players": top_players,
+        "leaderboard": leaderboard,
+        "forfeits": list(reversed(forfeits_list)),
+        "bets": list(reversed(bets[-120:]))
+    }
+
+@app.post("/api/bet_hector/propose")
+async def propose_bet_hector(request: Request, background_tasks: BackgroundTasks):
+    body = await request.json()
+    proposer = str(body.get("proposer", "")).strip()
+    if proposer.lower() == "admin":
+        proposer = "Andy"
+    opponent = str(body.get("opponent", "Open")).strip() or "Open"
+    bet_type = str(body.get("bet_type", "gw_score")).strip()
+    gw = safe_int(body.get("gw", 0))
+    hbx_stake = max(0, safe_int(body.get("hbx_stake", 0)))
+    custom_stake = str(body.get("custom_stake", "")).strip()
+
+    if not proposer or proposer not in MANAGER_LEAGUES:
+        return {"status": "error", "message": "Invalid proposer identity."}
+    if opponent != "Open" and opponent.lower() == proposer.lower():
+        return {"status": "error", "message": "You cannot lay a bet against yourself."}
+    if hbx_stake <= 0 and not custom_stake:
+        return {"status": "error", "message": "Enter a Hectorbux (HBX) stake or custom terms (or both)."}
+
+    static_data = cached_fpl_static() or {}
+    league_details, _ = cached_league_data(63)
+    current_gw, _ = detect_current_gw(league_details)
+    if gw <= 0:
+        gw = current_gw
+
+    if bet_type in ("gw_score", "player_duel") and gw <= current_gw:
+        events_list = static_data.get("events", [])
+        if isinstance(events_list, dict):
+            events_list = events_list.get("data", [])
+        target_ev = next((ev for ev in events_list if ev.get("id") == gw), None)
+        lineup_iso = target_ev.get("deadline_time") if target_ev else None
+        if lineup_iso:
+            try:
+                dl_dt = datetime.fromisoformat(str(lineup_iso).replace("Z", "+00:00"))
+                if datetime.now(timezone.utc) >= dl_dt:
+                    return {"status": "error", "message": f"GW {gw} lineup deadline has already passed. Select GW {current_gw + 1} or later."}
+            except Exception:
+                pass
+
+    lock = _get_bet_lock()
+    with lock:
+        state = load_bet_hector_state()
+        my_avail = get_available_hbx(state, proposer)
+        if hbx_stake > my_avail:
+            return {"status": "error", "message": f"Insufficient available Hectorbux. You have {my_avail} HBX unencumbered."}
+        if opponent != "Open" and hbx_stake > 0:
+            opp_avail = get_available_hbx(state, opponent)
+            if hbx_stake > opp_avail:
+                return {"status": "error", "message": f"{opponent} only has {opp_avail} available HBX to cover this stake."}
+
+        handicap = 0.0
+        player_a_id, player_b_id = 0, 0
+        player_a_name, player_b_name = "", ""
+
+        if bet_type == "gw_score":
+            try:
+                handicap = round(float(body.get("handicap") or 0.0), 1)
+            except Exception:
+                handicap = 0.0
+            h_str = f" ({'+' if handicap > 0 else ''}{handicap:g} pts)" if handicap != 0 else ""
+            opp_lbl = "Open Challenger" if opponent == "Open" else opponent
+            summary = f"GW {gw} H2H Shootout: {proposer}{h_str} to outscore {opp_lbl}"
+        elif bet_type == "player_duel":
+            player_a_id = safe_int(body.get("player_a_id", 0))
+            player_b_id = safe_int(body.get("player_b_id", 0))
+            if player_a_id <= 0 or player_b_id <= 0 or player_a_id == player_b_id:
+                return {"status": "error", "message": "Select two different FPL players for the Player Duel."}
+            el_lookup = {item["id"]: item.get("web_name", "Player") for item in static_data.get("elements", [])}
+            player_a_name = el_lookup.get(player_a_id, "Player A")
+            player_b_name = el_lookup.get(player_b_id, "Player B")
+            summary = f"GW {gw} Player Duel: {player_a_name} ({proposer}) to outscore {player_b_name}"
+        else:
+            custom_desc = str(body.get("custom_desc", "")).strip()
+            if not custom_desc:
+                return {"status": "error", "message": "Enter the custom proposition terms."}
+            summary = f"Prop Callout: {custom_desc}"
+
+        bet_id = f"bh-{int(time.time() * 1000)}"
+        new_bet = {
+            "id": bet_id,
+            "proposer": proposer,
+            "opponent": opponent,
+            "bet_type": bet_type,
+            "gw": gw,
+            "summary": summary,
+            "handicap": handicap,
+            "player_a_id": player_a_id,
+            "player_b_id": player_b_id,
+            "player_a_name": player_a_name,
+            "player_b_name": player_b_name,
+            "hbx_stake": hbx_stake,
+            "custom_stake": custom_stake,
+            "status": "Pending",
+            "winner": "",
+            "loser": "",
+            "resolution_note": "",
+            "created_at": datetime.now().strftime("%d %b, %H:%M")
+        }
+        state["bets"].append(new_bet)
+        save_bet_hector_state(state)
+
+    def _notify_bet_challenge():
+        subs_registry = upstash_get_json("cdp_push_subs_v2", {})
+        if not subs_registry:
+            return
+        stake_parts = []
+        if hbx_stake > 0: stake_parts.append(f"{hbx_stake} HBX")
+        if custom_stake: stake_parts.append(custom_stake)
+        s_txt = " + ".join(stake_parts)
+        if opponent != "Open":
+            send_push_to_manager(
+                subs_registry,
+                opponent,
+                f"🎰 Bet Hector Challenge from {proposer}!",
+                f"{summary} | Stake: {s_txt}. Open Bet Hector to Accept or Reject!",
+                tag=bet_id
+            )
+        else:
+            broadcast_push_to_all(
+                subs_registry,
+                f"🎰 Bet Hector Open Challenge ({proposer})",
+                f"{summary} | Stake: {s_txt}. First manager to accept locks it in!",
+                tag=bet_id
+            )
+
+    background_tasks.add_task(_notify_bet_challenge)
+    return {"status": "ok", "bet": new_bet}
+
+@app.post("/api/bet_hector/respond")
+async def respond_bet_hector(request: Request, background_tasks: BackgroundTasks):
+    body = await request.json()
+    bet_id = str(body.get("id", "")).strip()
+    action = str(body.get("action", "")).strip().lower()
+    actor = str(body.get("alias", "")).strip()
+    if actor.lower() == "admin":
+        actor = "Andy"
+
+    static_data = cached_fpl_static() or {}
+    league_details, _ = cached_league_data(63)
+    current_gw, _ = detect_current_gw(league_details)
+
+    lock = _get_bet_lock()
+    with lock:
+        state = load_bet_hector_state()
+        target = next((b for b in state.get("bets", []) if str(b.get("id")) == bet_id), None)
+        if not target:
+            return {"status": "error", "message": "Wager not found."}
+        if target.get("status") != "Pending":
+            return {"status": "error", "message": f"This wager is already {target.get('status')}."}
+
+        proposer = str(target.get("proposer", "")).strip()
+        opp = str(target.get("opponent", "Open")).strip()
+        stake = safe_int(target.get("hbx_stake", 0))
+        b_gw = safe_int(target.get("gw", 0))
+
+        if action == "withdraw":
+            if actor.lower() != proposer.lower():
+                return {"status": "error", "message": "Only the proposer can withdraw this bet."}
+            target["status"] = "Withdrawn"
+            save_bet_hector_state(state)
+            return {"status": "ok"}
+
+        if action == "reject":
+            if opp != "Open" and actor.lower() != opp.lower():
+                return {"status": "error", "message": "Only the challenged opponent can reject this bet."}
+            target["status"] = "Rejected"
+            save_bet_hector_state(state)
+        elif action == "accept":
+            if actor.lower() == proposer.lower():
+                return {"status": "error", "message": "You cannot accept your own wager."}
+            if opp != "Open" and actor.lower() != opp.lower():
+                return {"status": "error", "message": f"This wager is reserved for {opp}."}
+
+            if target.get("bet_type") in ("gw_score", "player_duel") and b_gw <= current_gw:
+                events_list = static_data.get("events", [])
+                if isinstance(events_list, dict):
+                    events_list = events_list.get("data", [])
+                target_ev = next((ev for ev in events_list if ev.get("id") == b_gw), None)
+                lineup_iso = target_ev.get("deadline_time") if target_ev else None
+                if lineup_iso:
+                    try:
+                        dl_dt = datetime.fromisoformat(str(lineup_iso).replace("Z", "+00:00"))
+                        if datetime.now(timezone.utc) >= dl_dt:
+                            target["status"] = "Expired"
+                            save_bet_hector_state(state)
+                            return {"status": "error", "message": f"GW {b_gw} deadline has already passed. Wager expired."}
+                    except Exception:
+                        pass
+
+            actor_avail = get_available_hbx(state, actor)
+            if stake > actor_avail:
+                return {"status": "error", "message": f"You need {stake} available HBX to accept this bet (you have {actor_avail} HBX)."}
+
+            if opp == "Open":
+                target["opponent"] = actor
+                if target.get("bet_type") == "gw_score":
+                    target["summary"] = str(target.get("summary", "")).replace("Open Challenger", actor)
+            target["status"] = "Active"
+            target["accepted_at"] = datetime.now().strftime("%d %b, %H:%M")
+            save_bet_hector_state(state)
+        else:
+            return {"status": "error", "message": "Invalid action."}
+
+    def _notify_bet_response():
+        subs_registry = upstash_get_json("cdp_push_subs_v2", {})
+        if not subs_registry:
+            return
+        stake_parts = []
+        if stake > 0: stake_parts.append(f"{stake} HBX")
+        if target.get("custom_stake"): stake_parts.append(str(target.get("custom_stake")))
+        s_txt = " + ".join(stake_parts)
+        if action == "accept":
+            send_push_to_manager(
+                subs_registry,
+                proposer,
+                f"🎰 Bet Locked In! {actor} Accepted",
+                f"{target.get('summary')} | Stake: {s_txt}",
+                tag=f"bh-acc-{bet_id}"
+            )
+        elif action == "reject":
+            send_push_to_manager(
+                subs_registry,
+                proposer,
+                f"❌ Bet Declined by {actor}",
+                f"{actor} turned down: {target.get('summary')}",
+                tag=f"bh-rej-{bet_id}"
+            )
+
+    background_tasks.add_task(_notify_bet_response)
+    return {"status": "ok"}
+
+@app.post("/api/bet_hector/settle")
+async def manual_settle_bet_hector(request: Request, background_tasks: BackgroundTasks):
+    body = await request.json()
+    bet_id = str(body.get("id", "")).strip()
+    winner = str(body.get("winner", "")).strip()
+    actor = str(body.get("alias", "")).strip()
+    action = str(body.get("action", "settle")).strip().lower()
+    is_admin = (actor.lower() in ("admin", "andy"))
+    clean_actor = "Andy" if actor.lower() == "admin" else actor
+
+    lock = _get_bet_lock()
+    with lock:
+        state = load_bet_hector_state()
+        target = next((b for b in state.get("bets", []) if str(b.get("id")) == bet_id), None)
+        if not target:
+            return {"status": "error", "message": "Wager not found."}
+
+        proposer = str(target.get("proposer", "")).strip()
+        opp = str(target.get("opponent", "")).strip()
+        if not is_admin and clean_actor.lower() not in (proposer.lower(), opp.lower()):
+            return {"status": "error", "message": "Only the two participants or The Commissar can settle this wager."}
+
+        if action == "mark_paid":
+            target["forfeit_paid"] = True
+            save_bet_hector_state(state)
+            return {"status": "ok"}
+
+        if target.get("status") != "Active":
+            return {"status": "error", "message": "Only Active bets can be settled."}
+
+        if winner != "Push" and winner.lower() not in (proposer.lower(), opp.lower()):
+            return {"status": "error", "message": "Invalid winner selection."}
+
+        actual_winner = "Push" if winner == "Push" else (proposer if winner.lower() == proposer.lower() else opp)
+        note_str = f"Settled by {clean_actor}"
+        settle_single_bet(state, target, actual_winner, note_str)
+        save_bet_hector_state(state)
+
+    def _notify_manual_settle():
+        subs_registry = upstash_get_json("cdp_push_subs_v2", {})
+        if not subs_registry:
+            return
+        stake_parts = []
+        if safe_int(target.get("hbx_stake", 0)) > 0:
+            stake_parts.append(f"{safe_int(target.get('hbx_stake', 0))} HBX")
+        if target.get("custom_stake"):
+            stake_parts.append(str(target.get("custom_stake")))
+        s_txt = " + ".join(stake_parts)
+        win_m = target.get("winner", "")
+        lose_m = target.get("loser", "")
+        if win_m == "Push":
+            for m_target in (proposer, opp):
+                send_push_to_manager(subs_registry, m_target, "🤝 Bet Hector Settled as Push", f"{target.get('summary')} | Stake refunded.", tag=f"bh-mset-{bet_id}-{m_target}")
+        else:
+            send_push_to_manager(subs_registry, win_m, f"🎰 Bet Hector WON! (+{s_txt})", f"You beat {lose_m}! {target.get('summary')}", tag=f"bh-mset-{bet_id}-w")
+            send_push_to_manager(subs_registry, lose_m, f"💸 Bet Hector LOST (-{s_txt})", f"Won by {win_m}: {target.get('summary')}", tag=f"bh-mset-{bet_id}-l")
+
+    background_tasks.add_task(_notify_manual_settle)
+    return {"status": "ok"}
+
+# ==========================================
 # PUSH NOTIFICATIONS & LIVE EVENT ENGINE
 # ==========================================
 # ==========================================
@@ -4157,6 +4814,7 @@ def run_automated_push_checks():
                         if dead_eps:
                             prune_dead_endpoints(dead_eps)
 
+        evaluate_bet_hector_settlements()
         upcoming_fixes = [f for f in all_fixtures if not f.get("started", False) and f.get("kickoff_time") and safe_int(f.get("event", 0)) > 0]
         deadline_gw = min((safe_int(f.get("event")) for f in upcoming_fixes), default=current_gw)
 
