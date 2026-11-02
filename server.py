@@ -3578,6 +3578,8 @@ def send_push_to_manager(subs_registry: dict, alias: str, title: str, body: str,
                         data=payload,
                         vapid_private_key=VAPID_PRIVATE_KEY,
                         vapid_claims=fresh_claims,
+                        ttl=43200,
+                        headers={"Urgency": "high", "Topic": tag[:32]},
                         timeout=10
                     )
                     sent += 1
