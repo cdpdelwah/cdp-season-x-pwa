@@ -1180,16 +1180,22 @@
             <button class="sub-tab-btn" id="bh-tab-standings" onclick="switchBetHectorTab('standings')">🏆 HBX Standings & Forfeits</button>
         </div>
 
-        <!-- PANE 1: THE BOOK (INCOMING, ACTIVE & SETTLED WAGERS) -->
+        <!-- PANE 1: THE BOOK (INCOMING, PROPOSED, ACCEPTED & SETTLED WAGERS) -->
         <div id="bh-pane-book" style="width: 100%;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-                <span style="font-size: 0.88rem; font-weight: 800; color: #f59e0b;">Filter Wagers:</span>
-                <select id="bh-filter-sel" class="white-select" onchange="renderBetHectorBook()">
-                    <option value="all">All Wagers</option>
-                    <option value="mine">My Wagers & Action</option>
-                    <option value="open">Pending & Open Challenges</option>
-                    <option value="active">Active (Locked In)</option>
-                    <option value="settled">Settled Results</option>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; background: #090c13; padding: 10px 12px; border-radius: 8px; border: 1px solid #182030; align-items: center;">
+                <select id="bh-filter-sel" class="white-select" style="flex: 1; min-width: 150px;" onchange="renderBetHectorBook()">
+                    <option value="all">📋 View: All Wagers</option>
+                    <option value="mine">👤 My Bets (Proposed & Accepted)</option>
+                    <option value="action">🔔 Needs My Response / Open Accas</option>
+                    <option value="open">⏳ Proposed (Pending Acceptance)</option>
+                    <option value="active">🔒 Accepted (Locked In)</option>
+                    <option value="settled">🏆 Settled Results</option>
+                </select>
+                <select id="bh-mgr-filter-sel" class="white-select" style="flex: 1; min-width: 140px;" onchange="renderBetHectorBook()">
+                    <option value="All">👥 Manager: All</option>
+                </select>
+                <select id="bh-gw-filter-sel" class="white-select" style="flex: 1; min-width: 125px;" onchange="renderBetHectorBook()">
+                    <option value="All">📅 GW: All</option>
                 </select>
             </div>
             <div id="bh-book-list" style="width: 100%;"></div>
@@ -1218,9 +1224,9 @@
                     </div>
                 </div>
 
-                <!-- GW Row -->
+                <!-- GW Row (Always visible and locked to open Gameweeks before lineup deadline) -->
                 <div id="bh-gw-row" style="margin-bottom: 12px;">
-                    <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">Target Gameweek</label>
+                    <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">Target Gameweek (Locked once lineup deadline passes)</label>
                     <select id="bh-gw-sel" class="white-select" style="width: 100%;" onchange="renderAccaFixtureGrid()"></select>
                 </div>
 
@@ -1237,7 +1243,7 @@
                 <!-- Custom Prop Description -->
                 <div id="bh-custom-row" style="margin-bottom: 12px; display: none;">
                     <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">Proposition Terms (Be specific!)</label>
-                    <input id="bh-custom-desc" type="text" class="dark-input" placeholder="e.g. My bench outscores your starting forwards in GW 11">
+                    <input id="bh-custom-desc" type="text" class="dark-input" placeholder="e.g. My bench outscores your starting forwards">
                 </div>
 
                 <!-- Stakes Row (Hectorbux + Custom Terms) -->
@@ -1561,7 +1567,7 @@
             const bType = document.getElementById('bh-type-sel').value;
             document.getElementById('bh-opp-box').style.display = (bType === 'acca') ? 'none' : 'block';
             document.getElementById('bh-custom-stake-box').style.display = (bType === 'acca') ? 'none' : 'block';
-            document.getElementById('bh-gw-row').style.display = (bType === 'custom') ? 'none' : 'block';
+            document.getElementById('bh-gw-row').style.display = 'block';
             document.getElementById('bh-acca-row').style.display = (bType === 'acca') ? 'block' : 'none';
             document.getElementById('bh-custom-row').style.display = (bType === 'custom') ? 'block' : 'none';
             const subBtn = document.getElementById('bh-submit-btn');
@@ -1682,7 +1688,26 @@
                     if (prevOpp && [...oppSel.options].some(o => o.value === prevOpp)) oppSel.value = prevOpp;
                 }
 
-                // Populate GW Selector
+                // Populate Manager Filter on The Book
+                const mgrFilterSel = document.getElementById('bh-mgr-filter-sel');
+                if (mgrFilterSel) {
+                    const prevMgrF = mgrFilterSel.value || 'All';
+                    mgrFilterSel.innerHTML = `<option value="All">👥 Manager: All</option>` +
+                        (data.managers || []).map(m => `<option value="${m.alias}">👤 ${m.alias} (${m.div})</option>`).join('');
+                    if ([...mgrFilterSel.options].some(o => o.value === prevMgrF)) mgrFilterSel.value = prevMgrF;
+                }
+
+                // Populate GW Filter on The Book
+                const gwFilterSel = document.getElementById('bh-gw-filter-sel');
+                if (gwFilterSel) {
+                    const prevGwF = gwFilterSel.value || 'All';
+                    const betGws = [...new Set([...(data.future_gws || []), ...(data.bets || []).map(b => Number(b.gw || 0)).filter(g => g > 0)])].sort((a, b) => b - a);
+                    gwFilterSel.innerHTML = `<option value="All">📅 GW: All</option>` +
+                        betGws.map(g => `<option value="${g}">GW ${g}</option>`).join('');
+                    if ([...gwFilterSel.options].some(o => o.value === prevGwF)) gwFilterSel.value = prevGwF;
+                }
+
+                // Populate Target GW Selector for Laying a Bet (Strictly open GWs only)
                 const gwSel = document.getElementById('bh-gw-sel');
                 if (gwSel && data.future_gws) {
                     const prevGw = gwSel.value;
@@ -1707,6 +1732,8 @@
             if (!box || !d) return;
 
             const filterVal = (document.getElementById('bh-filter-sel') || {}).value || 'all';
+            const mgrFilter = (document.getElementById('bh-mgr-filter-sel') || {}).value || 'All';
+            const gwFilter = (document.getElementById('bh-gw-filter-sel') || {}).value || 'All';
             const myClean = (d.active_alias || savedAlias || '').toLowerCase();
             const isAdmin = (savedAlias.toLowerCase() === 'admin' || savedAlias.toLowerCase() === 'andy');
 
@@ -1719,15 +1746,23 @@
 
             const filtered = allBets.filter(b => {
                 const isMine = (b.proposer.toLowerCase() === myClean || b.opponent.toLowerCase() === myClean);
-                if (filterVal === 'mine') return isMine;
-                if (filterVal === 'open') return b.status === 'Pending';
-                if (filterVal === 'active') return b.status === 'Active';
-                if (filterVal === 'settled') return b.status === 'Settled';
+                const needsMyAction = (b.status === 'Pending' && (b.opponent.toLowerCase() === myClean || (b.bet_type === 'acca' && b.proposer.toLowerCase() !== myClean)));
+                if (filterVal === 'mine' && !isMine) return false;
+                if (filterVal === 'action' && !needsMyAction) return false;
+                if (filterVal === 'open' && b.status !== 'Pending') return false;
+                if (filterVal === 'active' && b.status !== 'Active') return false;
+                if (filterVal === 'settled' && b.status !== 'Settled') return false;
+
+                if (mgrFilter !== 'All') {
+                    const mfClean = mgrFilter.toLowerCase();
+                    if (b.proposer.toLowerCase() !== mfClean && b.opponent.toLowerCase() !== mfClean) return false;
+                }
+                if (gwFilter !== 'All' && String(b.gw) !== String(gwFilter)) return false;
                 return true;
             });
 
             if (!filtered.length) {
-                box.innerHTML = `<div class="alert-box alert-info">No wagers match this filter yet. Tap <b>🎲 Lay a Bet</b> to post a challenge or Acca slip!</div>`;
+                box.innerHTML = `<div class="alert-box alert-info">No wagers match your selected filters. Tap <b>🎲 Lay a Bet</b> to post a challenge or Acca slip!</div>`;
                 return;
             }
 
@@ -1739,6 +1774,7 @@
                 const isOpenBookie = (b.opponent === 'Open Bookie');
                 const stake = Number(b.hbx_stake || 0);
                 const liab = Number(b.bookie_liability || stake);
+                const gwNum = Number(b.gw || d.current_gw || 0);
 
                 let stakeHtml = '';
                 if (isAcca) {
@@ -1751,13 +1787,14 @@
                 }
 
                 let badgeColor = '#f59e0b';
-                let badgeText = b.status;
-                if (b.status === 'Active') { badgeColor = '#38bdf8'; badgeText = '🔒 Locked In'; }
+                let badgeText = '⏳ Proposed (Pending)';
+                if (b.status === 'Active') { badgeColor = '#38bdf8'; badgeText = '🔒 Accepted (Locked In)'; }
                 else if (b.status === 'Settled') {
                     badgeColor = b.winner === 'Push' ? '#94a3b8' : '#22c55e';
                     badgeText = b.winner === 'Push' ? '🤝 Push' : `🏆 Won by ${b.winner}`;
                 } else if (['Rejected', 'Withdrawn', 'Expired'].includes(b.status)) {
                     badgeColor = '#ef4444';
+                    badgeText = b.status;
                 }
 
                 let actionsHtml = '';
@@ -1801,8 +1838,12 @@
 
                 html += `
                     <div class="exp-card">
-                        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px;">
-                            <div style="font-size:0.94rem; font-weight:900; color:#fff;"><span style="color:#f59e0b;">${b.proposer}${isAcca ? ' (Punter)' : ''}</span> vs ${oppHeader} <span style="font-size:0.72rem; color:#64748b;">(${b.created_at})</span></div>
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
+                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                <span class="gw-badge">GW ${gwNum}</span>
+                                <span style="font-size:0.94rem; font-weight:900; color:#fff;"><span style="color:#f59e0b;">${b.proposer}${isAcca ? ' (Punter)' : ''}</span> vs ${oppHeader}</span>
+                                <span style="font-size:0.72rem; color:#64748b;">(${b.created_at})</span>
+                            </div>
                             <span style="font-size:0.74rem; font-weight:800; color:${badgeColor}; border:1px solid ${badgeColor}; padding:2px 8px; border-radius:999px; white-space:nowrap;">${badgeText}</span>
                         </div>
                         <div style="font-size:0.88rem; font-weight:700; color:#e2e8f0; margin-bottom:6px;">${b.summary}</div>
@@ -1852,7 +1893,7 @@
                 const isAdmin = (savedAlias.toLowerCase() === 'admin' || savedAlias.toLowerCase() === 'andy');
 
                 fBox.innerHTML = `<div class="table-wrap"><table class="clean-table">
-                    <thead><tr><th>Debtor (Loser)</th><th>Owed To (Winner)</th><th>Forfeit / Pint Terms</th><th>Wager</th><th>Status</th></tr></thead>
+                    <thead><tr><th>GW</th><th>Debtor (Loser)</th><th>Owed To (Winner)</th><th>Forfeit / Pint Terms</th><th>Wager</th><th>Status</th></tr></thead>
                     <tbody>${fList.map(f => {
                         const canClear = (!f.paid && (isAdmin || f.winner.toLowerCase() === myClean || f.loser.toLowerCase() === myClean));
                         const statusHtml = f.paid
@@ -1861,6 +1902,7 @@
                                 ? `<button onclick="markForfeitPaid('${f.id}')" class="refresh-btn" style="padding:4px 8px; font-size:0.74rem; border-color:#f59e0b; color:#f59e0b;">🍺 Mark Paid</button>`
                                 : `<span style="color:#ef4444; font-weight:800;">⏳ Owed</span>`);
                         return `<tr>
+                            <td>GW ${f.gw || '-'}</td>
                             <td style="color:#ef4444; font-weight:800;">${f.loser}</td>
                             <td style="color:#22c55e; font-weight:800;">${f.winner}</td>
                             <td style="color:#f59e0b; font-weight:800;">🍺 ${f.custom_stake}</td>
