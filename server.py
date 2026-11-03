@@ -2854,19 +2854,25 @@ def get_player_hub(league_id: int = 63):
 # ==========================================
 # 7. GACS (GOALS, ASSISTS & CLEAN SHEETS)
 # ==========================================
-@ttl_cache(180)
-def compute_gacs_for_gw(league_id: int, gw_num: int):
-    static_data = cached_fpl_static()
-    league_details, _ = cached_league_data(league_id)
-    all_fixtures = cached_all_fixtures()
-    entries = league_details.get("league_entries", []) if league_details else []
+def _get_gw_eval_bundle(gw_num: int):
+    gw_int = safe_int(gw_num)
+    key = ("_get_gw_eval_bundle", (gw_int,), ())
+    now = time.time()
+    ttl = 86400 if _is_gw_completed(gw_int) else 20
+    if key in _MEMORY_CACHE:
+        val, ts = _MEMORY_CACHE[key]
+        if now - ts < ttl:
+            return val
 
-    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
-    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
-    element_lookup = {item["id"]: item for item in static_data["elements"]}
+    static_data = cached_fpl_static() or {}
+    all_fixtures = cached_all_fixtures() or []
+    live_data = cached_live_event(gw_int) or {}
+    live_elements = live_data.get("elements", {}) if isinstance(live_data, dict) else {}
 
-    live_data = cached_live_event(gw_num)
-    live_elements = live_data.get("elements", {}) if live_data else {}
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data.get("element_types", [])}
+    team_map = {item["id"]: item["short_name"] for item in static_data.get("teams", [])}
+    element_lookup = {item["id"]: item for item in static_data.get("elements", [])}
+
     club_minutes = {}
     for elem_str_id, e_info in live_elements.items():
         try:
@@ -2876,33 +2882,64 @@ def compute_gacs_for_gw(league_id: int, gw_num: int):
         except Exception:
             pass
 
-    def eval_entry(e):
+    bundle = (pos_map, team_map, element_lookup, live_elements, club_minutes, all_fixtures)
+    if element_lookup:
+        _MEMORY_CACHE[key] = (bundle, now)
+    return bundle
+
+def compute_gacs_for_gw(league_id: int, gw_num: int):
+    lid_int = safe_int(league_id)
+    gw_int = safe_int(gw_num)
+    league_details, _ = cached_league_data(lid_int)
+    current_gw, _ = detect_current_gw(league_details)
+
+    key = ("compute_gacs_for_gw", (lid_int, gw_int), ())
+    now = time.time()
+    ttl = 86400 if (gw_int < current_gw or _is_gw_completed(gw_int)) else 25
+    if key in _MEMORY_CACHE:
+        val, ts = _MEMORY_CACHE[key]
+        if now - ts < ttl:
+            return val
+
+    entries = league_details.get("league_entries", []) if league_details else []
+    pos_map, team_map, element_lookup, live_elements, club_minutes, all_fixtures = _get_gw_eval_bundle(gw_int)
+
+    eids = [e.get("entry_id") for e in entries if e.get("entry_id")]
+    if eids:
+        with ThreadPoolExecutor(max_workers=8) as p_ex:
+            list(p_ex.map(lambda eid: cached_entry_event(eid, gw_int), eids))
+
+    rows = []
+    for e in entries:
         alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
-        picks = cached_entry_event(e.get("entry_id"), gw_num)
+        picks = cached_entry_event(e.get("entry_id"), gw_int)
         if not picks:
-            return {"manager": alias, "goals": 0, "assists": 0, "cs": 0}
-        s_recs, b_recs, _, _, _, _, _, _ = full_evaluate_lineup(picks, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_num, all_fixtures)
+            rows.append({"manager": alias, "goals": 0, "assists": 0, "cs": 0})
+            continue
+        s_recs, b_recs, _, _, _, _, _, _ = full_evaluate_lineup(
+            picks, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_int, all_fixtures
+        )
         active_xi, _ = split_squad_records(s_recs, b_recs)
         g = sum(safe_int(p.get("G", 0)) for p in active_xi)
         a = sum(safe_int(p.get("A", 0)) for p in active_xi)
         cs = sum(safe_int(p.get("CS", 0)) for p in active_xi if p.get("Pos") in ["GKP", "DEF"])
-        return {"manager": alias, "goals": g, "assists": a, "cs": cs}
+        rows.append({"manager": alias, "goals": g, "assists": a, "cs": cs})
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        rows = list(ex.map(eval_entry, entries))
-    return sorted(rows, key=lambda x: x["manager"].lower())
+    res = sorted(rows, key=lambda x: x["manager"].lower())
+    if res:
+        _MEMORY_CACHE[key] = (res, now)
+    return res
 
 @app.get("/api/gacs")
-def get_gacs(league_id: int = 63, gw: str = "all"):
+def get_gacs(league_id: int = 63, gw: str = "0"):
     league_details, _ = cached_league_data(league_id)
     current_gw, _ = detect_current_gw(league_details)
     gw_list = list(range(current_gw, 0, -1))
 
-    if str(gw).lower() in ["all", "0", ""]:
+    if str(gw).lower() == "all":
         totals = {}
-        with ThreadPoolExecutor(max_workers=8) as ex:
-            gw_results = list(ex.map(lambda g: compute_gacs_for_gw(league_id, g), range(1, current_gw + 1)))
-        for gw_rows in gw_results:
+        for g_num in range(1, current_gw + 1):
+            gw_rows = compute_gacs_for_gw(league_id, g_num)
             for r in gw_rows:
                 m = r["manager"]
                 if m not in totals:
@@ -2925,45 +2962,47 @@ def get_gacs(league_id: int = 63, gw: str = "all"):
 # ==========================================
 # 8. DISCIPLINARY
 # ==========================================
-@ttl_cache(180)
 def compute_disciplinary_for_gw(league_id: int, gw_num: int):
-    static_data = cached_fpl_static()
-    league_details, _ = cached_league_data(league_id)
+    lid_int = safe_int(league_id)
+    gw_int = safe_int(gw_num)
+    league_details, _ = cached_league_data(lid_int)
+    current_gw, _ = detect_current_gw(league_details)
+
+    key = ("compute_disciplinary_for_gw", (lid_int, gw_int), ())
+    now = time.time()
+    ttl = 86400 if (gw_int < current_gw or _is_gw_completed(gw_int)) else 25
+    if key in _MEMORY_CACHE:
+        val, ts = _MEMORY_CACHE[key]
+        if now - ts < ttl:
+            return val
+
     entries = league_details.get("league_entries", []) if league_details else []
     matches = league_details.get("matches", []) if league_details else []
+    pos_map, team_map, element_lookup, live_elements, club_minutes, _ = _get_gw_eval_bundle(gw_int)
 
-    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
-    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
-    element_lookup = {item["id"]: item for item in static_data["elements"]}
+    eids = [e.get("entry_id") for e in entries if e.get("entry_id")]
+    if eids:
+        with ThreadPoolExecutor(max_workers=8) as p_ex:
+            list(p_ex.map(lambda eid: cached_entry_event(eid, gw_int), eids))
 
-    live_data = cached_live_event(gw_num)
-    live_elements = live_data.get("elements", {}) if live_data else {}
-    club_minutes = {}
-    for elem_str_id, e_info in live_elements.items():
-        try:
-            c_id = element_lookup.get(int(elem_str_id), {}).get("team")
-            if c_id:
-                club_minutes[c_id] = club_minutes.get(c_id, 0) + safe_int(e_info.get("stats", {}).get("minutes", 0))
-        except Exception:
-            pass
-
-    def eval_mgr_disc(e):
+    mgr_data = {}
+    for e in entries:
         l_id = e["id"]
         alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
-        picks = cached_entry_event(e.get("entry_id"), gw_num)
+        picks = cached_entry_event(e.get("entry_id"), gw_int)
         if not picks:
-            return l_id, {"Manager": alias, "YC": 0, "RC": 0, "Pts_Lost": 0, "Score": 0}
-        s_recs, b_recs, live_score, _, _, _, _, _ = full_evaluate_lineup(picks, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_num, None)
+            mgr_data[l_id] = {"Manager": alias, "YC": 0, "RC": 0, "Pts_Lost": 0, "Score": 0}
+            continue
+        s_recs, b_recs, live_score, _, _, _, _, _ = full_evaluate_lineup(
+            picks, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_int, None
+        )
         active_xi, _ = split_squad_records(s_recs, b_recs)
         yc = sum(safe_int(p.get("YC", 0)) for p in active_xi)
         rc = sum(safe_int(p.get("RC", 0)) for p in active_xi)
         pts_lost = (yc * 1) + (rc * 3)
-        return l_id, {"Manager": alias, "YC": yc, "RC": rc, "Pts_Lost": pts_lost, "Score": live_score}
+        mgr_data[l_id] = {"Manager": alias, "YC": yc, "RC": rc, "Pts_Lost": pts_lost, "Score": live_score}
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        mgr_data = dict(ex.map(eval_mgr_disc, entries))
-
-    gw_matches = [m for m in matches if m.get("event") == gw_num]
+    gw_matches = [m for m in matches if m.get("event") == gw_int]
     match_lookup = {}
     for m in gw_matches:
         t1, t2 = m.get("league_entry_1"), m.get("league_entry_2")
@@ -3007,7 +3046,10 @@ def compute_disciplinary_for_gw(league_id: int, gw_num: int):
             "league_pts_cost": cost_l_pts
         })
 
-    return sorted(rows, key=lambda x: x["manager"].lower())
+    res = sorted(rows, key=lambda x: x["manager"].lower())
+    if res:
+        _MEMORY_CACHE[key] = (res, now)
+    return res
 
 @app.get("/api/disciplinary")
 def get_disciplinary(league_id: int = 63, gw: str = "0"):
@@ -3026,10 +3068,8 @@ def get_disciplinary(league_id: int = 63, gw: str = "0"):
         }
         swings_rows, pw_rows = [], []
 
-        with ThreadPoolExecutor(max_workers=8) as ex:
-            all_gw_data = list(ex.map(lambda g: (g, compute_disciplinary_for_gw(league_id, g)), range(1, current_gw + 1)))
-
-        for g_num, g_rows in all_gw_data:
+        for g_num in range(1, current_gw + 1):
+            g_rows = compute_disciplinary_for_gw(league_id, g_num)
             for r in g_rows:
                 m = r["manager"]
                 if m in totals:
@@ -3602,9 +3642,29 @@ def download_asterisk_archive():
 # ==========================================
 # 11. CUP & BUCKET COMPETITION (32 TEAMS)
 # ==========================================
-@ttl_cache(300)
+_CUP_HIST_GW_CACHE = None
+
+@ttl_cache(3600)
 def cached_32_teams_registry():
-    return engine.get_all_32_teams_registry()
+    reg = {}
+    with ThreadPoolExecutor(max_workers=4) as l_ex:
+        div_res = list(l_ex.map(lambda item: (item[0], cached_league_data(item[1])[0]), LEAGUE_PRESETS.items()))
+    for l_key, ld in div_res:
+        if not ld:
+            continue
+        for e in ld.get("league_entries", []):
+            alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
+            if alias and e.get("entry_id"):
+                reg[alias.strip().lower()] = {
+                    "alias": alias,
+                    "entry_id": e.get("entry_id"),
+                    "id": e.get("id"),
+                    "team_name": e.get("entry_name", "Team"),
+                    "league_key": l_key
+                }
+    if not reg:
+        return engine.get_all_32_teams_registry() or {}
+    return reg
 
 @ttl_cache(600)
 def load_cup_matches_df():
@@ -3634,43 +3694,49 @@ def load_cup_matches_df():
     except Exception:
         return None
 
-@ttl_cache(60)
 def evaluate_cup_manager_gw(manager_alias: str, gw_num: int):
-    teams_reg = cached_32_teams_registry() or {}
-    static_data = cached_fpl_static()
-    all_fixtures = cached_all_fixtures()
-    t_info = teams_reg.get(str(manager_alias).strip().lower())
-    if not static_data or not t_info or not t_info.get("entry_id"):
+    clean_m = str(manager_alias).strip().lower()
+    gw_int = safe_int(gw_num)
+    if not clean_m or gw_int <= 0:
         return {
             "score": 0, "proj": 0.0, "high_player": 0,
             "s_recs": [], "b_recs": [], "act": [], "inact": [],
             "in_play": 0, "ytp": 0, "bench_pts": 0, "opt": 0
         }
 
-    pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
-    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
-    element_lookup = {item["id"]: item for item in static_data["elements"]}
+    key = ("evaluate_cup_manager_gw", (clean_m, gw_int), ())
+    now = time.time()
+    ttl = 86400 if _is_gw_completed(gw_int) else 25
+    if key in _MEMORY_CACHE:
+        val, ts = _MEMORY_CACHE[key]
+        if now - ts < ttl:
+            return val
 
-    picks = cached_entry_event(t_info["entry_id"], gw_num)
-    live_data = cached_live_event(gw_num)
-    live_elements = live_data.get("elements", {}) if live_data else {}
+    teams_reg = cached_32_teams_registry() or {}
+    t_info = teams_reg.get(clean_m)
+    if not t_info or not t_info.get("entry_id"):
+        return {
+            "score": 0, "proj": 0.0, "high_player": 0,
+            "s_recs": [], "b_recs": [], "act": [], "inact": [],
+            "in_play": 0, "ytp": 0, "bench_pts": 0, "opt": 0
+        }
 
-    club_minutes = {}
-    for elem_str_id, e_info in live_elements.items():
-        try:
-            c_id = element_lookup.get(int(elem_str_id), {}).get("team")
-            if c_id:
-                club_minutes[c_id] = club_minutes.get(c_id, 0) + safe_int(e_info.get("stats", {}).get("minutes", 0))
-        except Exception:
-            pass
+    pos_map, team_map, element_lookup, live_elements, club_minutes, all_fixtures = _get_gw_eval_bundle(gw_int)
+    if not element_lookup:
+        return {
+            "score": 0, "proj": 0.0, "high_player": 0,
+            "s_recs": [], "b_recs": [], "act": [], "inact": [],
+            "in_play": 0, "ytp": 0, "bench_pts": 0, "opt": 0
+        }
 
+    picks = cached_entry_event(t_info["entry_id"], gw_int)
     s_recs, b_recs, live_score, proj_score, in_play, ytp, bench_pts, opt_score = full_evaluate_lineup(
-        picks, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_num, all_fixtures
+        picks, live_elements, element_lookup, club_minutes, pos_map, team_map, gw_int, all_fixtures
     )
     act, inact = split_squad_records(s_recs, b_recs)
     max_p = max([safe_int(p.get("Pts", 0)) for p in act], default=0)
 
-    return {
+    res = {
         "score": safe_int(live_score),
         "proj": float(proj_score),
         "high_player": max_p,
@@ -3683,6 +3749,9 @@ def evaluate_cup_manager_gw(manager_alias: str, gw_num: int):
         "bench_pts": safe_int(bench_pts),
         "opt": safe_int(opt_score)
     }
+    if picks:
+        _MEMORY_CACHE[key] = (res, now)
+    return res
 
 @app.get("/api/cup_matches")
 def get_cup_matches(gw: str = "0", manager: str = "All"):
@@ -3690,12 +3759,12 @@ def get_cup_matches(gw: str = "0", manager: str = "All"):
     if cup_df is None or cup_df.empty:
         return {"exists": False, "message": "No 'cupmatches' spreadsheet found in your Assets folder."}
 
-    static_data = cached_fpl_static()
+    static_data = cached_fpl_static() or {}
     all_fixtures = cached_all_fixtures() or []
     league_details, _ = cached_league_data(63)
     current_gw, _ = detect_current_gw(league_details)
     teams_reg = cached_32_teams_registry() or {}
-    team_map = {item["id"]: item["short_name"] for item in static_data["teams"]} if static_data else {}
+    team_map = {item["id"]: item["short_name"] for item in static_data.get("teams", [])}
 
     all_cup_gws = sorted([int(w) for w in cup_df["Week"].unique() if pd.notna(w) and int(w) > 0])
     if current_gw in all_cup_gws:
@@ -3742,19 +3811,24 @@ def get_cup_matches(gw: str = "0", manager: str = "All"):
         pairs_to_eval.add((m1, w_num))
         pairs_to_eval.add((m2, w_num))
 
-    cached_32_teams_registry()
     for w_warm in {w_num for (_, w_num) in pairs_to_eval}:
-        cached_live_event(w_warm)
+        _get_gw_eval_bundle(w_warm)
+
+    entry_gw_pairs = [
+        (teams_reg[m_a.lower()]["entry_id"], w_num)
+        for (m_a, w_num) in pairs_to_eval
+        if m_a.lower() in teams_reg and teams_reg[m_a.lower()].get("entry_id")
+    ]
+    if entry_gw_pairs:
+        with ThreadPoolExecutor(max_workers=8) as p_ex:
+            list(p_ex.map(lambda pair: cached_entry_event(pair[0], pair[1]), entry_gw_pairs))
 
     eval_cache = {}
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        futures = {ex.submit(evaluate_cup_manager_gw, m_alias, w_num): (m_alias, w_num) for (m_alias, w_num) in pairs_to_eval}
-        for fut in futures:
-            k = futures[fut]
-            try:
-                eval_cache[k] = fut.result()
-            except Exception:
-                eval_cache[k] = evaluate_cup_manager_gw("", 0)
+    for (m_alias, w_num) in pairs_to_eval:
+        try:
+            eval_cache[(m_alias, w_num)] = evaluate_cup_manager_gw(m_alias, w_num)
+        except Exception:
+            eval_cache[(m_alias, w_num)] = evaluate_cup_manager_gw("", 0)
 
     def calc_win_prob(live1, proj1, to_play1, live2, proj2, to_play2, is_finished):
         if is_finished:
@@ -3813,8 +3887,9 @@ def get_cup_matches(gw: str = "0", manager: str = "All"):
         "matches": matches_out
     }
 
-@ttl_cache(300)
+@ttl_cache(45)
 def compute_cup_group_standings():
+    global _CUP_HIST_GW_CACHE
     cup_df = load_cup_matches_df()
     if cup_df is None or cup_df.empty:
         return []
@@ -3822,6 +3897,10 @@ def compute_cup_group_standings():
     teams_reg = cached_32_teams_registry() or {}
     league_details, _ = cached_league_data(63)
     current_gw, _ = detect_current_gw(league_details)
+
+    if _CUP_HIST_GW_CACHE is None:
+        loaded = upstash_get_json("cdp_cup_hist_scores_v1", {})
+        _CUP_HIST_GW_CACHE = loaded if isinstance(loaded, dict) else {}
 
     group_matches = cup_df[
         (cup_df["Week"] <= 20) &
@@ -3845,20 +3924,43 @@ def compute_cup_group_standings():
             pairs.add((m1, w_num))
             pairs.add((m2, w_num))
 
-    cached_32_teams_registry()
-    for w_warm in {w for (_, w) in pairs}:
-        cached_live_event(w_warm)
-
     score_cache = {}
-    with ThreadPoolExecutor(max_workers=10) as ex:
-        futures = {ex.submit(evaluate_cup_manager_gw, m, w): (m, w) for (m, w) in pairs}
-        for fut in futures:
-            k = futures[fut]
+    missing_pairs = []
+    for (m_alias, w_num) in pairs:
+        c_key = f"{m_alias.strip().lower()}_{w_num}"
+        if (w_num < current_gw or _is_gw_completed(w_num)) and c_key in _CUP_HIST_GW_CACHE:
+            saved_item = _CUP_HIST_GW_CACHE[c_key]
+            if isinstance(saved_item, list) and len(saved_item) == 2:
+                score_cache[(m_alias, w_num)] = (safe_int(saved_item[0]), safe_int(saved_item[1]))
+                continue
+        missing_pairs.append((m_alias, w_num))
+
+    if missing_pairs:
+        for w_warm in {w for (_, w) in missing_pairs}:
+            _get_gw_eval_bundle(w_warm)
+        entry_gw_pairs = [
+            (teams_reg[m_a.lower()]["entry_id"], w_num)
+            for (m_a, w_num) in missing_pairs
+            if m_a.lower() in teams_reg and teams_reg[m_a.lower()].get("entry_id")
+        ]
+        if entry_gw_pairs:
+            with ThreadPoolExecutor(max_workers=8) as p_ex:
+                list(p_ex.map(lambda pair: cached_entry_event(pair[0], pair[1]), entry_gw_pairs))
+
+        hist_dirty = False
+        for (m_alias, w_num) in missing_pairs:
             try:
-                res = fut.result()
-                score_cache[k] = (res["score"], res["high_player"])
+                res = evaluate_cup_manager_gw(m_alias, w_num)
+                sc_tuple = (res["score"], res["high_player"])
+                score_cache[(m_alias, w_num)] = sc_tuple
+                if (w_num < current_gw or _is_gw_completed(w_num)) and (res["score"] > 0 or res["high_player"] > 0):
+                    _CUP_HIST_GW_CACHE[f"{m_alias.strip().lower()}_{w_num}"] = [res["score"], res["high_player"]]
+                    hist_dirty = True
             except Exception:
-                score_cache[k] = (0, 0)
+                score_cache[(m_alias, w_num)] = (0, 0)
+
+        if hist_dirty:
+            upstash_set_json("cdp_cup_hist_scores_v1", _CUP_HIST_GW_CACHE)
 
     standings_dict = {
         m: {

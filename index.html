@@ -2713,14 +2713,21 @@
             }
         }
 
-        async function loadStandingsGacs(gw = "all") {
+        } else if (window.standingsSubTab === 'gacs') {
+                loadStandingsGacs("0");
+            } else if (window.standingsSubTab === 'disc') {
+                loadStandingsDisc("0");
+            }
+        }
+
+        async function loadStandingsGacs(gw = "0") {
             const box = document.getElementById('standings-content');
             box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Compiling starting XI GACS data...</p>";
             try {
                 const res = await fetch(`/api/gacs?league_id=${activeLeagueId}&gw=${gw}`);
                 const data = await res.json();
-                const opts = `<option value="all" ${data.selected === 'all' ? 'selected' : ''}>All Season (Total)</option>`
-                    + (data.all_gws || []).map(g => `<option value="${g}" ${String(data.selected) === String(g) ? 'selected' : ''}>Gameweek ${g}</option>`).join('');
+                const opts = (data.all_gws || []).map(g => `<option value="${g}" ${String(data.selected) === String(g) ? 'selected' : ''}>Gameweek ${g}</option>`).join('')
+                    + `<option value="all" ${data.selected === 'all' ? 'selected' : ''}>All Season (Total)</option>`;
 
                 box.innerHTML = `
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
@@ -3553,10 +3560,10 @@
         function switchGacsLeague(leagueId) {
             activeLeagueId = leagueId;
             highlightLeagueButtons('.ga-l-tab', leagueId);
-            fetchGacs(leagueId, "all");
+            fetchGacs(leagueId, "0");
         }
 
-        async function fetchGacs(leagueId, gw = "all") {
+        async function fetchGacs(leagueId, gw = "0") {
             const box = document.getElementById('gacs-content');
             box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Compiling starting XI GACS data...</p>";
             try {
@@ -3565,7 +3572,7 @@
 
                 const sel = document.getElementById('gacs-gw-select');
                 if (data.all_gws) {
-                    sel.innerHTML = `<option value="all">All Season (Total)</option>` + data.all_gws.map(g => `<option value="${g}">Gameweek ${g}</option>`).join('');
+                    sel.innerHTML = data.all_gws.map(g => `<option value="${g}">Gameweek ${g}</option>`).join('') + `<option value="all">All Season (Total)</option>`;
                     sel.value = String(data.selected);
                 }
 
