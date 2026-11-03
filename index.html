@@ -1202,35 +1202,36 @@
 
                 <div class="spotlight-grid" style="margin-bottom: 12px;">
                     <div>
-                        <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">1. Select Opponent (All 32 Managers)</label>
-                        <select id="bh-opp-sel" class="white-select" style="width: 100%;"></select>
-                    </div>
-                    <div>
-                        <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">2. Select Market Type</label>
+                        <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">1. Select Market Type</label>
                         <select id="bh-type-sel" class="white-select" style="width: 100%;" onchange="onBetHectorTypeChange()">
-                            <option value="gw_score">⚔️ GW Score Shootout (Auto Settled)</option>
-                            <option value="player_duel">⚡ Player vs Player Duel (Auto Settled)</option>
+                            <option value="gw_score">⚔️ GW Score Shootout (1v1 Auto Settled)</option>
+                            <option value="gw_goals">⚽ Most Goals in Starting XI (1v1 Auto Settled)</option>
+                            <option value="gw_assists">🎯 Most Assists in Starting XI (1v1 Auto Settled)</option>
+                            <option value="gw_cs">🛡️ Most Clean Sheets - GKP & DEF Only (1v1 Auto Settled)</option>
+                            <option value="acca">🎟️ Dellarverse Acca (2-4 Legs • Punter vs Bookie)</option>
                             <option value="custom">🗣️ Custom Prop Callout (Manual Settlement)</option>
                         </select>
+                    </div>
+                    <div id="bh-opp-box">
+                        <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">2. Select Opponent (All 32 Managers)</label>
+                        <select id="bh-opp-sel" class="white-select" style="width: 100%;"></select>
                     </div>
                 </div>
 
                 <!-- GW Row -->
                 <div id="bh-gw-row" style="margin-bottom: 12px;">
                     <label style="font-size: 0.78rem; font-weight: 800; color: #94a3b8; display: block; margin-bottom: 5px;">Target Gameweek</label>
-                    <select id="bh-gw-sel" class="white-select" style="width: 100%;"></select>
+                    <select id="bh-gw-sel" class="white-select" style="width: 100%;" onchange="renderAccaFixtureGrid()"></select>
                 </div>
 
-                <!-- Player Duel Selectors -->
-                <div id="bh-duel-row" class="spotlight-grid" style="margin-bottom: 12px; display: none;">
-                    <div>
-                        <label style="font-size: 0.78rem; font-weight: 800; color: #f59e0b; display: block; margin-bottom: 5px;">Your Pick (Player A)</label>
-                        <select id="bh-pa-sel" class="white-select" style="width: 100%;"></select>
+                <!-- Dellarverse Acca Slip Builder -->
+                <div id="bh-acca-row" style="margin-bottom: 14px; display: none;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
+                        <span style="font-size:0.82rem; font-weight:800; color:#f59e0b;">🎟️ Tap 2, 3 or 4 H2H Match Winners Across Any Division:</span>
+                        <span style="font-size:0.75rem; font-weight:800; color:#94a3b8;">Double = 2x • Treble = 4x • Fourfold = 7x</span>
                     </div>
-                    <div>
-                        <label style="font-size: 0.78rem; font-weight: 800; color: #38bdf8; display: block; margin-bottom: 5px;">Opponent's Pick (Player B)</label>
-                        <select id="bh-pb-sel" class="white-select" style="width: 100%;"></select>
-                    </div>
+                    <div id="bh-acca-fixtures-grid" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:8px; margin-bottom:10px;"></div>
+                    <div id="bh-acca-slip-summary" class="alert-box alert-info" style="margin-bottom:0;">Select at least 2 match winners above to build your Acca slip.</div>
                 </div>
 
                 <!-- Custom Prop Description -->
@@ -1242,16 +1243,16 @@
                 <!-- Stakes Row (Hectorbux + Custom Terms) -->
                 <div class="spotlight-grid" style="margin-bottom: 16px;">
                     <div>
-                        <label style="font-size: 0.78rem; font-weight: 800; color: #f59e0b; display: block; margin-bottom: 5px;">💰 Hectorbux Stake (HBX)</label>
-                        <input id="bh-stake-hbx" type="number" min="0" step="10" value="100" class="dark-input" placeholder="e.g. 100">
+                        <label style="font-size: 0.78rem; font-weight: 800; color: #f59e0b; display: block; margin-bottom: 5px;">💰 Your Hectorbux Stake (HBX)</label>
+                        <input id="bh-stake-hbx" type="number" min="0" step="10" value="50" class="dark-input" placeholder="e.g. 50" oninput="updateAccaSlipSummary()">
                     </div>
-                    <div>
+                    <div id="bh-custom-stake-box">
                         <label style="font-size: 0.78rem; font-weight: 800; color: #38bdf8; display: block; margin-bottom: 5px;">🍺 Custom Terms / Pint / Forfeit (Optional)</label>
                         <input id="bh-stake-custom" type="text" class="dark-input" placeholder="e.g. 1 Pint at Survivor Series X">
                     </div>
                 </div>
 
-                <button onclick="submitBetHectorWager()" style="width: 100%; background: #22c55e; color: #000; padding: 13px; border: none; border-radius: 8px; font-weight: 900; font-size: 0.98rem; cursor: pointer;">🎰 Post Wager & Ping Opponent</button>
+                <button id="bh-submit-btn" onclick="submitBetHectorWager()" style="width: 100%; background: #22c55e; color: #000; padding: 13px; border: none; border-radius: 8px; font-weight: 900; font-size: 0.98rem; cursor: pointer;">🎰 Post Wager & Ping Opponent</button>
             </div>
         </div>
 
@@ -1544,6 +1545,7 @@
         // ==========================================
         window.betHectorData = null;
         window.activeBetHectorTab = 'book';
+        window.selectedAccaLegs = [];
 
         function switchBetHectorTab(tab) {
             window.activeBetHectorTab = tab;
@@ -1557,9 +1559,99 @@
 
         function onBetHectorTypeChange() {
             const bType = document.getElementById('bh-type-sel').value;
+            document.getElementById('bh-opp-box').style.display = (bType === 'acca') ? 'none' : 'block';
+            document.getElementById('bh-custom-stake-box').style.display = (bType === 'acca') ? 'none' : 'block';
             document.getElementById('bh-gw-row').style.display = (bType === 'custom') ? 'none' : 'block';
-            document.getElementById('bh-duel-row').style.display = (bType === 'player_duel') ? 'grid' : 'none';
+            document.getElementById('bh-acca-row').style.display = (bType === 'acca') ? 'block' : 'none';
             document.getElementById('bh-custom-row').style.display = (bType === 'custom') ? 'block' : 'none';
+            const subBtn = document.getElementById('bh-submit-btn');
+            if (subBtn) {
+                subBtn.innerText = (bType === 'acca')
+                    ? '🎟️ Post Acca Slip to The Book (Broadcast to League)'
+                    : '🎰 Post Wager & Ping Opponent';
+            }
+            if (bType === 'acca') {
+                renderAccaFixtureGrid();
+            }
+        }
+
+        function renderAccaFixtureGrid() {
+            const grid = document.getElementById('bh-acca-fixtures-grid');
+            const d = window.betHectorData;
+            if (!grid || !d || !d.gw_matchups) return;
+
+            const gwVal = String((document.getElementById('bh-gw-sel') || {}).value || d.current_gw);
+            const fixtures = d.gw_matchups[gwVal] || [];
+            window.selectedAccaLegs = [];
+
+            if (!fixtures.length) {
+                grid.innerHTML = `<div class="alert-box alert-warn" style="grid-column:1/-1;">No H2H fixtures found for Gameweek ${gwVal}.</div>`;
+                updateAccaSlipSummary();
+                return;
+            }
+
+            grid.innerHTML = fixtures.map((f, idx) => `
+                <div style="background:#0c101a; border:1px solid #1e293b; border-radius:8px; padding:8px;">
+                    <div style="font-size:0.68rem; font-weight:800; color:#64748b; text-transform:uppercase; margin-bottom:5px; text-align:center;">${f.div} • H2H</div>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                        <button type="button" id="acca-btn-${idx}-1" onclick="toggleAccaLeg(${idx}, '${f.div}', '${f.m1}', '${f.m2}', '${f.m1}')" style="flex:1; padding:7px 4px; border-radius:6px; border:1px solid #334155; background:#090c13; color:#f8fafc; font-size:0.78rem; font-weight:800; cursor:pointer;">${f.m1}</button>
+                        <span style="font-size:0.68rem; color:#475569; font-weight:900;">v</span>
+                        <button type="button" id="acca-btn-${idx}-2" onclick="toggleAccaLeg(${idx}, '${f.div}', '${f.m1}', '${f.m2}', '${f.m2}')" style="flex:1; padding:7px 4px; border-radius:6px; border:1px solid #334155; background:#090c13; color:#f8fafc; font-size:0.78rem; font-weight:800; cursor:pointer;">${f.m2}</button>
+                    </div>
+                </div>
+            `).join('');
+            updateAccaSlipSummary();
+        }
+
+        function toggleAccaLeg(fIdx, div, m1, m2, pick) {
+            const existingIdx = window.selectedAccaLegs.findIndex(x => x.fIdx === fIdx);
+            if (existingIdx >= 0) {
+                if (window.selectedAccaLegs[existingIdx].pick === pick) {
+                    window.selectedAccaLegs.splice(existingIdx, 1);
+                } else {
+                    window.selectedAccaLegs[existingIdx].pick = pick;
+                }
+            } else {
+                if (window.selectedAccaLegs.length >= 4) {
+                    alert('Maximum 4 legs per Acca slip (Fourfold = 7x payout).');
+                    return;
+                }
+                window.selectedAccaLegs.push({ fIdx, div, m1, m2, pick });
+            }
+
+            const b1 = document.getElementById(`acca-btn-${fIdx}-1`);
+            const b2 = document.getElementById(`acca-btn-${fIdx}-2`);
+            const activeLeg = window.selectedAccaLegs.find(x => x.fIdx === fIdx);
+            if (b1 && b2) {
+                const is1 = activeLeg && activeLeg.pick === m1;
+                const is2 = activeLeg && activeLeg.pick === m2;
+                b1.style.background = is1 ? '#f59e0b' : '#090c13';
+                b1.style.color = is1 ? '#000' : '#f8fafc';
+                b1.style.borderColor = is1 ? '#fde047' : '#334155';
+                b2.style.background = is2 ? '#f59e0b' : '#090c13';
+                b2.style.color = is2 ? '#000' : '#f8fafc';
+                b2.style.borderColor = is2 ? '#fde047' : '#334155';
+            }
+            updateAccaSlipSummary();
+        }
+
+        function updateAccaSlipSummary() {
+            const box = document.getElementById('bh-acca-slip-summary');
+            if (!box) return;
+            const n = window.selectedAccaLegs.length;
+            const stake = Math.max(0, parseInt((document.getElementById('bh-stake-hbx') || {}).value) || 0);
+            if (n < 2) {
+                box.className = 'alert-box alert-info';
+                box.innerHTML = `Select at least <b>2 match winners</b> above to build your Acca slip (${n}/4 selected).`;
+                return;
+            }
+            const multMap = { 2: 2, 3: 4, 4: 7 };
+            const foldMap = { 2: '2-Fold Double', 3: '3-Fold Treble', 4: '4-Fold Fourfold' };
+            const mult = multMap[n] || 2;
+            const profit = stake * mult;
+            const picksStr = window.selectedAccaLegs.map(l => `<b>${l.pick}</b> (vs ${l.pick === l.m1 ? l.m2 : l.m1})`).join(' • ');
+            box.className = 'alert-box alert-ok';
+            box.innerHTML = `🎟️ <b>${foldMap[n]} (${mult}x Odds):</b> ${picksStr}<br>💰 <b>Your Stake:</b> ${stake} HBX ➔ <b>To Win Profit:</b> +${profit} HBX (Bookie lays ${profit} HBX to win your ${stake} HBX)`;
         }
 
         async function fetchBetHector() {
@@ -1578,7 +1670,7 @@
                     walletEl.innerHTML = `${Number(data.my_balance || 0).toLocaleString()} HBX${lockedTxt}`;
                 }
 
-                // Populate Opponent Selector (Direct Manager to Manager only)
+                // Populate Opponent Selector (Direct Manager to Manager)
                 const oppSel = document.getElementById('bh-opp-sel');
                 if (oppSel) {
                     const prevOpp = oppSel.value;
@@ -1593,17 +1685,13 @@
                 // Populate GW Selector
                 const gwSel = document.getElementById('bh-gw-sel');
                 if (gwSel && data.future_gws) {
+                    const prevGw = gwSel.value;
                     gwSel.innerHTML = data.future_gws.map(g => `<option value="${g}">Gameweek ${g}</option>`).join('');
+                    if (prevGw && [...gwSel.options].some(o => o.value === prevGw)) gwSel.value = prevGw;
                 }
 
-                // Populate Player Duel Selectors
-                const paSel = document.getElementById('bh-pa-sel');
-                const pbSel = document.getElementById('bh-pb-sel');
-                if (paSel && pbSel && data.top_players && !paSel.innerHTML) {
-                    const pOpts = data.top_players.map(p => `<option value="${p.id}">${p.label}</option>`).join('');
-                    paSel.innerHTML = pOpts;
-                    pbSel.innerHTML = pOpts;
-                    if (pbSel.options.length > 1) pbSel.selectedIndex = 1;
+                if (document.getElementById('bh-type-sel').value === 'acca' && !window.selectedAccaLegs.length) {
+                    renderAccaFixtureGrid();
                 }
 
                 renderBetHectorBook();
@@ -1623,7 +1711,7 @@
             const isAdmin = (savedAlias.toLowerCase() === 'admin' || savedAlias.toLowerCase() === 'andy');
 
             const allBets = d.bets || [];
-            const incomingCount = allBets.filter(b => b.status === 'Pending' && b.opponent.toLowerCase() === myClean).length;
+            const incomingCount = allBets.filter(b => b.status === 'Pending' && (b.opponent.toLowerCase() === myClean || (b.bet_type === 'acca' && b.proposer.toLowerCase() !== myClean))).length;
             const bookTabBtn = document.getElementById('bh-tab-book');
             if (bookTabBtn) {
                 bookTabBtn.innerText = incomingCount > 0 ? `📋 The Book (${incomingCount})` : `📋 The Book`;
@@ -1639,7 +1727,7 @@
             });
 
             if (!filtered.length) {
-                box.innerHTML = `<div class="alert-box alert-info">No wagers match this filter yet. Tap <b>🎲 Lay a Bet</b> to post a challenge!</div>`;
+                box.innerHTML = `<div class="alert-box alert-info">No wagers match this filter yet. Tap <b>🎲 Lay a Bet</b> to post a challenge or Acca slip!</div>`;
                 return;
             }
 
@@ -1647,11 +1735,20 @@
             filtered.forEach(b => {
                 const isProp = (b.proposer.toLowerCase() === myClean);
                 const isOpp = (b.opponent.toLowerCase() === myClean);
+                const isAcca = (b.bet_type === 'acca');
+                const isOpenBookie = (b.opponent === 'Open Bookie');
+                const stake = Number(b.hbx_stake || 0);
+                const liab = Number(b.bookie_liability || stake);
 
-                const stakeParts = [];
-                if (Number(b.hbx_stake) > 0) stakeParts.push(`<span style="color:#f59e0b; font-weight:900;">${Number(b.hbx_stake).toLocaleString()} HBX</span>`);
-                if (b.custom_stake) stakeParts.push(`<span style="color:#38bdf8; font-weight:800;">🍺 ${b.custom_stake}</span>`);
-                const stakeHtml = stakeParts.join(' <span style="color:#64748b;">+</span> ');
+                let stakeHtml = '';
+                if (isAcca) {
+                    stakeHtml = `Punter Stakes <span style="color:#f59e0b; font-weight:900;">${stake.toLocaleString()} HBX</span> to Win <span style="color:#22c55e; font-weight:900;">+${liab.toLocaleString()} HBX</span> <span style="color:#94a3b8;">(Bookie Liability: ${liab.toLocaleString()} HBX)</span>`;
+                } else {
+                    const stakeParts = [];
+                    if (stake > 0) stakeParts.push(`<span style="color:#f59e0b; font-weight:900;">${stake.toLocaleString()} HBX</span>`);
+                    if (b.custom_stake) stakeParts.push(`<span style="color:#38bdf8; font-weight:800;">🍺 ${b.custom_stake}</span>`);
+                    stakeHtml = `Stake: ` + stakeParts.join(' <span style="color:#64748b;">+</span> ');
+                }
 
                 let badgeColor = '#f59e0b';
                 let badgeText = b.status;
@@ -1665,7 +1762,13 @@
 
                 let actionsHtml = '';
                 if (b.status === 'Pending') {
-                    if (isOpp) {
+                    if (isAcca && !isProp) {
+                        actionsHtml = `
+                            <div style="display:flex; gap:8px; margin-top:10px;">
+                                <button onclick="respondBetHector('${b.id}', 'accept')" style="flex:1; background:#22c55e; color:#000; border:none; border-radius:6px; padding:9px 12px; font-weight:900; cursor:pointer;">🤝 Lay This Acca (Risk ${liab} HBX to Win ${stake} HBX)</button>
+                            </div>
+                        `;
+                    } else if (!isAcca && isOpp) {
                         actionsHtml = `
                             <div style="display:flex; gap:8px; margin-top:10px;">
                                 <button onclick="respondBetHector('${b.id}', 'accept')" style="flex:1; background:#22c55e; color:#000; border:none; border-radius:6px; padding:9px 12px; font-weight:900; cursor:pointer;">🤝 Accept Wager</button>
@@ -1692,14 +1795,18 @@
                     `;
                 }
 
+                const oppHeader = isOpenBookie
+                    ? `<span style="color:#22c55e;">🌐 Open Bookie</span>`
+                    : `<span style="color:#38bdf8;">${b.opponent}${isAcca ? ' (Bookie)' : ''}</span>`;
+
                 html += `
                     <div class="exp-card">
                         <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px;">
-                            <div style="font-size:0.94rem; font-weight:900; color:#fff;"><span style="color:#f59e0b;">${b.proposer}</span> vs <span style="color:#38bdf8;">${b.opponent}</span> <span style="font-size:0.72rem; color:#64748b;">(${b.created_at})</span></div>
+                            <div style="font-size:0.94rem; font-weight:900; color:#fff;"><span style="color:#f59e0b;">${b.proposer}${isAcca ? ' (Punter)' : ''}</span> vs ${oppHeader} <span style="font-size:0.72rem; color:#64748b;">(${b.created_at})</span></div>
                             <span style="font-size:0.74rem; font-weight:800; color:${badgeColor}; border:1px solid ${badgeColor}; padding:2px 8px; border-radius:999px; white-space:nowrap;">${badgeText}</span>
                         </div>
                         <div style="font-size:0.88rem; font-weight:700; color:#e2e8f0; margin-bottom:6px;">${b.summary}</div>
-                        <div style="font-size:0.82rem; color:#94a3b8;">Stake: ${stakeHtml}</div>
+                        <div style="font-size:0.82rem; color:#94a3b8;">${stakeHtml}</div>
                         ${b.resolution_note ? `<div style="font-size:0.78rem; color:#86efac; margin-top:4px; font-weight:700;">📊 ${b.resolution_note}</div>` : ''}
                         ${actionsHtml}
                     </div>
@@ -1769,11 +1876,14 @@
             const opp = document.getElementById('bh-opp-sel').value;
             const bType = document.getElementById('bh-type-sel').value;
             const gw = parseInt(document.getElementById('bh-gw-sel').value) || 0;
-            const paId = parseInt(document.getElementById('bh-pa-sel').value) || 0;
-            const pbId = parseInt(document.getElementById('bh-pb-sel').value) || 0;
             const cDesc = document.getElementById('bh-custom-desc').value;
             const hbxStake = parseInt(document.getElementById('bh-stake-hbx').value) || 0;
-            const cStake = document.getElementById('bh-stake-custom').value;
+            const cStake = (bType === 'acca') ? '' : document.getElementById('bh-stake-custom').value;
+
+            if (bType === 'acca' && (window.selectedAccaLegs.length < 2 || window.selectedAccaLegs.length > 4)) {
+                alert('Select 2, 3 or 4 H2H match winners for your Acca slip.');
+                return;
+            }
 
             const res = await fetch('/api/bet_hector/propose', {
                 method: 'POST',
@@ -1783,8 +1893,7 @@
                     opponent: opp,
                     bet_type: bType,
                     gw: gw,
-                    player_a_id: paId,
-                    player_b_id: pbId,
+                    acca_legs: window.selectedAccaLegs,
                     custom_desc: cDesc,
                     hbx_stake: hbxStake,
                     custom_stake: cStake
@@ -1794,7 +1903,8 @@
             if (data.status === 'ok') {
                 document.getElementById('bh-custom-desc').value = '';
                 document.getElementById('bh-stake-custom').value = '';
-                alert('✅ Wager posted to Bet Hector!');
+                window.selectedAccaLegs = [];
+                alert(bType === 'acca' ? '🎟️ Acca slip posted to The Book!' : '✅ Wager posted to Bet Hector!');
                 await fetchBetHector();
                 switchBetHectorTab('book');
             } else {

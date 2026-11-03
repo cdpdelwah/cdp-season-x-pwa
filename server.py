@@ -3865,6 +3865,8 @@ def get_cup_standings():
 bet_hector_file = base_dir / "bet_hector.json"
 _BET_HECTOR_LOCK = None
 _BET_HECTOR_MEM_CACHE = None
+ACCA_MULTIPLIERS = {2: 2, 3: 4, 4: 7}
+AUTO_GW_BET_TYPES = ("gw_score", "gw_goals", "gw_assists", "gw_cs", "acca")
 
 def _get_bet_lock():
     global _BET_HECTOR_LOCK
@@ -3939,13 +3941,16 @@ def get_locked_hbx(state, alias: str):
     for b in state.get("bets", []):
         st = str(b.get("status", ""))
         stake = safe_int(b.get("hbx_stake", 0))
+        liab = safe_int(b.get("bookie_liability", stake))
         if stake <= 0:
             continue
         if st == "Pending" and str(b.get("proposer", "")).strip().lower() == clean:
             locked += stake
         elif st == "Active":
-            if str(b.get("proposer", "")).strip().lower() == clean or str(b.get("opponent", "")).strip().lower() == clean:
+            if str(b.get("proposer", "")).strip().lower() == clean:
                 locked += stake
+            elif str(b.get("opponent", "")).strip().lower() == clean:
+                locked += liab
     return locked
 
 def get_available_hbx(state, alias: str):
@@ -3960,23 +3965,33 @@ def settle_single_bet(state, bet, winner_alias: str, resolution_note: str):
     prop = str(bet.get("proposer", "")).strip()
     opp = str(bet.get("opponent", "")).strip()
     stake = safe_int(bet.get("hbx_stake", 0))
+    b_liab = bet.get("bookie_liability")
+    liab = safe_int(b_liab if b_liab is not None else stake)
 
     if winner_alias == "Push":
         bet["status"] = "Settled"
         bet["winner"] = "Push"
         bet["loser"] = ""
+        bet["payout_hbx"] = 0
         bet["resolution_note"] = resolution_note
         bet["settled_at"] = datetime.now().strftime("%d %b, %H:%M")
         return
 
-    loser_alias = opp if winner_alias.lower() == prop.lower() else prop
-    if stake > 0:
-        bal_map[winner_alias] = safe_int(bal_map.get(winner_alias, 1000)) + stake
-        bal_map[loser_alias] = max(0, safe_int(bal_map.get(loser_alias, 1000)) - stake)
+    if winner_alias.lower() == prop.lower():
+        loser_alias = opp
+        payout = liab
+    else:
+        loser_alias = prop
+        payout = stake
+
+    if payout > 0:
+        bal_map[winner_alias] = safe_int(bal_map.get(winner_alias, 1000)) + payout
+        bal_map[loser_alias] = max(0, safe_int(bal_map.get(loser_alias, 1000)) - payout)
 
     bet["status"] = "Settled"
     bet["winner"] = winner_alias
     bet["loser"] = loser_alias
+    bet["payout_hbx"] = payout
     bet["resolution_note"] = resolution_note
     bet["settled_at"] = datetime.now().strftime("%d %b, %H:%M")
     if str(bet.get("custom_stake", "")).strip():
@@ -4031,7 +4046,7 @@ def evaluate_bet_hector_settlements():
 
         # 1. Auto expire unaccepted Pending GW bets whose deadline has passed
         for b in bets:
-            if b.get("status") == "Pending" and b.get("bet_type") in ("gw_score", "player_duel"):
+            if b.get("status") == "Pending" and b.get("bet_type") in AUTO_GW_BET_TYPES:
                 b_gw = safe_int(b.get("gw", 0))
                 if b_gw < current_gw or (b_gw == current_gw and gw_deadline_passed) or (b_gw in finished_gws):
                     b["status"] = "Expired"
@@ -4042,7 +4057,7 @@ def evaluate_bet_hector_settlements():
         active_auto_bets = [
             b for b in bets
             if b.get("status") == "Active"
-            and b.get("bet_type") in ("gw_score", "player_duel")
+            and b.get("bet_type") in AUTO_GW_BET_TYPES
             and safe_int(b.get("gw", 0)) in finished_gws
         ]
 
@@ -4066,20 +4081,31 @@ def evaluate_bet_hector_settlements():
                     mgr_gw_scores[(ev, a1)] = safe_int(m.get("league_entry_1_points", 0))
                     mgr_gw_scores[(ev, a2)] = safe_int(m.get("league_entry_2_points", 0))
 
+            # Precompute GACS lookup across all 4 divisions if any GACS bets need settling
+            gacs_needed_gws = {
+                safe_int(b.get("gw", 0))
+                for b in active_auto_bets
+                if b.get("bet_type") in ("gw_goals", "gw_assists", "gw_cs")
+            }
+            mgr_gw_gacs = {}
+            for g_num in gacs_needed_gws:
+                for lid in [63, 320, 378, 240]:
+                    for r in (compute_gacs_for_gw(lid, g_num) or []):
+                        mgr_gw_gacs[(g_num, str(r.get("manager", "")).strip().lower())] = r
+
             for b in active_auto_bets:
                 b_gw = safe_int(b.get("gw", 0))
                 prop = str(b.get("proposer", "")).strip()
                 opp = str(b.get("opponent", "")).strip()
-                stake = safe_int(b.get("hbx_stake", 0))
                 c_stake = str(b.get("custom_stake", "")).strip()
+                b_type = str(b.get("bet_type", ""))
 
-                if b.get("bet_type") == "gw_score":
+                if b_type == "gw_score":
                     s_prop = mgr_gw_scores.get((b_gw, prop.lower()))
                     s_opp = mgr_gw_scores.get((b_gw, opp.lower()))
                     if s_prop is None or s_opp is None:
                         continue
-                    score_note = f"GW {b_gw}: {prop} ({s_prop} pts) vs {opp} ({s_opp} pts)"
-
+                    score_note = f"GW {b_gw} Score: {prop} ({s_prop} pts) vs {opp} ({s_opp} pts)"
                     if s_prop > s_opp:
                         settle_single_bet(state, b, prop, score_note)
                     elif s_opp > s_prop:
@@ -4088,30 +4114,66 @@ def evaluate_bet_hector_settlements():
                         settle_single_bet(state, b, "Push", f"{score_note} (Tie / Push)")
                     dirty = True
 
-                elif b.get("bet_type") == "player_duel":
-                    live_gw = cached_live_event(b_gw) or {}
-                    l_elems = live_gw.get("elements", {})
-                    pa_id = safe_int(b.get("player_a_id", 0))
-                    pb_id = safe_int(b.get("player_b_id", 0))
-                    pa_name = str(b.get("player_a_name", "Player A"))
-                    pb_name = str(b.get("player_b_name", "Player B"))
-                    pa_pts = safe_int((l_elems.get(str(pa_id)) or l_elems.get(pa_id) or {}).get("stats", {}).get("total_points", 0))
-                    pb_pts = safe_int((l_elems.get(str(pb_id)) or l_elems.get(pb_id) or {}).get("stats", {}).get("total_points", 0))
-                    duel_note = f"GW {b_gw}: {pa_name} ({pa_pts} pts) vs {pb_name} ({pb_pts} pts)"
-
-                    if pa_pts > pb_pts:
-                        settle_single_bet(state, b, prop, duel_note)
-                    elif pb_pts > pa_pts:
-                        settle_single_bet(state, b, opp, duel_note)
+                elif b_type in ("gw_goals", "gw_assists", "gw_cs"):
+                    g_prop = mgr_gw_gacs.get((b_gw, prop.lower()))
+                    g_opp = mgr_gw_gacs.get((b_gw, opp.lower()))
+                    if not g_prop or not g_opp:
+                        continue
+                    stat_map = {
+                        "gw_goals": ("goals", "Goals ⚽"),
+                        "gw_assists": ("assists", "Assists 🎯"),
+                        "gw_cs": ("cs", "Clean Sheets 🛡️")
+                    }
+                    stat_key, stat_label = stat_map[b_type]
+                    v_prop = safe_int(g_prop.get(stat_key, 0))
+                    v_opp = safe_int(g_opp.get(stat_key, 0))
+                    stat_note = f"GW {b_gw} {stat_label}: {prop} ({v_prop}) vs {opp} ({v_opp})"
+                    if v_prop > v_opp:
+                        settle_single_bet(state, b, prop, stat_note)
+                    elif v_opp > v_prop:
+                        settle_single_bet(state, b, opp, stat_note)
                     else:
-                        settle_single_bet(state, b, "Push", f"{duel_note} (Tie / Push)")
+                        settle_single_bet(state, b, "Push", f"{stat_note} (Tie / Push)")
+                    dirty = True
+
+                elif b_type == "acca":
+                    legs = b.get("acca_legs") or []
+                    if not legs:
+                        continue
+                    leg_notes = []
+                    won_legs = 0
+                    missing_scores = False
+                    for leg in legs:
+                        m1 = str(leg.get("m1", "")).strip()
+                        m2 = str(leg.get("m2", "")).strip()
+                        pick = str(leg.get("pick", "")).strip()
+                        s1 = mgr_gw_scores.get((b_gw, m1.lower()))
+                        s2 = mgr_gw_scores.get((b_gw, m2.lower()))
+                        if s1 is None or s2 is None:
+                            missing_scores = True
+                            break
+                        other_s = s2 if pick.lower() == m1.lower() else s1
+                        pick_s = s1 if pick.lower() == m1.lower() else s2
+                        if pick_s > other_s:
+                            won_legs += 1
+                            leg_notes.append(f"✅ {pick} ({s1}-{s2})")
+                        else:
+                            leg_notes.append(f"❌ {pick} ({s1}-{s2})")
+                    if missing_scores:
+                        continue
+                    acca_note = f"GW {b_gw} Acca ({won_legs}/{len(legs)} Won): " + ", ".join(leg_notes)
+                    if won_legs == len(legs):
+                        settle_single_bet(state, b, prop, acca_note)
+                    else:
+                        settle_single_bet(state, b, opp, acca_note)
                     dirty = True
 
                 if b.get("status") == "Settled":
                     win_m = b.get("winner", "")
                     lose_m = b.get("loser", "")
+                    payout_val = safe_int(b.get("payout_hbx", b.get("hbx_stake", 0)))
                     stake_lbl = []
-                    if stake > 0: stake_lbl.append(f"{stake} HBX")
+                    if payout_val > 0: stake_lbl.append(f"{payout_val} HBX")
                     if c_stake: stake_lbl.append(c_stake)
                     s_txt = " + ".join(stake_lbl)
                     if win_m == "Push":
@@ -4148,20 +4210,31 @@ def get_bet_hector(alias: str = ""):
     if clean_alias.lower() == "admin":
         clean_alias = "Andy"
 
-    static_data = cached_fpl_static() or {}
     league_details, _ = cached_league_data(63)
     current_gw, all_events = detect_current_gw(league_details)
     future_gws = [g for g in all_events if g >= current_gw] or [current_gw]
 
-    pos_map = {item["id"]: item["singular_name_short"] for item in static_data.get("element_types", [])}
-    team_map = {item["id"]: item["short_name"] for item in static_data.get("teams", [])}
+    # Build H2H matchup slates across all 4 divisions for the Acca Slip Builder
+    gw_matchups = {}
+    with ThreadPoolExecutor(max_workers=4) as l_ex:
+        all_divs_meta = list(l_ex.map(lambda lid: (lid, cached_league_data(lid)[0]), [63, 320, 378, 240]))
 
-    top_players = []
-    for el in sorted(static_data.get("elements", []), key=lambda x: safe_int(x.get("total_points", 0)), reverse=True)[:220]:
-        top_players.append({
-            "id": el["id"],
-            "label": f"{el.get('web_name', 'Unknown')} ({team_map.get(el.get('team'), 'PL')} • {pos_map.get(el.get('element_type', 1), 'MID')}) - {safe_int(el.get('total_points', 0))} pts"
-        })
+    for g_num in future_gws[:4]:
+        g_list = []
+        for lid, ld_obj in all_divs_meta:
+            if not ld_obj:
+                continue
+            div_short = LEAGUE_ID_TO_KEY.get(lid, "CDP").split(" ")[0]
+            le_map = {
+                e["id"]: engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
+                for e in ld_obj.get("league_entries", [])
+            }
+            for m in ld_obj.get("matches", []):
+                if safe_int(m.get("event")) == g_num:
+                    m1 = le_map.get(m.get("league_entry_1"), "Team 1")
+                    m2 = le_map.get(m.get("league_entry_2"), "Team 2")
+                    g_list.append({"div": div_short, "m1": m1, "m2": m2})
+        gw_matchups[str(g_num)] = g_list
 
     balances = state.get("balances", {})
     bets = state.get("bets", [])
@@ -4240,13 +4313,13 @@ def get_bet_hector(alias: str = ""):
 
     return {
         "current_gw": current_gw,
-        "future_gws": future_gws,
+        "future_gws": future_gws[:4],
+        "gw_matchups": gw_matchups,
         "active_alias": clean_alias,
         "my_balance": my_bal,
         "my_available": my_avail,
         "my_locked": my_locked,
         "managers": managers_meta,
-        "top_players": top_players,
         "leaderboard": leaderboard,
         "forfeits": list(reversed(forfeits_list)),
         "bets": list(reversed(bets[-120:]))
@@ -4266,10 +4339,16 @@ async def propose_bet_hector(request: Request, background_tasks: BackgroundTasks
 
     if not proposer or proposer not in MANAGER_LEAGUES:
         return {"status": "error", "message": "Invalid proposer identity."}
-    if not opponent or opponent not in MANAGER_LEAGUES or opponent.lower() == proposer.lower():
-        return {"status": "error", "message": "Select a valid rival manager to challenge."}
-    if hbx_stake <= 0 and not custom_stake:
-        return {"status": "error", "message": "Enter a Hectorbux (HBX) stake or custom terms (or both)."}
+
+    if bet_type == "acca":
+        opponent = "Open Bookie"
+        if hbx_stake <= 0:
+            return {"status": "error", "message": "Enter a Hectorbux (HBX) stake for your Acca slip."}
+    else:
+        if not opponent or opponent not in MANAGER_LEAGUES or opponent.lower() == proposer.lower():
+            return {"status": "error", "message": "Select a valid rival manager to challenge."}
+        if hbx_stake <= 0 and not custom_stake:
+            return {"status": "error", "message": "Enter a Hectorbux (HBX) stake or custom terms (or both)."}
 
     static_data = cached_fpl_static() or {}
     league_details, _ = cached_league_data(63)
@@ -4277,7 +4356,7 @@ async def propose_bet_hector(request: Request, background_tasks: BackgroundTasks
     if gw <= 0:
         gw = current_gw
 
-    if bet_type in ("gw_score", "player_duel") and gw <= current_gw:
+    if bet_type in AUTO_GW_BET_TYPES and gw <= current_gw:
         events_list = static_data.get("events", [])
         if isinstance(events_list, dict):
             events_list = events_list.get("data", [])
@@ -4297,30 +4376,51 @@ async def propose_bet_hector(request: Request, background_tasks: BackgroundTasks
         my_avail = get_available_hbx(state, proposer)
         if hbx_stake > my_avail:
             return {"status": "error", "message": f"Insufficient available Hectorbux. You have {my_avail} HBX unencumbered."}
-        if hbx_stake > 0:
+        if bet_type != "acca" and hbx_stake > 0:
             opp_avail = get_available_hbx(state, opponent)
             if hbx_stake > opp_avail:
                 return {"status": "error", "message": f"{opponent} only has {opp_avail} available HBX to cover this stake."}
 
-        player_a_id, player_b_id = 0, 0
-        player_a_name, player_b_name = "", ""
+        acca_legs = []
+        odds_mult = 1
+        bookie_liability = hbx_stake
 
         if bet_type == "gw_score":
-            summary = f"GW {gw} H2H Shootout: {proposer} to outscore {opponent}"
-        elif bet_type == "player_duel":
-            player_a_id = safe_int(body.get("player_a_id", 0))
-            player_b_id = safe_int(body.get("player_b_id", 0))
-            if player_a_id <= 0 or player_b_id <= 0 or player_a_id == player_b_id:
-                return {"status": "error", "message": "Select two different FPL players for the Player Duel."}
-            el_lookup = {item["id"]: item.get("web_name", "Player") for item in static_data.get("elements", [])}
-            player_a_name = el_lookup.get(player_a_id, "Player A")
-            player_b_name = el_lookup.get(player_b_id, "Player B")
-            summary = f"GW {gw} Player Duel: {player_a_name} ({proposer}) to outscore {player_b_name} ({opponent})"
+            summary = f"⚔️ GW {gw} Score Shootout: {proposer} to outscore {opponent}"
+        elif bet_type == "gw_goals":
+            summary = f"⚽ GW {gw} Most Goals (Starting XI): {proposer} vs {opponent}"
+        elif bet_type == "gw_assists":
+            summary = f"🎯 GW {gw} Most Assists (Starting XI): {proposer} vs {opponent}"
+        elif bet_type == "gw_cs":
+            summary = f"🛡️ GW {gw} Most Clean Sheets (GKP & DEF Only): {proposer} vs {opponent}"
+        elif bet_type == "acca":
+            raw_legs = body.get("acca_legs") or []
+            if not isinstance(raw_legs, list) or not (2 <= len(raw_legs) <= 4):
+                return {"status": "error", "message": "Select 2, 3 or 4 match winners for your Acca slip."}
+            seen_matches = set()
+            leg_labels = []
+            for lg in raw_legs:
+                div_s = str(lg.get("div", "CDP")).strip()
+                m1 = str(lg.get("m1", "")).strip()
+                m2 = str(lg.get("m2", "")).strip()
+                pick = str(lg.get("pick", "")).strip()
+                m_key = f"{m1.lower()}_{m2.lower()}"
+                if not m1 or not m2 or pick not in (m1, m2) or m_key in seen_matches:
+                    return {"status": "error", "message": "Invalid or duplicate matchup in Acca slip."}
+                seen_matches.add(m_key)
+                other_m = m2 if pick == m1 else m1
+                acca_legs.append({"div": div_s, "m1": m1, "m2": m2, "pick": pick})
+                leg_labels.append(f"{pick} (vs {other_m})")
+
+            odds_mult = ACCA_MULTIPLIERS.get(len(acca_legs), 2)
+            bookie_liability = hbx_stake * odds_mult
+            fold_name = {2: "Double", 3: "Treble", 4: "Fourfold"}.get(len(acca_legs), f"{len(acca_legs)}-Fold")
+            summary = f"🎟️ GW {gw} {fold_name} ({odds_mult}x Odds): " + " • ".join(leg_labels)
         else:
             custom_desc = str(body.get("custom_desc", "")).strip()
             if not custom_desc:
                 return {"status": "error", "message": "Enter the custom proposition terms."}
-            summary = f"Prop Callout: {custom_desc}"
+            summary = f"🗣️ Prop Callout: {custom_desc}"
 
         bet_id = f"bh-{int(time.time() * 1000)}"
         new_bet = {
@@ -4330,15 +4430,15 @@ async def propose_bet_hector(request: Request, background_tasks: BackgroundTasks
             "bet_type": bet_type,
             "gw": gw,
             "summary": summary,
-            "player_a_id": player_a_id,
-            "player_b_id": player_b_id,
-            "player_a_name": player_a_name,
-            "player_b_name": player_b_name,
+            "acca_legs": acca_legs,
+            "odds_mult": odds_mult,
             "hbx_stake": hbx_stake,
+            "bookie_liability": bookie_liability,
             "custom_stake": custom_stake,
             "status": "Pending",
             "winner": "",
             "loser": "",
+            "payout_hbx": 0,
             "resolution_note": "",
             "created_at": datetime.now().strftime("%d %b, %H:%M")
         }
@@ -4349,17 +4449,25 @@ async def propose_bet_hector(request: Request, background_tasks: BackgroundTasks
         subs_registry = upstash_get_json("cdp_push_subs_v2", {})
         if not subs_registry:
             return
-        stake_parts = []
-        if hbx_stake > 0: stake_parts.append(f"{hbx_stake} HBX")
-        if custom_stake: stake_parts.append(custom_stake)
-        s_txt = " + ".join(stake_parts)
-        send_push_to_manager(
-            subs_registry,
-            opponent,
-            f"🎰 Bet Hector Challenge from {proposer}!",
-            f"{summary} | Stake: {s_txt}. Open Bet Hector to Accept or Reject!",
-            tag=bet_id
-        )
+        if bet_type == "acca":
+            broadcast_push_to_all(
+                subs_registry,
+                f"🎟️ New Acca on Bet Hector ({proposer})",
+                f"{summary} | {proposer} stakes {hbx_stake} HBX to win {bookie_liability} HBX. Who wants to play Bookie?",
+                tag=bet_id
+            )
+        else:
+            stake_parts = []
+            if hbx_stake > 0: stake_parts.append(f"{hbx_stake} HBX")
+            if custom_stake: stake_parts.append(custom_stake)
+            s_txt = " + ".join(stake_parts)
+            send_push_to_manager(
+                subs_registry,
+                opponent,
+                f"🎰 Bet Hector Challenge from {proposer}!",
+                f"{summary} | Stake: {s_txt}. Open Bet Hector to Accept or Reject!",
+                tag=bet_id
+            )
 
     background_tasks.add_task(_notify_bet_challenge)
     return {"status": "ok", "bet": new_bet}
@@ -4389,7 +4497,9 @@ async def respond_bet_hector(request: Request, background_tasks: BackgroundTasks
         proposer = str(target.get("proposer", "")).strip()
         opp = str(target.get("opponent", "")).strip()
         stake = safe_int(target.get("hbx_stake", 0))
+        liab = safe_int(target.get("bookie_liability", stake))
         b_gw = safe_int(target.get("gw", 0))
+        is_open_acca = (opp == "Open Bookie" or target.get("bet_type") == "acca")
 
         if action == "withdraw":
             if actor.lower() != proposer.lower():
@@ -4399,15 +4509,17 @@ async def respond_bet_hector(request: Request, background_tasks: BackgroundTasks
             return {"status": "ok"}
 
         if action == "reject":
-            if actor.lower() != opp.lower():
-                return {"status": "error", "message": "Only the challenged opponent can reject this bet."}
+            if is_open_acca or actor.lower() != opp.lower():
+                return {"status": "error", "message": "Only a directly challenged opponent can reject this bet."}
             target["status"] = "Rejected"
             save_bet_hector_state(state)
         elif action == "accept":
-            if actor.lower() != opp.lower():
+            if actor.lower() == proposer.lower():
+                return {"status": "error", "message": "You cannot accept your own wager."}
+            if not is_open_acca and actor.lower() != opp.lower():
                 return {"status": "error", "message": f"This wager is reserved for {opp}."}
 
-            if target.get("bet_type") in ("gw_score", "player_duel") and b_gw <= current_gw:
+            if target.get("bet_type") in AUTO_GW_BET_TYPES and b_gw <= current_gw:
                 events_list = static_data.get("events", [])
                 if isinstance(events_list, dict):
                     events_list = events_list.get("data", [])
@@ -4424,9 +4536,10 @@ async def respond_bet_hector(request: Request, background_tasks: BackgroundTasks
                         pass
 
             actor_avail = get_available_hbx(state, actor)
-            if stake > actor_avail:
-                return {"status": "error", "message": f"You need {stake} available HBX to accept this bet (you have {actor_avail} HBX)."}
+            if liab > actor_avail:
+                return {"status": "error", "message": f"You need {liab} available HBX to cover this bet (you have {actor_avail} HBX)."}
 
+            target["opponent"] = actor
             target["status"] = "Active"
             target["accepted_at"] = datetime.now().strftime("%d %b, %H:%M")
             save_bet_hector_state(state)
@@ -4437,18 +4550,27 @@ async def respond_bet_hector(request: Request, background_tasks: BackgroundTasks
         subs_registry = upstash_get_json("cdp_push_subs_v2", {})
         if not subs_registry:
             return
-        stake_parts = []
-        if stake > 0: stake_parts.append(f"{stake} HBX")
-        if target.get("custom_stake"): stake_parts.append(str(target.get("custom_stake")))
-        s_txt = " + ".join(stake_parts)
         if action == "accept":
-            send_push_to_manager(
-                subs_registry,
-                proposer,
-                f"🎰 Bet Locked In! {actor} Accepted",
-                f"{target.get('summary')} | Stake: {s_txt}",
-                tag=f"bh-acc-{bet_id}"
-            )
+            if target.get("bet_type") == "acca":
+                send_push_to_manager(
+                    subs_registry,
+                    proposer,
+                    f"🎟️ Acca Laid! {actor} is Your Bookie",
+                    f"{actor} laid {liab} HBX against your {stake} HBX Acca! {target.get('summary')}",
+                    tag=f"bh-acc-{bet_id}"
+                )
+            else:
+                stake_parts = []
+                if stake > 0: stake_parts.append(f"{stake} HBX")
+                if target.get("custom_stake"): stake_parts.append(str(target.get("custom_stake")))
+                s_txt = " + ".join(stake_parts)
+                send_push_to_manager(
+                    subs_registry,
+                    proposer,
+                    f"🎰 Bet Locked In! {actor} Accepted",
+                    f"{target.get('summary')} | Stake: {s_txt}",
+                    tag=f"bh-acc-{bet_id}"
+                )
         elif action == "reject":
             send_push_to_manager(
                 subs_registry,
@@ -4503,9 +4625,10 @@ async def manual_settle_bet_hector(request: Request, background_tasks: Backgroun
         subs_registry = upstash_get_json("cdp_push_subs_v2", {})
         if not subs_registry:
             return
+        payout_val = safe_int(target.get("payout_hbx", target.get("hbx_stake", 0)))
         stake_parts = []
-        if safe_int(target.get("hbx_stake", 0)) > 0:
-            stake_parts.append(f"{safe_int(target.get('hbx_stake', 0))} HBX")
+        if payout_val > 0:
+            stake_parts.append(f"{payout_val} HBX")
         if target.get("custom_stake"):
             stake_parts.append(str(target.get("custom_stake")))
         s_txt = " + ".join(stake_parts)
