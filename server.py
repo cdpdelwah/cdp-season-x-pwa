@@ -2854,6 +2854,14 @@ def get_player_hub(league_id: int = 63):
 # ==========================================
 # 7. GACS (GOALS, ASSISTS & CLEAN SHEETS)
 # ==========================================
+def _is_gw_completed(gw: int) -> bool:
+    all_f = _MEMORY_CACHE.get(("cached_all_fixtures", (), ()))
+    fixes = all_f[0] if all_f else None
+    if not fixes:
+        return False
+    gw_f = [f for f in fixes if int(f.get("event") or 0) == int(gw or 0)]
+    return bool(gw_f) and all(f.get("finished", False) for f in gw_f)
+
 def _get_gw_eval_bundle(gw_num: int):
     gw_int = safe_int(gw_num)
     key = ("_get_gw_eval_bundle", (gw_int,), ())
