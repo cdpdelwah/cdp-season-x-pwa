@@ -3043,8 +3043,9 @@ def get_newsletter_info(doc: str = "league"):
     try:
         pdf_doc = pdfium.PdfDocument(pdf_path)
         num_pages = len(pdf_doc)
-        pages = [f"/api/newsletter_page/{doc}/{i}?t={int(pdf_path.stat().st_mtime)}" for i in range(num_pages)]
-        return {"exists": True, "pages": pages}
+        mtime = int(pdf_path.stat().st_mtime)
+        pages = [f"/api/newsletter_page/{doc}/{i}?t={mtime}" for i in range(num_pages)]
+        return {"exists": True, "pages": pages, "pdf_url": f"/api/newsletter_pdf/{doc}?t={mtime}"}
     except Exception as e:
         return {"exists": False, "message": f"Error reading PDF: {str(e)}"}
 
@@ -3056,12 +3057,19 @@ def get_newsletter_page_image(doc: str, page_num: int):
     try:
         pdf_doc = pdfium.PdfDocument(pdf_path)
         page = pdf_doc[page_num]
-        pil_img = page.render(scale=2).to_pil()
+        pil_img = page.render(scale=3).to_pil()
         buf = io.BytesIO()
         pil_img.save(buf, format="PNG")
         return Response(content=buf.getvalue(), media_type="image/png")
     except Exception:
         return Response(status_code=404)
+
+@app.get("/api/newsletter_pdf/{doc}")
+def get_newsletter_raw_pdf(doc: str):
+    pdf_path = find_newsletter_pdf(doc)
+    if not pdf_path:
+        return Response(status_code=404)
+    return FileResponse(pdf_path, media_type="application/pdf", filename=pdf_path.name)
 
 # ==========================================
 # 10. POWER RANKINGS
