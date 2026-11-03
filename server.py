@@ -3878,53 +3878,6 @@ def _get_bet_lock():
 def get_all_32_manager_aliases():
     return sorted([k for k in MANAGER_LEAGUES.keys() if k.lower() != "admin"], key=lambda x: x.lower())
 
-def is_gw_betting_locked(gw_num: int, static_data=None, all_fixtures=None, current_gw=None):
-    gw_int = safe_int(gw_num)
-    if gw_int <= 0:
-        return True
-    if static_data is None:
-        static_data = cached_fpl_static() or {}
-    if all_fixtures is None:
-        all_fixtures = cached_all_fixtures() or []
-    if current_gw is not None and gw_int < safe_int(current_gw):
-        return True
-
-    events_raw = static_data.get("events", [])
-    if isinstance(events_raw, dict):
-        cur_ev = safe_int(events_raw.get("current", 0))
-        if cur_ev > 0 and gw_int < cur_ev:
-            return True
-        events_list = events_raw.get("data", [])
-    else:
-        events_list = events_raw if isinstance(events_raw, list) else []
-
-    gw_fixes = [f for f in all_fixtures if safe_int(f.get("event")) == gw_int]
-    if gw_fixes and any(f.get("started", False) or f.get("finished", False) or f.get("finished_provisional", False) for f in gw_fixes):
-        return True
-
-    target_ev = next((ev for ev in events_list if safe_int(ev.get("id")) == gw_int), None)
-    lineup_iso = target_ev.get("deadline_time") if isinstance(target_ev, dict) else None
-
-    if not lineup_iso and gw_fixes:
-        ko_fixes = [f for f in gw_fixes if f.get("kickoff_time")]
-        if ko_fixes:
-            earliest_ko = sorted(ko_fixes, key=lambda x: str(x.get("kickoff_time")))[0].get("kickoff_time")
-            try:
-                lineup_dt = pd.to_datetime(earliest_ko, utc=True) - pd.Timedelta(minutes=90)
-                lineup_iso = lineup_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-            except Exception:
-                pass
-
-    if lineup_iso:
-        try:
-            dl_dt = pd.to_datetime(lineup_iso, utc=True)
-            if pd.Timestamp.now(tz="UTC") >= dl_dt:
-                return True
-        except Exception:
-            pass
-
-    return False
-
 def load_bet_hector_state():
     global _BET_HECTOR_MEM_CACHE
     upstash_url = os.getenv("UPSTASH_URL")
@@ -4059,6 +4012,29 @@ def evaluate_bet_hector_settlements():
         current_gw, _ = detect_current_gw(league_details)
         all_fixtures = cached_all_fixtures() or []
 
+        events_list = static_data.get("events", [])
+        if isinstance(events_list, dict):
+            events_list = events_list.get("data", [])
+        target_ev = next((ev for ev in events_list if ev.get("id") == current_gw), None)
+        lineup_iso = target_ev.get("deadline_time") if target_ev else None
+        if not lineup_iso and all_fixtures:
+            gw_fixes = [f for f in all_fixtures if f.get("event") == current_gw and f.get("kickoff_time")]
+            if gw_fixes:
+                earliest_ko = sorted(gw_fixes, key=lambda x: x.get("kickoff_time"))[0].get("kickoff_time")
+                try:
+                    lineup_iso = (pd.to_datetime(earliest_ko) - pd.Timedelta(minutes=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+                except Exception:
+                    pass
+
+        gw_deadline_passed = False
+        if lineup_iso:
+            try:
+                dl_dt = datetime.fromisoformat(str(lineup_iso).replace("Z", "+00:00"))
+                if datetime.now(timezone.utc) >= dl_dt:
+                    gw_deadline_passed = True
+            except Exception:
+                pass
+
         all_lg_matches = (league_details or {}).get("matches", [])
         finished_gws = {
             g for g in {m.get("event") for m in all_lg_matches if m.get("event")}
@@ -4068,13 +4044,13 @@ def evaluate_bet_hector_settlements():
         dirty = False
         push_notifications = []
 
-        # 1. Auto expire ANY unaccepted Pending bet whose GW lineup deadline has passed
+        # 1. Auto expire unaccepted Pending GW bets whose deadline has passed
         for b in bets:
-            if b.get("status") == "Pending":
+            if b.get("status") == "Pending" and b.get("bet_type") in AUTO_GW_BET_TYPES:
                 b_gw = safe_int(b.get("gw", 0))
-                if b_gw > 0 and (b_gw in finished_gws or is_gw_betting_locked(b_gw, static_data, all_fixtures, current_gw)):
+                if b_gw < current_gw or (b_gw == current_gw and gw_deadline_passed) or (b_gw in finished_gws):
                     b["status"] = "Expired"
-                    b["resolution_note"] = f"Expired at GW {b_gw} lineup deadline"
+                    b["resolution_note"] = f"Expired at GW {b_gw} deadline"
                     dirty = True
 
         # 2. Auto settle Active GW bets where the GW is officially finished
@@ -4105,6 +4081,7 @@ def evaluate_bet_hector_settlements():
                     mgr_gw_scores[(ev, a1)] = safe_int(m.get("league_entry_1_points", 0))
                     mgr_gw_scores[(ev, a2)] = safe_int(m.get("league_entry_2_points", 0))
 
+            # Precompute GACS lookup across all 4 divisions if any GACS bets need settling
             gacs_needed_gws = {
                 safe_int(b.get("gw", 0))
                 for b in active_auto_bets
@@ -4225,10 +4202,99 @@ def evaluate_bet_hector_settlements():
         except Exception:
             pass
 
+def _bet_signature(b: dict):
+    prop = str(b.get("proposer", "")).strip().lower()
+    b_type = str(b.get("bet_type", "")).strip().lower()
+    gw = safe_int(b.get("gw", 0))
+    summary = str(b.get("summary", "")).strip().lower()
+    if b_type == "acca":
+        legs = b.get("acca_legs") or []
+        legs_key = "|".join(sorted([
+            f"{str(lg.get('m1','')).strip().lower()}-{str(lg.get('m2','')).strip().lower()}:{str(lg.get('pick','')).strip().lower()}"
+            for lg in legs if isinstance(lg, dict)
+        ]))
+        return (prop, b_type, gw, legs_key or summary)
+    opp = str(b.get("opponent", "")).strip().lower()
+    return (prop, opp, b_type, gw, summary)
+
+def deduplicate_bet_hector_bets(state: dict) -> bool:
+    bets = state.get("bets", [])
+    if not isinstance(bets, list) or not bets:
+        return False
+
+    locked_or_settled_sigs = set()
+    for b in bets:
+        if str(b.get("status", "")) in ("Active", "Settled"):
+            locked_or_settled_sigs.add(_bet_signature(b))
+
+    cleaned = []
+    seen_pending_sigs = set()
+    removed_any = False
+
+    for b in bets:
+        st = str(b.get("status", ""))
+        sig = _bet_signature(b)
+        if st == "Pending":
+            if sig in locked_or_settled_sigs or sig in seen_pending_sigs:
+                removed_any = True
+                continue
+            seen_pending_sigs.add(sig)
+        cleaned.append(b)
+
+    if removed_any:
+        state["bets"] = cleaned
+    return removed_any
+
+def is_gw_betting_locked(gw_num: int, static_data=None, all_fixtures=None, current_gw=None):
+    gw_int = safe_int(gw_num)
+    if gw_int <= 0:
+        return True
+    if static_data is None:
+        static_data = cached_fpl_static() or {}
+    if all_fixtures is None:
+        all_fixtures = cached_all_fixtures() or []
+    if current_gw is not None and gw_int < safe_int(current_gw):
+        return True
+
+    events_raw = static_data.get("events", [])
+    if isinstance(events_raw, dict):
+        cur_ev = safe_int(events_raw.get("current", 0))
+        if cur_ev > 0 and gw_int < cur_ev:
+            return True
+        events_list = events_raw.get("data", [])
+    else:
+        events_list = events_raw if isinstance(events_raw, list) else []
+
+    gw_fixes = [f for f in all_fixtures if safe_int(f.get("event")) == gw_int]
+    if gw_fixes and any(f.get("started", False) or f.get("finished", False) or f.get("finished_provisional", False) for f in gw_fixes):
+        return True
+
+    target_ev = next((ev for ev in events_list if safe_int(ev.get("id")) == gw_int), None)
+    lineup_iso = target_ev.get("deadline_time") if isinstance(target_ev, dict) else None
+
+    if not lineup_iso and gw_fixes:
+        ko_fixes = [f for f in gw_fixes if f.get("kickoff_time")]
+        if ko_fixes:
+            earliest_ko = sorted(ko_fixes, key=lambda x: str(x.get("kickoff_time")))[0].get("kickoff_time")
+            try:
+                lineup_dt = pd.to_datetime(earliest_ko, utc=True) - pd.Timedelta(minutes=90)
+                lineup_iso = lineup_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                pass
+
+    if lineup_iso:
+        try:
+            dl_dt = pd.to_datetime(lineup_iso, utc=True)
+            if pd.Timestamp.now(tz="UTC") >= dl_dt:
+                return True
+        except Exception:
+            pass
+
+    return False
+
 @app.get("/api/bet_hector")
 def get_bet_hector(alias: str = ""):
     evaluate_bet_hector_settlements()
-    state = load_bet_hector_state()
     clean_alias = str(alias).strip()
     if clean_alias.lower() == "admin":
         clean_alias = "Andy"
@@ -4237,6 +4303,20 @@ def get_bet_hector(alias: str = ""):
     all_fixtures = cached_all_fixtures() or []
     league_details, _ = cached_league_data(63)
     current_gw, all_events = detect_current_gw(league_details)
+
+    lock = _get_bet_lock()
+    with lock:
+        state = load_bet_hector_state()
+        dirty = deduplicate_bet_hector_bets(state)
+        for b in state.get("bets", []):
+            if b.get("status") == "Pending":
+                b_gw = safe_int(b.get("gw", 0))
+                if b_gw > 0 and is_gw_betting_locked(b_gw, static_data, all_fixtures, current_gw):
+                    b["status"] = "Expired"
+                    b["resolution_note"] = f"Expired at GW {b_gw} lineup deadline"
+                    dirty = True
+        if dirty:
+            save_bet_hector_state(state)
 
     # Strictly exclude any Gameweek whose lineup deadline has passed
     open_gws = [
@@ -4301,6 +4381,7 @@ def get_bet_hector(alias: str = ""):
                         mgr_records[lose_m]["forfeits_owed"] += 1
                     forfeits_list.append({
                         "id": b.get("id"),
+                        "gw": b.get("gw"),
                         "loser": lose_m,
                         "winner": win_m,
                         "custom_stake": c_stake,
@@ -4397,6 +4478,8 @@ async def propose_bet_hector(request: Request, background_tasks: BackgroundTasks
     lock = _get_bet_lock()
     with lock:
         state = load_bet_hector_state()
+        deduplicate_bet_hector_bets(state)
+
         my_avail = get_available_hbx(state, proposer)
         if hbx_stake > my_avail:
             return {"status": "error", "message": f"Insufficient available Hectorbux. You have {my_avail} HBX unencumbered."}
@@ -4466,6 +4549,13 @@ async def propose_bet_hector(request: Request, background_tasks: BackgroundTasks
             "resolution_note": "",
             "created_at": datetime.now().strftime("%d %b, %H:%M")
         }
+
+        # Block duplicate bets: the exact same bet can only be placed once
+        new_sig = _bet_signature(new_bet)
+        for existing_b in state.get("bets", []):
+            if str(existing_b.get("status", "")) in ("Pending", "Active") and _bet_signature(existing_b) == new_sig:
+                return {"status": "error", "message": "You have already placed this exact wager (it is currently Open or Locked In)."}
+
         state["bets"].append(new_bet)
         save_bet_hector_state(state)
 
@@ -4557,45 +4647,50 @@ async def respond_bet_hector(request: Request, background_tasks: BackgroundTasks
             target["opponent"] = actor
             target["status"] = "Active"
             target["accepted_at"] = datetime.now().strftime("%d %b, %H:%M")
+
+            # Immediately purge any duplicate Pending copies of this accepted bet
+            deduplicate_bet_hector_bets(state)
             save_bet_hector_state(state)
         else:
             return {"status": "error", "message": "Invalid action."}
 
-    def _notify_bet_response():
+    # Immediately dispatch push notification to the proposer so they are alerted when their bet is accepted
+    try:
         subs_registry = upstash_get_json("cdp_push_subs_v2", {})
-        if not subs_registry:
-            return
-        if action == "accept":
-            if target.get("bet_type") == "acca":
+        if subs_registry:
+            unique_push_tag = f"bh-resp-{int(time.time() * 1000)}"
+            if action == "accept":
+                if target.get("bet_type") == "acca":
+                    send_push_to_manager(
+                        subs_registry,
+                        proposer,
+                        f"🎟️ Acca Accepted! {actor} is Your Bookie",
+                        f"{actor} laid {liab} HBX against your {stake} HBX Acca! {target.get('summary')}",
+                        tag=unique_push_tag
+                    )
+                else:
+                    stake_parts = []
+                    if stake > 0: stake_parts.append(f"{stake} HBX")
+                    if target.get("custom_stake"): stake_parts.append(str(target.get("custom_stake")))
+                    s_txt = " + ".join(stake_parts)
+                    send_push_to_manager(
+                        subs_registry,
+                        proposer,
+                        f"🎰 Bet Accepted by {actor}!",
+                        f"{actor} accepted your wager: {target.get('summary')} | Stake: {s_txt}",
+                        tag=unique_push_tag
+                    )
+            elif action == "reject":
                 send_push_to_manager(
                     subs_registry,
                     proposer,
-                    f"🎟️ Acca Laid! {actor} is Your Bookie",
-                    f"{actor} laid {liab} HBX against your {stake} HBX Acca! {target.get('summary')}",
-                    tag=f"bh-acc-{bet_id}"
+                    f"❌ Bet Declined by {actor}",
+                    f"{actor} turned down: {target.get('summary')}",
+                    tag=unique_push_tag
                 )
-            else:
-                stake_parts = []
-                if stake > 0: stake_parts.append(f"{stake} HBX")
-                if target.get("custom_stake"): stake_parts.append(str(target.get("custom_stake")))
-                s_txt = " + ".join(stake_parts)
-                send_push_to_manager(
-                    subs_registry,
-                    proposer,
-                    f"🎰 Bet Locked In! {actor} Accepted",
-                    f"{target.get('summary')} | Stake: {s_txt}",
-                    tag=f"bh-acc-{bet_id}"
-                )
-        elif action == "reject":
-            send_push_to_manager(
-                subs_registry,
-                proposer,
-                f"❌ Bet Declined by {actor}",
-                f"{actor} turned down: {target.get('summary')}",
-                tag=f"bh-rej-{bet_id}"
-            )
+    except Exception as e:
+        print("Bet response push error:", e)
 
-    background_tasks.add_task(_notify_bet_response)
     return {"status": "ok"}
 
 @app.post("/api/bet_hector/settle")

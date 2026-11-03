@@ -1184,12 +1184,12 @@
         <div id="bh-pane-book" style="width: 100%;">
             <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; background: #090c13; padding: 10px 12px; border-radius: 8px; border: 1px solid #182030; align-items: center;">
                 <select id="bh-filter-sel" class="white-select" style="flex: 1; min-width: 150px;" onchange="renderBetHectorBook()">
+                    <option value="open" selected>⏳ View: Open Bets (Pending Acceptance)</option>
+                    <option value="active">🔒 View: Accepted (Locked In)</option>
+                    <option value="mine">👤 View: My Bets (Proposed & Accepted)</option>
+                    <option value="action">🔔 View: Needs My Response / Open Accas</option>
+                    <option value="settled">🏆 View: Settled Results</option>
                     <option value="all">📋 View: All Wagers</option>
-                    <option value="mine">👤 My Bets (Proposed & Accepted)</option>
-                    <option value="action">🔔 Needs My Response / Open Accas</option>
-                    <option value="open">⏳ Proposed (Pending Acceptance)</option>
-                    <option value="active">🔒 Accepted (Locked In)</option>
-                    <option value="settled">🏆 Settled Results</option>
                 </select>
                 <select id="bh-mgr-filter-sel" class="white-select" style="flex: 1; min-width: 140px;" onchange="renderBetHectorBook()">
                     <option value="All">👥 Manager: All</option>
@@ -1914,7 +1914,12 @@
             }
         }
 
+        window.isSubmittingBetHector = false;
+        window.isRespondingBetHector = false;
+
         async function submitBetHectorWager() {
+            if (window.isSubmittingBetHector) return;
+
             const opp = document.getElementById('bh-opp-sel').value;
             const bType = document.getElementById('bh-type-sel').value;
             const gw = parseInt(document.getElementById('bh-gw-sel').value) || 0;
@@ -1927,44 +1932,77 @@
                 return;
             }
 
-            const res = await fetch('/api/bet_hector/propose', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    proposer: savedAlias,
-                    opponent: opp,
-                    bet_type: bType,
-                    gw: gw,
-                    acca_legs: window.selectedAccaLegs,
-                    custom_desc: cDesc,
-                    hbx_stake: hbxStake,
-                    custom_stake: cStake
-                })
-            });
-            const data = await res.json();
-            if (data.status === 'ok') {
-                document.getElementById('bh-custom-desc').value = '';
-                document.getElementById('bh-stake-custom').value = '';
-                window.selectedAccaLegs = [];
-                alert(bType === 'acca' ? '🎟️ Acca slip posted to The Book!' : '✅ Wager posted to Bet Hector!');
-                await fetchBetHector();
-                switchBetHectorTab('book');
-            } else {
-                alert(data.message || 'Could not post wager.');
+            const subBtn = document.getElementById('bh-submit-btn');
+            const origText = subBtn ? subBtn.innerText : '🎰 Post Wager & Ping Opponent';
+            window.isSubmittingBetHector = true;
+            if (subBtn) {
+                subBtn.disabled = true;
+                subBtn.style.opacity = '0.5';
+                subBtn.style.cursor = 'not-allowed';
+                subBtn.innerText = '⏳ Registering Wager... Please Wait';
+            }
+
+            try {
+                const res = await fetch('/api/bet_hector/propose', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        proposer: savedAlias,
+                        opponent: opp,
+                        bet_type: bType,
+                        gw: gw,
+                        acca_legs: window.selectedAccaLegs,
+                        custom_desc: cDesc,
+                        hbx_stake: hbxStake,
+                        custom_stake: cStake
+                    })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    document.getElementById('bh-custom-desc').value = '';
+                    document.getElementById('bh-stake-custom').value = '';
+                    window.selectedAccaLegs = [];
+                    renderAccaFixtureGrid();
+                    const filterSel = document.getElementById('bh-filter-sel');
+                    if (filterSel) filterSel.value = 'open';
+                    alert(bType === 'acca' ? '🎟️ Acca slip posted to The Book!' : '✅ Wager posted to Bet Hector!');
+                    await fetchBetHector();
+                    switchBetHectorTab('book');
+                } else {
+                    alert(data.message || 'Could not post wager.');
+                }
+            } catch (e) {
+                alert('Connection error while posting wager. Please check The Book before trying again.');
+            } finally {
+                window.isSubmittingBetHector = false;
+                if (subBtn) {
+                    subBtn.disabled = false;
+                    subBtn.style.opacity = '1';
+                    subBtn.style.cursor = 'pointer';
+                    subBtn.innerText = origText;
+                }
             }
         }
 
         async function respondBetHector(betId, action) {
-            const res = await fetch('/api/bet_hector/respond', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: betId, action: action, alias: savedAlias })
-            });
-            const data = await res.json();
-            if (data.status !== 'ok') {
-                alert(data.message || 'Action failed.');
+            if (window.isRespondingBetHector) return;
+            window.isRespondingBetHector = true;
+            try {
+                const res = await fetch('/api/bet_hector/respond', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: betId, action: action, alias: savedAlias })
+                });
+                const data = await res.json();
+                if (data.status !== 'ok') {
+                    alert(data.message || 'Action failed.');
+                }
+                await fetchBetHector();
+            } catch (e) {
+                alert('Connection error while updating wager.');
+            } finally {
+                window.isRespondingBetHector = false;
             }
-            fetchBetHector();
         }
 
         async function settleBetHector(betId, winnerAlias) {
