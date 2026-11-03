@@ -10,6 +10,7 @@ import pandas as pd
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, Request, BackgroundTasks
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, Response
 from pywebpush import webpush
 from pathlib import Path
@@ -21,6 +22,7 @@ except Exception:
     pdfium = None
 
 app = FastAPI()
+app.add_middleware(GZipMiddleware, minimum_size=500)
 base_dir = Path(__file__).resolve().parent
 
 assets_folder = base_dir / "Assets"
@@ -154,26 +156,69 @@ VAPID_CLAIMS = {"sub": "mailto:commissar@cdp.com"}
 def cached_fpl_static():
     return engine.fetch_fpl_static()
 
-@ttl_cache(90)
+@ttl_cache(45)
 def cached_league_data(league_id: int):
     return engine.fetch_league_data(league_id)
 
-@ttl_cache(60)
+@ttl_cache(30)
 def cached_all_fixtures():
     return engine.fetch_all_epl_fixtures()
 
-@ttl_cache(45)
+def _is_gw_completed(gw: int) -> bool:
+    all_f = _MEMORY_CACHE.get(("cached_all_fixtures", (), ()))
+    fixes = all_f[0] if all_f else None
+    if not fixes:
+        return False
+    gw_f = [f for f in fixes if int(f.get("event") or 0) == int(gw or 0)]
+    return bool(gw_f) and all(f.get("finished", False) for f in gw_f)
+
+def _is_gw_started_or_completed(gw: int) -> bool:
+    all_f = _MEMORY_CACHE.get(("cached_all_fixtures", (), ()))
+    fixes = all_f[0] if all_f else None
+    if not fixes:
+        return False
+    gw_f = [f for f in fixes if int(f.get("event") or 0) == int(gw or 0)]
+    return bool(gw_f) and any(f.get("started", False) or f.get("finished", False) for f in gw_f)
+
 def cached_live_event(gw: int):
-    return engine.fetch_live_event(gw)
+    gw_int = int(gw or 0)
+    key = ("cached_live_event", (gw_int,), ())
+    now = time.time()
+    ttl = 86400 if _is_gw_completed(gw_int) else 20
+    stale_val = None
+    if key in _MEMORY_CACHE:
+        val, ts = _MEMORY_CACHE[key]
+        if now - ts < ttl:
+            return val
+        stale_val = val
+    res = engine.fetch_live_event(gw_int)
+    if not res:
+        return stale_val if stale_val is not None else res
+    _MEMORY_CACHE[key] = (res, now)
+    return res
 
-@ttl_cache(600)
 def cached_entry_event(entry_id: int, gw: int):
-    return engine.fetch_entry_event(entry_id, gw)
+    eid_int = int(entry_id or 0)
+    gw_int = int(gw or 0)
+    key = ("cached_entry_event", (eid_int, gw_int), ())
+    now = time.time()
+    ttl = 86400 if _is_gw_started_or_completed(gw_int) else 120
+    stale_val = None
+    if key in _MEMORY_CACHE:
+        val, ts = _MEMORY_CACHE[key]
+        if now - ts < ttl:
+            return val
+        stale_val = val
+    res = engine.fetch_entry_event(eid_int, gw_int)
+    if not res:
+        return stale_val if stale_val is not None else res
+    _MEMORY_CACHE[key] = (res, now)
+    return res
 
-@ttl_cache(60)
+@ttl_cache(25)
 def cached_epl_fixtures(gw: int):
     try:
-        r = requests.get(f"https://fantasy.premierleague.com/api/fixtures/?event={gw}", timeout=5)
+        r = requests.get(f"https://fantasy.premierleague.com/api/fixtures/?event={gw}", timeout=4)
         if r.status_code == 200:
             return r.json()
     except Exception:
@@ -1769,6 +1814,12 @@ def get_standings(league_id: int = 63):
 
     sorted_matches = sorted(matches, key=lambda x: x.get("event", 0))
 
+    if gw_started:
+        active_eids = [e.get("entry_id") for e in entries if e.get("entry_id")]
+        if active_eids:
+            with ThreadPoolExecutor(max_workers=8) as p_ex:
+                list(p_ex.map(lambda eid: cached_entry_event(eid, current_gw), active_eids))
+
     for m in sorted_matches:
         ev = m["event"]
         t1_id, t2_id = m["league_entry_1"], m["league_entry_2"]
@@ -1838,7 +1889,6 @@ def get_standings(league_id: int = 63):
         color = "#22c55e" if last_res == "W" else ("#ef4444" if last_res == "L" else "#94a3b8")
         return f" <span style='color:{color}; font-size:0.85em; font-weight:800;'>({count}{last_res})</span>"
 
-    # Calculate previous official ranks
     prev_off_rows = [{"team_id": tid, "pf": st["pf"], "pts": st["pts"]} for tid, st in prev_off_stats.items()]
     prev_off_rows = sorted(prev_off_rows, key=lambda x: (x["pts"], x["pf"]), reverse=True)
     prev_off_rank_map = {r["team_id"]: idx for idx, r in enumerate(prev_off_rows, 1)}
@@ -1884,129 +1934,132 @@ def get_standings(league_id: int = 63):
         else:
             r["move_html"] = "<span style='color:#64748b; font-weight:700;'>▬</span>"
 
-    # Monte Carlo Season Projections (2,000 simulations of remaining schedule)
-    import random
-    _, element_status = cached_league_data(league_id)
-    owner_map = {item["element"]: item.get("owner") for item in (element_status or {}).get("element_status", [])}
-    roster_power = {e["id"]: [] for e in entries}
-    entry_id_to_tid = {e.get("entry_id"): e["id"] for e in entries if e.get("entry_id")}
+    # Monte Carlo Season Projections (keyed by exact live pts and PF signature)
+    live_sig = tuple(sorted((tid, st["pts"], st["pf"]) for tid, st in live_stats.items()))
+    mc_cache_key = ("mc_proj", league_id, current_gw, gw_started, live_sig)
+    mc_cached = _MEMORY_CACHE.get(mc_cache_key)
+    if mc_cached and (time.time() - mc_cached[1] < 120):
+        proj_rows = mc_cached[0]
+    else:
+        import random
+        _, element_status = cached_league_data(league_id)
+        owner_map = {item["element"]: item.get("owner") for item in (element_status or {}).get("element_status", [])}
+        roster_power = {e["id"]: [] for e in entries}
+        entry_id_to_tid = {e.get("entry_id"): e["id"] for e in entries if e.get("entry_id")}
 
-    for raw_elem in (static_data or {}).get("elements", []):
-        owner_eid = owner_map.get(raw_elem["id"])
-        if owner_eid in entry_id_to_tid:
-            tid = entry_id_to_tid[owner_eid]
-            avail = get_availability_multiplier(raw_elem)
-            ppg_v = float(raw_elem.get("points_per_game") or 2.0)
-            form_v = float(raw_elem.get("form") or 0.0)
-            exp_wk = ((ppg_v * 0.65) + (form_v * 0.35)) * max(0.4, avail)
-            roster_power[tid].append(exp_wk)
+        for raw_elem in (static_data or {}).get("elements", []):
+            owner_eid = owner_map.get(raw_elem["id"])
+            if owner_eid in entry_id_to_tid:
+                tid = entry_id_to_tid[owner_eid]
+                avail = get_availability_multiplier(raw_elem)
+                ppg_v = float(raw_elem.get("points_per_game") or 2.0)
+                form_v = float(raw_elem.get("form") or 0.0)
+                exp_wk = ((ppg_v * 0.65) + (form_v * 0.35)) * max(0.4, avail)
+                roster_power[tid].append(exp_wk)
 
-    team_mu = {}
-    for e in entries:
-        tid = e["id"]
-        st = live_stats[tid]
-        gp = max(1, st["wins"] + st["draws"] + st["losses"])
-        hist_avg = float(st["pf"]) / float(gp) if (st["wins"] + st["draws"] + st["losses"]) > 0 else 38.0
-        top11 = sorted(roster_power.get(tid, []), reverse=True)[:11]
-        ros_avg = sum(top11) if len(top11) >= 8 else 38.0
-        w_hist = min(0.65, gp * 0.06)
-        team_mu[tid] = (hist_avg * w_hist) + (ros_avg * (1.0 - w_hist))
+        team_mu = {}
+        for e in entries:
+            tid = e["id"]
+            st = live_stats[tid]
+            gp = max(1, st["wins"] + st["draws"] + st["losses"])
+            hist_avg = float(st["pf"]) / float(gp) if (st["wins"] + st["draws"] + st["losses"]) > 0 else 38.0
+            top11 = sorted(roster_power.get(tid, []), reverse=True)[:11]
+            ros_avg = sum(top11) if len(top11) >= 8 else 38.0
+            w_hist = min(0.65, gp * 0.06)
+            team_mu[tid] = (hist_avg * w_hist) + (ros_avg * (1.0 - w_hist))
 
-    rem_matches = [
-        (m["league_entry_1"], m["league_entry_2"])
-        for m in sorted_matches
-        if (m["event"] > current_gw or (m["event"] == current_gw and not gw_started))
-        and m["league_entry_1"] in live_stats and m["league_entry_2"] in live_stats
-    ]
+        rem_matches = [
+            (m["league_entry_1"], m["league_entry_2"])
+            for m in sorted_matches
+            if (m["event"] > current_gw or (m["event"] == current_gw and not gw_started))
+            and m["league_entry_1"] in live_stats and m["league_entry_2"] in live_stats
+        ]
 
-    n_sims = 2000
-    tids = [e["id"] for e in entries]
-    n_teams = len(tids)
-    rank_counts = {tid: [0] * (n_teams + 1) for tid in tids}
-    sum_pts = {tid: 0.0 for tid in tids}
-    sum_pf = {tid: 0.0 for tid in tids}
-    base_pts = {tid: live_stats[tid]["pts"] for tid in tids}
-    base_pf = {tid: live_stats[tid]["pf"] for tid in tids}
-    gauss = random.gauss
+        n_sims = 1500
+        tids = [e["id"] for e in entries]
+        n_teams = len(tids)
+        rank_counts = {tid: [0] * (n_teams + 1) for tid in tids}
+        sum_pts = {tid: 0.0 for tid in tids}
+        sum_pf = {tid: 0.0 for tid in tids}
+        base_pts = {tid: live_stats[tid]["pts"] for tid in tids}
+        base_pf = {tid: live_stats[tid]["pf"] for tid in tids}
+        gauss = random.gauss
 
-    for _ in range(n_sims):
-        sim_pts = base_pts.copy()
-        sim_pf = base_pf.copy()
-        for t1, t2 in rem_matches:
-            s1 = int(gauss(team_mu[t1], 11.0))
-            s2 = int(gauss(team_mu[t2], 11.0))
-            if s1 < 10: s1 = 10
-            if s2 < 10: s2 = 10
-            sim_pf[t1] += s1
-            sim_pf[t2] += s2
-            if s1 > s2:
-                sim_pts[t1] += 3
-            elif s2 > s1:
-                sim_pts[t2] += 3
+        for _ in range(n_sims):
+            sim_pts = base_pts.copy()
+            sim_pf = base_pf.copy()
+            for t1, t2 in rem_matches:
+                s1 = int(gauss(team_mu[t1], 11.0))
+                s2 = int(gauss(team_mu[t2], 11.0))
+                if s1 < 10: s1 = 10
+                if s2 < 10: s2 = 10
+                sim_pf[t1] += s1
+                sim_pf[t2] += s2
+                if s1 > s2:
+                    sim_pts[t1] += 3
+                elif s2 > s1:
+                    sim_pts[t2] += 3
+                else:
+                    sim_pts[t1] += 1
+                    sim_pts[t2] += 1
+            ranked = sorted(tids, key=lambda x: (sim_pts[x], sim_pf[x]), reverse=True)
+            for r_idx, tid in enumerate(ranked, 1):
+                rank_counts[tid][r_idx] += 1
+                sum_pts[tid] += sim_pts[tid]
+                sum_pf[tid] += sim_pf[tid]
+
+        proj_rows = []
+        for e in entries:
+            tid = e["id"]
+            rc = rank_counts[tid]
+            alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
+            avg_pts = round(sum_pts[tid] / n_sims, 1)
+            avg_pf = int(round(sum_pf[tid] / n_sims))
+            avg_pos = round(sum(pos_i * rc[pos_i] for pos_i in range(1, n_teams + 1)) / float(n_sims), 1)
+
+            title_pct = round((rc[1] / float(n_sims)) * 100.0, 1) if n_teams >= 1 else 0.0
+            rel_start = max(1, n_teams - 2)
+            rel_raw = round((sum(rc[rel_start:]) / float(n_sims)) * 100.0, 1)
+
+            if league_id == 63:
+                double_promo_pct = 0.0
+                single_promo_pct = 0.0
+                any_promo_pct = 0.0
+                relegation_pct = rel_raw
+            elif league_id == 320:
+                double_promo_pct = 0.0
+                single_promo_pct = round(((rc[1] + rc[2]) / float(n_sims)) * 100.0, 1)
+                any_promo_pct = single_promo_pct
+                relegation_pct = rel_raw
+            elif league_id == 378:
+                double_promo_pct = title_pct
+                single_promo_pct = round((rc[2] / float(n_sims)) * 100.0, 1) if n_teams >= 2 else 0.0
+                any_promo_pct = round(((rc[1] + rc[2]) / float(n_sims)) * 100.0, 1)
+                relegation_pct = rel_raw
             else:
-                sim_pts[t1] += 1
-                sim_pts[t2] += 1
-        ranked = sorted(tids, key=lambda x: (sim_pts[x], sim_pf[x]), reverse=True)
-        for r_idx, tid in enumerate(ranked, 1):
-            rank_counts[tid][r_idx] += 1
-            sum_pts[tid] += sim_pts[tid]
-            sum_pf[tid] += sim_pf[tid]
+                double_promo_pct = title_pct
+                single_promo_pct = round(((rc[2] + rc[3]) / float(n_sims)) * 100.0, 1) if n_teams >= 3 else 0.0
+                any_promo_pct = round(((rc[1] + rc[2] + rc[3]) / float(n_sims)) * 100.0, 1)
+                relegation_pct = 0.0
 
-    proj_rows = []
-    for e in entries:
-        tid = e["id"]
-        rc = rank_counts[tid]
-        alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
-        avg_pts = round(sum_pts[tid] / n_sims, 1)
-        avg_pf = int(round(sum_pf[tid] / n_sims))
-        avg_pos = round(sum(pos_i * rc[pos_i] for pos_i in range(1, n_teams + 1)) / float(n_sims), 1)
+            proj_rows.append({
+                "team_id": tid,
+                "manager": alias,
+                "cur_pts": live_stats[tid]["pts"],
+                "proj_pts": avg_pts,
+                "proj_pf": avg_pf,
+                "avg_pos": avg_pos,
+                "title_pct": title_pct,
+                "double_promo_pct": double_promo_pct,
+                "single_promo_pct": single_promo_pct,
+                "any_promo_pct": any_promo_pct,
+                "relegation_pct": relegation_pct
+            })
 
-        title_pct = round((rc[1] / float(n_sims)) * 100.0, 1) if n_teams >= 1 else 0.0
-        rel_start = max(1, n_teams - 2)
-        rel_raw = round((sum(rc[rel_start:]) / float(n_sims)) * 100.0, 1)
-
-        if league_id == 63:
-            # CDP: Title = 1st, No Promotion, Relegation = Bottom 3
-            double_promo_pct = 0.0
-            single_promo_pct = 0.0
-            any_promo_pct = 0.0
-            relegation_pct = rel_raw
-        elif league_id == 320:
-            # SDM: Title = 1st, Promotion = Top 2 (to CDP), Relegation = Bottom 3
-            double_promo_pct = 0.0
-            single_promo_pct = round(((rc[1] + rc[2]) / float(n_sims)) * 100.0, 1)
-            any_promo_pct = single_promo_pct
-            relegation_pct = rel_raw
-        elif league_id == 378:
-            # BDR: Title = 1st (Double Promo to CDP), 2nd = Single Promo to SDM, Relegation = Bottom 3
-            double_promo_pct = title_pct
-            single_promo_pct = round((rc[2] / float(n_sims)) * 100.0, 1) if n_teams >= 2 else 0.0
-            any_promo_pct = round(((rc[1] + rc[2]) / float(n_sims)) * 100.0, 1)
-            relegation_pct = rel_raw
-        else:
-            # LDE (240): Title = 1st (Double Promo to SDM), 2nd & 3rd = Single Promo to BDR, No Relegation
-            double_promo_pct = title_pct
-            single_promo_pct = round(((rc[2] + rc[3]) / float(n_sims)) * 100.0, 1) if n_teams >= 3 else 0.0
-            any_promo_pct = round(((rc[1] + rc[2] + rc[3]) / float(n_sims)) * 100.0, 1)
-            relegation_pct = 0.0
-
-        proj_rows.append({
-            "team_id": tid,
-            "manager": alias,
-            "cur_pts": live_stats[tid]["pts"],
-            "proj_pts": avg_pts,
-            "proj_pf": avg_pf,
-            "avg_pos": avg_pos,
-            "title_pct": title_pct,
-            "double_promo_pct": double_promo_pct,
-            "single_promo_pct": single_promo_pct,
-            "any_promo_pct": any_promo_pct,
-            "relegation_pct": relegation_pct
-        })
-
-    proj_rows = sorted(proj_rows, key=lambda x: (-x["proj_pts"], -x["proj_pf"]))
-    for idx, r in enumerate(proj_rows, 1):
-        r["pos"] = idx
+        proj_rows = sorted(proj_rows, key=lambda x: (-x["proj_pts"], -x["proj_pf"]))
+        for idx, r in enumerate(proj_rows, 1):
+            r["pos"] = idx
+        _MEMORY_CACHE[mc_cache_key] = (proj_rows, time.time())
 
     return {
         "league_id": league_id,
@@ -3049,18 +3102,36 @@ def get_newsletter_info(doc: str = "league"):
     except Exception as e:
         return {"exists": False, "message": f"Error reading PDF: {str(e)}"}
 
+_NEWSLETTER_PNG_CACHE = {}
+
 @app.get("/api/newsletter_page/{doc}/{page_num}")
 def get_newsletter_page_image(doc: str, page_num: int):
     pdf_path = find_newsletter_pdf(doc)
     if not pdf_path or pdfium is None:
         return Response(status_code=404)
     try:
+        mtime = int(pdf_path.stat().st_mtime)
+        cache_key = (str(pdf_path), mtime, page_num)
+        if cache_key in _NEWSLETTER_PNG_CACHE:
+            return Response(
+                content=_NEWSLETTER_PNG_CACHE[cache_key],
+                media_type="image/png",
+                headers={"Cache-Control": "public, max-age=86400"}
+            )
         pdf_doc = pdfium.PdfDocument(pdf_path)
         page = pdf_doc[page_num]
         pil_img = page.render(scale=3).to_pil()
         buf = io.BytesIO()
         pil_img.save(buf, format="PNG")
-        return Response(content=buf.getvalue(), media_type="image/png")
+        png_bytes = buf.getvalue()
+        if len(_NEWSLETTER_PNG_CACHE) > 40:
+            _NEWSLETTER_PNG_CACHE.clear()
+        _NEWSLETTER_PNG_CACHE[cache_key] = png_bytes
+        return Response(
+            content=png_bytes,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400"}
+        )
     except Exception:
         return Response(status_code=404)
 
@@ -3886,8 +3957,14 @@ def _get_bet_lock():
 def get_all_32_manager_aliases():
     return sorted([k for k in MANAGER_LEAGUES.keys() if k.lower() != "admin"], key=lambda x: x.lower())
 
+_BET_HECTOR_LAST_SYNC = 0.0
+
 def load_bet_hector_state():
-    global _BET_HECTOR_MEM_CACHE
+    global _BET_HECTOR_MEM_CACHE, _BET_HECTOR_LAST_SYNC
+    now = time.time()
+    if isinstance(_BET_HECTOR_MEM_CACHE, dict) and (now - _BET_HECTOR_LAST_SYNC < 25.0):
+        return json.loads(json.dumps(_BET_HECTOR_MEM_CACHE))
+
     upstash_url = os.getenv("UPSTASH_URL")
     upstash_token = os.getenv("UPSTASH_TOKEN")
     data = None
@@ -3897,7 +3974,7 @@ def load_bet_hector_state():
         clean_url = upstash_url.rstrip("/")
         try:
             headers = {"Authorization": f"Bearer {upstash_token}"}
-            r = requests.get(f"{clean_url}/get/cdp_bet_hector_v1", headers=headers, timeout=6)
+            r = requests.get(f"{clean_url}/get/cdp_bet_hector_v1", headers=headers, timeout=5)
             if r.status_code == 200:
                 res_str = r.json().get("result")
                 if res_str:
@@ -3931,11 +4008,13 @@ def load_bet_hector_state():
         data["bets"] = []
 
     _BET_HECTOR_MEM_CACHE = json.loads(json.dumps(data))
+    _BET_HECTOR_LAST_SYNC = now
     return data
 
 def save_bet_hector_state(state):
-    global _BET_HECTOR_MEM_CACHE
+    global _BET_HECTOR_MEM_CACHE, _BET_HECTOR_LAST_SYNC
     _BET_HECTOR_MEM_CACHE = json.loads(json.dumps(state))
+    _BET_HECTOR_LAST_SYNC = time.time()
     upstash_set_json("cdp_bet_hector_v1", state)
     try:
         with open(bet_hector_file, "w", encoding="utf-8") as bf:
@@ -5229,9 +5308,13 @@ def run_automated_push_checks():
             "players": {}
         })
 
-        # 2. Check Live EPL Player Events Across All 4 Leagues
+        # 2. Check Live EPL Player Events Across All 4 Leagues (only refresh active GW)
         for k in list(_MEMORY_CACHE.keys()):
-            if k[0] in ("cached_live_event", "cached_all_fixtures", "cached_epl_fixtures", "compute_cbwcbw_tracker", "evaluate_cup_manager_gw"):
+            if k[0] in ("cached_all_fixtures", "compute_cbwcbw_tracker"):
+                _MEMORY_CACHE.pop(k, None)
+            elif k[0] in ("cached_live_event", "cached_epl_fixtures") and len(k[1]) > 0 and k[1][0] == current_gw:
+                _MEMORY_CACHE.pop(k, None)
+            elif k[0] == "evaluate_cup_manager_gw" and len(k[1]) > 1 and k[1][1] == current_gw:
                 _MEMORY_CACHE.pop(k, None)
 
         gw_fixtures = cached_epl_fixtures(current_gw) or [f for f in all_fixtures if f.get("event") == current_gw]
