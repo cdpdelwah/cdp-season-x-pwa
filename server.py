@@ -2002,15 +2002,8 @@ def get_epl_predicted_lineups(league_id: int = 63, alias: str = "", force: int =
         prev_mins = safe_int(prev_st.get("minutes", 0))
 
         if avail <= 0.0:
-            proj_gw = 0.0
             rank_score = -999.0
         else:
-            base_exp = ((ppg_val * 0.6) + (form_val * 0.4)) * avail
-            if target_gw > 3 and (mins_season / max(1.0, float((target_gw - 1) * 60))) < 0.6:
-                base_exp *= 0.85
-            if base_exp <= 0:
-                base_exp = 2.0
-            proj_gw = round(base_exp * get_fdr_multiplier(tid, target_gw, all_fixtures), 1)
             prev_start_bonus = 18.0 if prev_mins >= 60 else (6.0 if prev_mins > 0 else 0.0)
             mins_bonus = min(12.0, mins_season / 65.0)
             rank_score = (prev_start_bonus + mins_bonus + (ppg_val * 2.2) + (form_val * 1.8) + (ict_val * 0.04)) * avail
@@ -2033,12 +2026,11 @@ def get_epl_predicted_lineups(league_id: int = 63, alias: str = "", force: int =
             "Pos": pos_str,
             "pos_rank": POS_ORDER.get(pos_str, 99),
             "Club": str(team_short_map.get(tid, "PL")).upper(),
-            "Opp": owner_pill,
+            "Opp": "",
+            "owner_pill": owner_pill,
             "owner_html": owner_html,
             "Pts": tot_pts,
-            "Proj": proj_gw,
-            "form": round(form_val, 1),
-            "ppg": round(ppg_val, 1),
+            "Proj": 0.0,
             "Mins": mins_season,
             "G": safe_int(raw_elem.get("goals_scored", 0)),
             "A": safe_int(raw_elem.get("assists", 0)),
@@ -2110,40 +2102,29 @@ def get_epl_predicted_lineups(league_id: int = 63, alias: str = "", force: int =
             elif p["Pos"] == "FWD" and len(fwds) < 3:
                 fwds.append(p); current_xi.append(p); used_ids.add(p["id"])
 
-        xi_sorted = sorted(current_xi, key=lambda x: (x["pos_rank"], -x["Proj"], -x["Pts"]))
+        xi_sorted = sorted(current_xi, key=lambda x: (x["pos_rank"], -x["rank_score"]))
         formation_str = f"{len(defs)}-{len(mids)}-{len(fwds)}"
-        proj_sum = round(sum(p["Proj"] for p in xi_sorted), 1)
 
-        rem_bench = [p for p in roster if p["id"] not in used_ids and p["avail"] > 0]
-        b_gk = [p for p in rem_bench if p["Pos"] == "GKP"][:1]
-        b_out = [p for p in rem_bench if p["Pos"] != "GKP"][:3]
-        bench_list = b_gk + sorted(b_out, key=lambda x: (x["pos_rank"], -x["Proj"]))
+        # Starting XI only (no bench), with division ownership displayed directly on the pitch pill
+        pitch_payload = make_pitch_payload(xi_sorted, [], show_proj_pill=False)
+        owner_by_name = {p["Player"]: p["owner_pill"] for p in xi_sorted}
+        for row in pitch_payload.get("pitch", []):
+            for token in row:
+                token["fixture"] = ""
+                token["pill_text"] = owner_by_name.get(token["name"], "🟢 Free Agent")
+                token["events"] = ""
 
-        pitch_payload = make_pitch_payload(xi_sorted, bench_list, show_proj_pill=True)
         starters_table = [{
             "name": p["Player"],
             "pos": p["Pos"],
-            "proj": f"{p['Proj']:.1f}",
-            "pts": p["Pts"],
-            "form": f"{p['form']:.1f}",
             "status": p["health_label"],
             "owner_html": p["owner_html"]
         } for p in xi_sorted]
-        bench_table = [{
-            "name": p["Player"],
-            "pos": p["Pos"],
-            "proj": f"{p['Proj']:.1f}",
-            "pts": p["Pts"],
-            "status": p["health_label"],
-            "owner_html": p["owner_html"]
-        } for p in bench_list]
 
         return {
             "formation": formation_str,
-            "proj_total": f"{proj_sum:.1f}",
             "pitch": pitch_payload,
-            "starters": starters_table,
-            "bench": bench_table
+            "starters": starters_table
         }
 
     fixtures_out = []
@@ -2170,14 +2151,10 @@ def get_epl_predicted_lineups(league_id: int = 63, alias: str = "", force: int =
             "ko_text": ko_text,
             "h_formation": h_sheet["formation"],
             "a_formation": a_sheet["formation"],
-            "h_proj": h_sheet["proj_total"],
-            "a_proj": a_sheet["proj_total"],
             "pitch_h": h_sheet["pitch"],
             "pitch_a": a_sheet["pitch"],
             "h_starters": h_sheet["starters"],
-            "h_bench": h_sheet["bench"],
-            "a_starters": a_sheet["starters"],
-            "a_bench": a_sheet["bench"]
+            "a_starters": a_sheet["starters"]
         })
 
     return {
