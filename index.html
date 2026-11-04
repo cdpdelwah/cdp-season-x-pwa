@@ -2507,8 +2507,8 @@
             const isOpen = drawer.classList.toggle('open');
             if (arrow) arrow.innerText = isOpen ? '▲' : '▼';
             if (isOpen && window.eplPredPitchStore[fid] && !window.eplPredPitchStore[fid].rendered) {
-                renderPitch(`epl-pred-pitch-h-${fid}`, window.eplPredPitchStore[fid].h, '#f59e0b', false);
-                renderPitch(`epl-pred-pitch-a-${fid}`, window.eplPredPitchStore[fid].a, '#38bdf8', false);
+                renderPitch(`epl-pred-pitch-h-${fid}`, window.eplPredPitchStore[fid].h, '#f59e0b', true);
+                renderPitch(`epl-pred-pitch-a-${fid}`, window.eplPredPitchStore[fid].a, '#38bdf8', true);
                 window.eplPredPitchStore[fid].rendered = true;
             }
         }
