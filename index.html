@@ -766,18 +766,28 @@
     <div id="screen-epl" class="app-screen">
         <div class="top-nav-bar">
             <button class="back-home-btn" onclick="navigate('home')">← Home</button>
-            <button class="refresh-btn" onclick="fetchEplScores(document.getElementById('epl-gw-select').value)">🔄 Refresh EPL</button>
+            <button class="refresh-btn" id="epl-top-refresh-btn" onclick="refreshEplScreen()">🔄 Refresh EPL</button>
         </div>
         <div class="header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <div>
                 <h1>⚽ EPL Scores & Lineups</h1>
-                <p>Official team sheets published 60 to 75m before kickoff • Live matchday scores, active subs, goals and DEFCON metrics</p>
+                <p>Official team sheets 60 to 75m before kickoff • Predicted XIs & division ownership for upcoming fixtures</p>
             </div>
             <select id="epl-gw-select" class="white-select" onchange="fetchEplScores(this.value)">
                 <option value="0">Current GW</option>
             </select>
         </div>
-        <div id="epl-fixtures-list" style="width: 100%;"></div>
+        <div class="sub-tabs">
+            <button class="sub-tab-btn active" id="epl-main-tab-scores" onclick="switchEplMainTab('scores')">⚽ Matchday Scores & Official Lineups</button>
+            <button class="sub-tab-btn" id="epl-main-tab-pred" onclick="switchEplMainTab('pred')">🔮 Predicted Lineups</button>
+        </div>
+        <div id="epl-scores-pane" style="width: 100%;">
+            <div id="epl-fixtures-list" style="width: 100%;"></div>
+        </div>
+        <div id="epl-pred-pane" style="width: 100%; display: none;">
+            <div id="epl-pred-banner" style="width: 100%; margin-bottom: 10px;"></div>
+            <div id="epl-pred-list" style="width: 100%;"></div>
+        </div>
     </div>
 
     <!-- SCREEN 5: STANDINGS -->
@@ -2338,17 +2348,201 @@
         // EPL SCORES & LINEUPS SCREEN
         // ==========================================
         window.eplPitchStore = {};
+        window.eplPredPitchStore = {};
+        window.eplMainTab = 'scores';
         window.eplAutoRefreshTimer = null;
 
         if (!window.eplAutoRefreshTimer) {
             window.eplAutoRefreshTimer = setInterval(() => {
                 const eplScr = document.getElementById("screen-epl");
-                if (eplScr && eplScr.classList.contains("active")) {
+                if (eplScr && eplScr.classList.contains("active") && window.eplMainTab === 'scores') {
                     const gwSel = document.getElementById("epl-gw-select");
                     window.cdpForceFresh = true;
                     fetchEplScores(gwSel ? gwSel.value : "0", true);
                 }
             }, 30000);
+        }
+
+        function switchEplMainTab(tab) {
+            window.eplMainTab = tab;
+            const bScores = document.getElementById('epl-main-tab-scores');
+            const bPred = document.getElementById('epl-main-tab-pred');
+            const pScores = document.getElementById('epl-scores-pane');
+            const pPred = document.getElementById('epl-pred-pane');
+            const gwSel = document.getElementById('epl-gw-select');
+
+            if (bScores) bScores.classList.toggle('active', tab === 'scores');
+            if (bPred) bPred.classList.toggle('active', tab === 'pred');
+            if (pScores) pScores.style.display = (tab === 'scores') ? 'block' : 'none';
+            if (pPred) pPred.style.display = (tab === 'pred') ? 'block' : 'none';
+            if (gwSel) gwSel.style.display = (tab === 'scores') ? 'block' : 'none';
+
+            if (tab === 'pred') {
+                fetchEplPredictedLineups(false);
+            }
+        }
+
+        function refreshEplScreen() {
+            if (window.eplMainTab === 'pred') {
+                fetchEplPredictedLineups(true);
+            } else {
+                const gwSel = document.getElementById('epl-gw-select');
+                fetchEplScores(gwSel ? gwSel.value : "0");
+            }
+        }
+
+        async function fetchEplPredictedLineups(force = false) {
+            const listEl = document.getElementById('epl-pred-list');
+            const bannerEl = document.getElementById('epl-pred-banner');
+            const refBtn = document.getElementById('epl-top-refresh-btn');
+            if (!listEl) return;
+
+            if (force || !listEl.children.length) {
+                listEl.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Scraping predicted Premier League lineups and matching division ownership...</p>";
+            }
+            if (force && refBtn) {
+                refBtn.innerText = "⏳ Scraping...";
+                refBtn.style.borderColor = "#f59e0b";
+                refBtn.style.color = "#f59e0b";
+            }
+
+            try {
+                const homeLid = parseInt(localStorage.getItem("cdp_league")) || activeLeagueId || 63;
+                const res = await fetch(`/api/epl_predicted_lineups?league_id=${homeLid}&alias=${encodeURIComponent(savedAlias)}&force=${force ? 1 : 0}`);
+                const data = await res.json();
+
+                if (bannerEl) {
+                    bannerEl.innerHTML = `<div class="alert-box alert-info" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:4px;">
+                        <span>🔮 <b>Upcoming Gameweek ${data.gw} Predicted Lineups</b> • Showing unstarted fixtures only</span>
+                        <span style="font-size:0.75rem; color:#f59e0b; font-weight:800;">Source: ${data.source} • Ownership: ${data.div}</span>
+                    </div>`;
+                }
+
+                const fixtures = data.fixtures || [];
+                if (!fixtures.length) {
+                    listEl.innerHTML = `<div class="alert-box alert-ok">All fixtures for this Gameweek are currently underway or finished. Check <b>⚽ Matchday Scores & Official Lineups</b>!</div>`;
+                    return;
+                }
+
+                window.eplPredPitchStore = {};
+                let html = "";
+
+                fixtures.forEach(f => {
+                    const fid = f.id;
+                    window.eplPredPitchStore[fid] = { h: f.pitch_h, a: f.pitch_a, rendered: false };
+
+                    const buildRosterTable = (starters, bench, clubTitle, colorHex) => `
+                        <div style="background:#060911; border:1px solid #182030; border-radius:8px; padding:10px;">
+                            <div style="font-weight:800; color:${colorHex}; margin-bottom:6px;">${clubTitle} Predicted XI</div>
+                            <div class="table-wrap" style="margin-bottom:8px;"><table class="clean-table">
+                                <thead><tr><th>Player</th><th>Pos</th><th>Proj</th><th>Form</th><th>Status</th><th>${data.div} Owner</th></tr></thead>
+                                <tbody>${(starters || []).map(p => `<tr>
+                                    <td style="font-weight:800; color:#fff;">${p.name}</td>
+                                    <td>${p.pos}</td>
+                                    <td style="color:#f59e0b; font-weight:800;">${p.proj}</td>
+                                    <td>${p.form}</td>
+                                    <td style="font-size:0.74rem;">${p.status}</td>
+                                    <td>${p.owner_html}</td>
+                                </tr>`).join('')}</tbody>
+                            </table></div>
+                            <div style="font-weight:800; color:#94a3b8; margin:6px 0 4px 0; font-size:0.78rem;">Top Fit Bench Options</div>
+                            <div class="table-wrap" style="margin-bottom:0;"><table class="clean-table">
+                                <tbody>${(bench || []).map(p => `<tr>
+                                    <td style="color:#cbd5e1;">${p.name}</td>
+                                    <td>${p.pos}</td>
+                                    <td>${p.proj} pts</td>
+                                    <td style="font-size:0.74rem;">${p.status}</td>
+                                    <td>${p.owner_html}</td>
+                                </tr>`).join('')}</tbody>
+                            </table></div>
+                        </div>
+                    `;
+
+                    html += `
+                        <div class="exp-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                                <div style="width:38%; min-width:0;">
+                                    <div style="font-size:0.96rem; font-weight:800; color:#fff;">${f.h_name} <span style="color:#94a3b8; font-size:0.75rem;">(${f.h_short})</span></div>
+                                    <div style="font-size:0.74rem; color:#f59e0b; font-weight:700; margin-top:2px;">${f.h_formation} • ${f.h_proj} proj pts</div>
+                                </div>
+                                <div style="width:24%; flex-shrink:0; text-align:center;">
+                                    <div style="font-size:0.78rem; font-weight:900; color:#38bdf8;">GW ${f.gw}</div>
+                                    <div style="font-size:0.72rem; font-weight:700; color:#cbd5e1; margin-top:2px;">${f.ko_text}</div>
+                                </div>
+                                <div style="width:38%; min-width:0; text-align:right;">
+                                    <div style="font-size:0.96rem; font-weight:800; color:#fff;"><span style="color:#94a3b8; font-size:0.75rem;">(${f.a_short})</span> ${f.a_name}</div>
+                                    <div style="font-size:0.74rem; color:#38bdf8; font-weight:700; margin-top:2px;">${f.a_formation} • ${f.a_proj} proj pts</div>
+                                </div>
+                            </div>
+                            <button class="exp-toggle" onclick="toggleEplPredDrawer(${fid})">
+                                <span>🔮 View Predicted Starting XIs & ${data.div} Ownership</span>
+                                <span id="epl-pred-arrow-${fid}">▼</span>
+                            </button>
+                            <div class="exp-body" id="epl-pred-drawer-${fid}">
+                                <div style="display:flex; gap:10px; margin-bottom:12px;">
+                                    <button class="refresh-btn" id="epl-pred-mode-pitch-${fid}" style="border-color:#f59e0b; color:#f59e0b;" onclick="toggleEplPredMode(${fid}, 'pitch')">⚽ Pitch View</button>
+                                    <button class="refresh-btn" id="epl-pred-mode-list-${fid}" onclick="toggleEplPredMode(${fid}, 'list')">📋 Ownership & Form Table</button>
+                                </div>
+                                <div id="epl-pred-pitch-wrap-${fid}" class="spotlight-grid">
+                                    <div>
+                                        <div style="text-align:center; font-weight:800; color:#f59e0b; margin-bottom:6px;">${f.h_name} (${f.h_formation} • ${f.h_proj} proj pts)</div>
+                                        <div id="epl-pred-pitch-h-${fid}"></div>
+                                    </div>
+                                    <div>
+                                        <div style="text-align:center; font-weight:800; color:#38bdf8; margin-bottom:6px;">${f.a_name} (${f.a_formation} • ${f.a_proj} proj pts)</div>
+                                        <div id="epl-pred-pitch-a-${fid}"></div>
+                                    </div>
+                                </div>
+                                <div id="epl-pred-list-wrap-${fid}" class="spotlight-grid" style="display:none;">
+                                    ${buildRosterTable(f.h_starters, f.h_bench, f.h_name, '#f59e0b')}
+                                    ${buildRosterTable(f.a_starters, f.a_bench, f.a_name, '#38bdf8')}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                listEl.innerHTML = html;
+            } catch (e) {
+                listEl.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load predicted lineups.</p>";
+            } finally {
+                if (force && refBtn) {
+                    refBtn.innerText = "🔄 Refresh EPL";
+                    refBtn.style.borderColor = "";
+                    refBtn.style.color = "";
+                }
+            }
+        }
+
+        function toggleEplPredDrawer(fid) {
+            const drawer = document.getElementById(`epl-pred-drawer-${fid}`);
+            const arrow = document.getElementById(`epl-pred-arrow-${fid}`);
+            if (!drawer) return;
+            const isOpen = drawer.classList.toggle('open');
+            if (arrow) arrow.innerText = isOpen ? '▲' : '▼';
+            if (isOpen && window.eplPredPitchStore[fid] && !window.eplPredPitchStore[fid].rendered) {
+                renderPitch(`epl-pred-pitch-h-${fid}`, window.eplPredPitchStore[fid].h, '#f59e0b', true);
+                renderPitch(`epl-pred-pitch-a-${fid}`, window.eplPredPitchStore[fid].a, '#38bdf8', true);
+                window.eplPredPitchStore[fid].rendered = true;
+            }
+        }
+
+        function toggleEplPredMode(fid, mode) {
+            const pWrap = document.getElementById(`epl-pred-pitch-wrap-${fid}`);
+            const lWrap = document.getElementById(`epl-pred-list-wrap-${fid}`);
+            const pBtn = document.getElementById(`epl-pred-mode-pitch-${fid}`);
+            const lBtn = document.getElementById(`epl-pred-mode-list-${fid}`);
+            if (mode === 'pitch') {
+                pWrap.style.display = 'grid';
+                lWrap.style.display = 'none';
+                pBtn.style.borderColor = '#f59e0b'; pBtn.style.color = '#f59e0b';
+                lBtn.style.borderColor = '#334155'; lBtn.style.color = '#fff';
+            } else {
+                pWrap.style.display = 'none';
+                lWrap.style.display = 'grid';
+                lBtn.style.borderColor = '#f59e0b'; lBtn.style.color = '#f59e0b';
+                pBtn.style.borderColor = '#334155'; pBtn.style.color = '#fff';
+            }
         }
 
         async function fetchEplScores(gw = "0", silentRefresh = false) {

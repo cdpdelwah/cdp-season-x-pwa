@@ -1760,6 +1760,433 @@ def get_epl_scores(gw: str = "0", force: int = 0):
         "fixtures": fix_results
     }
 
+_PRED_LINEUPS_MEM_CACHE = {"ts": 0.0, "gw": 0, "clubs": {}, "source": ""}
+
+def _norm_pred_str(s):
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", str(s).lower()) if unicodedata.category(c) != "Mn")
+
+def _scrape_external_predicted_xis(static_data, force=False):
+    global _PRED_LINEUPS_MEM_CACHE
+    now = time.time()
+    if not force and _PRED_LINEUPS_MEM_CACHE["clubs"] and (now - _PRED_LINEUPS_MEM_CACHE["ts"] < 7200):
+        return _PRED_LINEUPS_MEM_CACHE["clubs"], _PRED_LINEUPS_MEM_CACHE["source"]
+
+    if not force and not _PRED_LINEUPS_MEM_CACHE["clubs"]:
+        saved = upstash_get_json("cdp_pred_lineups_v1", None)
+        if isinstance(saved, dict) and saved.get("clubs") and (now - float(saved.get("ts", 0)) < 7200):
+            clubs_int = {int(k): v for k, v in saved["clubs"].items() if str(k).isdigit()}
+            if clubs_int:
+                _PRED_LINEUPS_MEM_CACHE = {
+                    "ts": float(saved.get("ts", now)),
+                    "gw": safe_int(saved.get("gw", 0)),
+                    "clubs": clubs_int,
+                    "source": str(saved.get("source", "RotoWire & FF Scout"))
+                }
+                return clubs_int, _PRED_LINEUPS_MEM_CACHE["source"]
+
+    elements = (static_data or {}).get("elements", [])
+    teams = (static_data or {}).get("teams", [])
+    if not elements or not teams:
+        return {}, "Scout Model"
+
+    short_to_tid = {str(t.get("short_name", "")).upper(): t.get("id") for t in teams}
+    club_rosters = {}
+    for el in elements:
+        tid = el.get("team")
+        if tid:
+            club_rosters.setdefault(tid, []).append(el)
+
+    def match_players_in_html_chunk(html_chunk, tid):
+        roster = club_rosters.get(tid, [])
+        if not roster or not html_chunk:
+            return []
+        titles = re.findall(r'title="([^"]{3,40})"', html_chunk)
+        clean_text = re.sub(r"<[^>]+>", " | ", html_chunk)
+        combined_tokens = titles + [t.strip() for t in clean_text.split("|") if 2 <= len(t.strip()) <= 35]
+
+        matched_ids = []
+        seen_ids = set()
+        for raw_tok in combined_tokens:
+            tok_clean = re.sub(r"[^a-z0-9\s\-']", "", _norm_pred_str(raw_tok)).strip()
+            if not tok_clean or tok_clean in ("gkp", "gk", "def", "mid", "fwd", "sub", "subs", "injured", "doubtful", "out", "expected", "lineup", "confirmed", "predicted"):
+                continue
+            tok_words = [w for w in re.split(r"[^a-z0-9]+", tok_clean) if w]
+            if not tok_words:
+                continue
+            tok_last = tok_words[-1]
+            best_el = None
+            best_score = 0
+            for el in roster:
+                eid = el.get("id")
+                if eid in seen_ids:
+                    continue
+                wn = _norm_pred_str(el.get("web_name", ""))
+                fn1 = _norm_pred_str(el.get("first_name", ""))
+                fn2 = _norm_pred_str(el.get("second_name", ""))
+                full_n = f"{fn1} {fn2}".strip()
+
+                score = 0
+                if tok_clean == full_n or (wn and tok_clean == wn):
+                    score = 100
+                elif fn2 and tok_clean == fn2 and len(fn2) >= 3:
+                    score = 95
+                elif wn and tok_last == wn and len(wn) >= 3:
+                    score = 90 if len(tok_words) == 1 else 86
+                elif fn2 and tok_last == fn2 and len(fn2) >= 4:
+                    score = 84
+                elif wn and len(wn) >= 4 and wn in tok_words:
+                    score = 78
+
+                if score > best_score:
+                    best_score = score
+                    best_el = el
+
+            if best_el and best_score >= 76:
+                seen_ids.add(best_el["id"])
+                matched_ids.append(best_el["id"])
+                if len(matched_ids) >= 11:
+                    break
+        return matched_ids
+
+    scraped_clubs = {}
+    sources_found = []
+
+    # 1. Scrape RotoWire Premier League Lineups
+    try:
+        rw_headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        }
+        r = requests.get("https://www.rotowire.com/soccer/lineups.php", headers=rw_headers, timeout=4.0)
+        if r.status_code == 200 and len(r.text) > 4000:
+            cards = re.split(r'class="lineup\s+is-soccer', r.text)
+            for card in cards[1:]:
+                header_part = card[:1800]
+                card_tids = []
+                for code, kw in CLUB_SEARCH_KEYWORDS.items():
+                    tid = short_to_tid.get(code)
+                    if not tid:
+                        continue
+                    m_pos = re.search(rf'(?:>\s*{re.escape(code)}\s*<|{re.escape(kw)})', header_part, re.IGNORECASE)
+                    if m_pos:
+                        card_tids.append((m_pos.start(), tid))
+                card_tids = sorted(card_tids, key=lambda x: x[0])
+                unique_card_tids = []
+                for _, t_val in card_tids:
+                    if t_val not in unique_card_tids:
+                        unique_card_tids.append(t_val)
+
+                ul_parts = re.split(r'class="lineup__list\s+is-(?:visit|home)"', card)
+                if len(unique_card_tids) >= 2 and len(ul_parts) >= 3:
+                    for idx_side in (0, 1):
+                        c_tid = unique_card_tids[idx_side]
+                        raw_ul = ul_parts[idx_side + 1].split("</ul>")[0]
+                        xi_chunk = re.split(r'lineup__title|Injuries', raw_ul, flags=re.IGNORECASE)[0]
+                        ids = match_players_in_html_chunk(xi_chunk, c_tid)
+                        if len(ids) >= 8:
+                            scraped_clubs[c_tid] = ids[:11]
+            if scraped_clubs:
+                sources_found.append("RotoWire")
+    except Exception:
+        pass
+
+    # 2. Scrape Fantasy Football Scout Team News for any remaining clubs
+    if len(scraped_clubs) < 20:
+        try:
+            ffs_headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml"
+            }
+            r2 = requests.get("https://www.fantasyfootballscout.co.uk/team-news/", headers=ffs_headers, timeout=4.0)
+            if r2.status_code == 200 and len(r2.text) > 4000:
+                html2 = r2.text
+                ffs_hit = False
+                for code, kw in CLUB_SEARCH_KEYWORDS.items():
+                    tid = short_to_tid.get(code)
+                    if not tid or tid in scraped_clubs:
+                        continue
+                    pattern2 = re.compile(rf'{re.escape(kw)}[\s\S]{{0,2600}}?(?:</ul>|</ol>|Next best)', re.IGNORECASE)
+                    m2 = pattern2.search(html2)
+                    if m2:
+                        ids2 = match_players_in_html_chunk(m2.group(0), tid)
+                        if len(ids2) >= 8:
+                            scraped_clubs[tid] = ids2[:11]
+                            ffs_hit = True
+                if ffs_hit:
+                    sources_found.append("Fantasy Football Scout")
+        except Exception:
+            pass
+
+    src_label = " & ".join(sources_found) if sources_found else "FPL Press Conference & Form Model"
+    if scraped_clubs:
+        _PRED_LINEUPS_MEM_CACHE = {"ts": now, "gw": 0, "clubs": scraped_clubs, "source": src_label}
+        upstash_set_json("cdp_pred_lineups_v1", {
+            "ts": now,
+            "clubs": {str(k): v for k, v in scraped_clubs.items()},
+            "source": src_label
+        })
+    return scraped_clubs, src_label
+
+@app.get("/api/epl_predicted_lineups")
+def get_epl_predicted_lineups(league_id: int = 63, alias: str = "", force: int = 0):
+    clean_alias = str(alias).strip()
+    if clean_alias.lower() == "admin":
+        clean_alias = "Andy"
+    user_lid = MANAGER_LEAGUES.get(clean_alias, safe_int(league_id) or 63)
+    div_short = LEAGUE_ID_TO_KEY.get(user_lid, "CDP").split(" ")[0]
+
+    static_data = cached_fpl_static() or {}
+    all_fixtures = cached_all_fixtures() or []
+    league_details, element_status = cached_league_data(user_lid)
+    detected_gw, _ = detect_current_gw(league_details)
+
+    # Lock strictly to the upcoming unstarted fixtures
+    cur_gw_fixes = [f for f in all_fixtures if safe_int(f.get("event")) == detected_gw]
+    unstarted_cur = [
+        f for f in cur_gw_fixes
+        if not f.get("started", False) and not f.get("finished", False) and not f.get("finished_provisional", False)
+    ]
+    if unstarted_cur:
+        target_gw = detected_gw
+        upcoming_fixtures = unstarted_cur
+    else:
+        target_gw = min(38, detected_gw + 1)
+        upcoming_fixtures = [
+            f for f in all_fixtures
+            if safe_int(f.get("event")) == target_gw
+            and not f.get("started", False) and not f.get("finished", False)
+        ]
+
+    upcoming_fixtures = sorted(
+        upcoming_fixtures,
+        key=lambda x: (str(x.get("kickoff_time") or "9999"), safe_int(x.get("id")))
+    )
+
+    pos_map = {item["id"]: item["singular_name_short"] for item in static_data.get("element_types", [])}
+    team_name_map = {item["id"]: item["name"] for item in static_data.get("teams", [])}
+    team_short_map = {item["id"]: item["short_name"] for item in static_data.get("teams", [])}
+
+    entry_alias_map = {}
+    for e in (league_details or {}).get("league_entries", []):
+        if e.get("entry_id"):
+            entry_alias_map[safe_int(e["entry_id"])] = engine.get_manager_alias(
+                e.get("player_first_name", ""), e.get("player_last_name", "")
+            )
+    owner_map = {
+        safe_int(item["element"]): safe_int(item.get("owner"))
+        for item in (element_status or {}).get("element_status", [])
+        if item.get("owner")
+    }
+
+    prev_gw = max(1, target_gw - 1)
+    prev_live = cached_live_event(prev_gw) or {}
+    prev_elems = prev_live.get("elements", {}) if isinstance(prev_live, dict) else {}
+
+    scraped_clubs, scrape_source = _scrape_external_predicted_xis(static_data, force=(force == 1))
+
+    club_players_map = {}
+    for raw_elem in static_data.get("elements", []):
+        tid = raw_elem.get("team")
+        if not tid:
+            continue
+        eid = raw_elem["id"]
+        pos_str = pos_map.get(raw_elem.get("element_type", 1), "MID")
+        avail = get_availability_multiplier(raw_elem)
+        form_val = float(raw_elem.get("form") or 0.0)
+        ppg_val = float(raw_elem.get("points_per_game") or 0.0)
+        ict_val = float(raw_elem.get("ict_index") or 0.0)
+        tot_pts = safe_int(raw_elem.get("total_points", 0))
+        mins_season = safe_int(raw_elem.get("minutes", 0))
+        prev_st = (prev_elems.get(str(eid)) or prev_elems.get(eid) or {}).get("stats", {})
+        prev_mins = safe_int(prev_st.get("minutes", 0))
+
+        if avail <= 0.0:
+            proj_gw = 0.0
+            rank_score = -999.0
+        else:
+            base_exp = ((ppg_val * 0.6) + (form_val * 0.4)) * avail
+            if target_gw > 3 and (mins_season / max(1.0, float((target_gw - 1) * 60))) < 0.6:
+                base_exp *= 0.85
+            if base_exp <= 0:
+                base_exp = 2.0
+            proj_gw = round(base_exp * get_fdr_multiplier(tid, target_gw, all_fixtures), 1)
+            prev_start_bonus = 18.0 if prev_mins >= 60 else (6.0 if prev_mins > 0 else 0.0)
+            mins_bonus = min(12.0, mins_season / 65.0)
+            rank_score = (prev_start_bonus + mins_bonus + (ppg_val * 2.2) + (form_val * 1.8) + (ict_val * 0.04)) * avail
+
+        owner_eid = owner_map.get(eid)
+        owner_alias = entry_alias_map.get(owner_eid, "") if owner_eid else ""
+        if not owner_alias:
+            owner_pill = "🟢 Free Agent"
+            owner_html = "<span style='color:#22c55e; font-weight:800;'>🟢 Free Agent</span>"
+        elif clean_alias and owner_alias.lower() == clean_alias.lower():
+            owner_pill = f"⭐ {owner_alias}"
+            owner_html = f"<span style='color:#f59e0b; font-weight:800;'>⭐ {owner_alias} (You)</span>"
+        else:
+            owner_pill = f"👤 {owner_alias}"
+            owner_html = f"<span style='color:#38bdf8; font-weight:700;'>👤 {owner_alias}</span>"
+
+        club_players_map.setdefault(tid, []).append({
+            "id": eid,
+            "Player": str(raw_elem.get("web_name", "Unknown")),
+            "Pos": pos_str,
+            "pos_rank": POS_ORDER.get(pos_str, 99),
+            "Club": str(team_short_map.get(tid, "PL")).upper(),
+            "Opp": owner_pill,
+            "owner_html": owner_html,
+            "Pts": tot_pts,
+            "Proj": proj_gw,
+            "form": round(form_val, 1),
+            "ppg": round(ppg_val, 1),
+            "Mins": mins_season,
+            "G": safe_int(raw_elem.get("goals_scored", 0)),
+            "A": safe_int(raw_elem.get("assists", 0)),
+            "CS": safe_int(raw_elem.get("clean_sheets", 0)),
+            "GC": safe_int(raw_elem.get("goals_conceded", 0)),
+            "Bonus": safe_int(raw_elem.get("bonus", 0)),
+            "Saves": safe_int(raw_elem.get("saves", 0)),
+            "YC": safe_int(raw_elem.get("yellow_cards", 0)),
+            "RC": safe_int(raw_elem.get("red_cards", 0)),
+            "Penalties_Saved": safe_int(raw_elem.get("penalties_saved", 0)),
+            "Penalties_Missed": safe_int(raw_elem.get("penalties_missed", 0)),
+            "DEFCON_Achieved": False,
+            "State": "YTP",
+            "sub_action": "",
+            "status": str(raw_elem.get("status", "a")).lower(),
+            "health_label": get_health_label(raw_elem),
+            "avail": avail,
+            "chance_of_playing_next_round": raw_elem.get("chance_of_playing_next_round"),
+            "rank_score": rank_score
+        })
+
+    def build_club_predicted_sheet(tid):
+        roster = sorted(club_players_map.get(tid, []), key=lambda x: x["rank_score"], reverse=True)
+        by_id = {p["id"]: p for p in roster}
+        scraped_ids = scraped_clubs.get(tid, [])
+
+        seed_players = [by_id[pid] for pid in scraped_ids if pid in by_id and by_id[pid]["avail"] > 0]
+        used_ids = {p["id"] for p in seed_players}
+
+        gks = [p for p in seed_players if p["Pos"] == "GKP"][:1]
+        defs = [p for p in seed_players if p["Pos"] == "DEF"][:5]
+        mids = [p for p in seed_players if p["Pos"] == "MID"][:5]
+        fwds = [p for p in seed_players if p["Pos"] == "FWD"][:3]
+
+        rem_pool = [p for p in roster if p["id"] not in used_ids and p["avail"] > 0]
+        if not gks:
+            gk_cand = next((p for p in rem_pool if p["Pos"] == "GKP"), None)
+            if gk_cand:
+                gks.append(gk_cand)
+                used_ids.add(gk_cand["id"])
+                rem_pool = [p for p in rem_pool if p["id"] != gk_cand["id"]]
+
+        while len(defs) < 3:
+            d_cand = next((p for p in rem_pool if p["Pos"] == "DEF"), None)
+            if not d_cand: break
+            defs.append(d_cand); used_ids.add(d_cand["id"])
+            rem_pool = [p for p in rem_pool if p["id"] != d_cand["id"]]
+
+        while len(mids) < 2:
+            m_cand = next((p for p in rem_pool if p["Pos"] == "MID"), None)
+            if not m_cand: break
+            mids.append(m_cand); used_ids.add(m_cand["id"])
+            rem_pool = [p for p in rem_pool if p["id"] != m_cand["id"]]
+
+        while len(fwds) < 1:
+            f_cand = next((p for p in rem_pool if p["Pos"] == "FWD"), None)
+            if not f_cand: break
+            fwds.append(f_cand); used_ids.add(f_cand["id"])
+            rem_pool = [p for p in rem_pool if p["id"] != f_cand["id"]]
+
+        current_xi = gks + defs + mids + fwds
+        for p in rem_pool:
+            if len(current_xi) >= 11:
+                break
+            if p["Pos"] == "DEF" and len(defs) < 5:
+                defs.append(p); current_xi.append(p); used_ids.add(p["id"])
+            elif p["Pos"] == "MID" and len(mids) < 5:
+                mids.append(p); current_xi.append(p); used_ids.add(p["id"])
+            elif p["Pos"] == "FWD" and len(fwds) < 3:
+                fwds.append(p); current_xi.append(p); used_ids.add(p["id"])
+
+        xi_sorted = sorted(current_xi, key=lambda x: (x["pos_rank"], -x["Proj"], -x["Pts"]))
+        formation_str = f"{len(defs)}-{len(mids)}-{len(fwds)}"
+        proj_sum = round(sum(p["Proj"] for p in xi_sorted), 1)
+
+        rem_bench = [p for p in roster if p["id"] not in used_ids and p["avail"] > 0]
+        b_gk = [p for p in rem_bench if p["Pos"] == "GKP"][:1]
+        b_out = [p for p in rem_bench if p["Pos"] != "GKP"][:3]
+        bench_list = b_gk + sorted(b_out, key=lambda x: (x["pos_rank"], -x["Proj"]))
+
+        pitch_payload = make_pitch_payload(xi_sorted, bench_list, show_proj_pill=True)
+        starters_table = [{
+            "name": p["Player"],
+            "pos": p["Pos"],
+            "proj": f"{p['Proj']:.1f}",
+            "pts": p["Pts"],
+            "form": f"{p['form']:.1f}",
+            "status": p["health_label"],
+            "owner_html": p["owner_html"]
+        } for p in xi_sorted]
+        bench_table = [{
+            "name": p["Player"],
+            "pos": p["Pos"],
+            "proj": f"{p['Proj']:.1f}",
+            "pts": p["Pts"],
+            "status": p["health_label"],
+            "owner_html": p["owner_html"]
+        } for p in bench_list]
+
+        return {
+            "formation": formation_str,
+            "proj_total": f"{proj_sum:.1f}",
+            "pitch": pitch_payload,
+            "starters": starters_table,
+            "bench": bench_table
+        }
+
+    fixtures_out = []
+    for f in upcoming_fixtures:
+        h_id, a_id = f.get("team_h"), f.get("team_a")
+        h_name = team_name_map.get(h_id, "Home")
+        a_name = team_name_map.get(a_id, "Away")
+        h_short = team_short_map.get(h_id, "H")
+        a_short = team_short_map.get(a_id, "A")
+        ko = f.get("kickoff_time")
+        try:
+            ko_text = pd.to_datetime(ko).strftime("%a %d %b, %H:%M") if ko else f"GW {target_gw}"
+        except Exception:
+            ko_text = f"GW {target_gw}"
+
+        h_sheet = build_club_predicted_sheet(h_id)
+        a_sheet = build_club_predicted_sheet(a_id)
+
+        fixtures_out.append({
+            "id": f.get("id"),
+            "gw": target_gw,
+            "h_name": h_name, "a_name": a_name,
+            "h_short": h_short, "a_short": a_short,
+            "ko_text": ko_text,
+            "h_formation": h_sheet["formation"],
+            "a_formation": a_sheet["formation"],
+            "h_proj": h_sheet["proj_total"],
+            "a_proj": a_sheet["proj_total"],
+            "pitch_h": h_sheet["pitch"],
+            "pitch_a": a_sheet["pitch"],
+            "h_starters": h_sheet["starters"],
+            "h_bench": h_sheet["bench"],
+            "a_starters": a_sheet["starters"],
+            "a_bench": a_sheet["bench"]
+        })
+
+    return {
+        "gw": target_gw,
+        "div": div_short,
+        "source": scrape_source,
+        "fixtures": fixtures_out
+    }
+
 # ==========================================
 # 4. STANDINGS
 # ==========================================
