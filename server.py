@@ -2190,8 +2190,11 @@ def get_epl_predicted_lineups(league_id: int = 63, alias: str = "", force: int =
 # ==========================================
 # 4. STANDINGS
 # ==========================================
+_OPT_SCORE_HIST_CACHE = None
+
 @app.get("/api/standings")
 def get_standings(league_id: int = 63):
+    global _OPT_SCORE_HIST_CACHE
     static_data = cached_fpl_static()
     league_details, _ = cached_league_data(league_id)
     all_fixtures = cached_all_fixtures()
@@ -2199,7 +2202,6 @@ def get_standings(league_id: int = 63):
     current_gw, _ = detect_current_gw(league_details)
     last_completed_gw = current_gw - 1 if current_gw > 1 else 1
 
-    # Check if the lineup deadline has passed for the current gameweek
     gw_started = True
     events_list = static_data.get("events", []) if static_data else []
     if isinstance(events_list, dict):
@@ -2232,20 +2234,91 @@ def get_standings(league_id: int = 63):
         except Exception:
             pass
 
-    prev_off_stats = {e["id"]: {"pf": 0, "pts": 0} for e in entries}
-    official_stats = {e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0} for e in entries}
-    live_stats = {e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0} for e in entries}
-    
-    off_res = {e["id"]: [] for e in entries}
-    liv_res = {e["id"]: [] for e in entries}
+    if _OPT_SCORE_HIST_CACHE is None:
+        loaded_opt = upstash_get_json("cdp_opt_scores_v1", {})
+        _OPT_SCORE_HIST_CACHE = loaded_opt if isinstance(loaded_opt, dict) else {}
 
     sorted_matches = sorted(matches, key=lambda x: x.get("event", 0))
+
+    comp_matches = [
+        m for m in sorted_matches
+        if m.get("event", 0) < current_gw and m.get("finished", False)
+        and m.get("league_entry_1") in lentry_map and m.get("league_entry_2") in lentry_map
+    ]
+
+    missing_opt_pairs = []
+    for m in comp_matches:
+        ev = safe_int(m.get("event", 0))
+        for tid_key, pts_key in [("league_entry_1", "league_entry_1_points"), ("league_entry_2", "league_entry_2_points")]:
+            tid = m.get(tid_key)
+            eid = lentry_map.get(tid, {}).get("entry_id")
+            if eid and f"{eid}_{ev}" not in _OPT_SCORE_HIST_CACHE:
+                missing_opt_pairs.append((eid, ev, safe_int(m.get(pts_key, 0))))
+
+    if missing_opt_pairs:
+        needed_gws = sorted(list({ev for (_, ev, _) in missing_opt_pairs}))
+        with ThreadPoolExecutor(max_workers=8) as g_ex:
+            gw_live_list = list(g_ex.map(lambda g: (g, cached_live_event(g) or {}), needed_gws))
+        gw_live_map = {g: (ld.get("elements", {}) if isinstance(ld, dict) else {}) for g, ld in gw_live_list}
+
+        unique_eid_ev = list({(eid, ev) for (eid, ev, _) in missing_opt_pairs})
+        with ThreadPoolExecutor(max_workers=10) as p_ex:
+            list(p_ex.map(lambda pair: cached_entry_event(pair[0], pair[1]), unique_eid_ev))
+
+        opt_dirty = False
+        for eid, ev, act_s in missing_opt_pairs:
+            c_key = f"{eid}_{ev}"
+            if c_key in _OPT_SCORE_HIST_CACHE:
+                continue
+            picks = cached_entry_event(eid, ev)
+            l_elems = gw_live_map.get(ev, {})
+            if not picks or not picks.get("picks") or not l_elems:
+                _OPT_SCORE_HIST_CACHE[c_key] = act_s
+                continue
+            gk_pts, def_pts, mid_pts, fwd_pts = [], [], [], []
+            for p in picks.get("picks", []):
+                el_id = p["element"]
+                raw_elem = element_lookup.get(el_id, {})
+                p_str = pos_map.get(raw_elem.get("element_type", 1), "MID")
+                e_data = l_elems.get(str(el_id)) or l_elems.get(el_id) or {}
+                pts_val = safe_int((e_data.get("stats", {}) if isinstance(e_data, dict) else {}).get("total_points", 0))
+                if p_str == "GKP": gk_pts.append(pts_val)
+                elif p_str == "DEF": def_pts.append(pts_val)
+                elif p_str == "MID": mid_pts.append(pts_val)
+                elif p_str == "FWD": fwd_pts.append(pts_val)
+            gk_pts.sort(reverse=True)
+            def_pts.sort(reverse=True)
+            mid_pts.sort(reverse=True)
+            fwd_pts.sort(reverse=True)
+            best_gk = gk_pts[0] if gk_pts else 0
+            opt_val = act_s
+            for d_cnt in range(3, len(def_pts) + 1):
+                for m_cnt in range(2, len(mid_pts) + 1):
+                    f_cnt = 10 - d_cnt - m_cnt
+                    if 1 <= f_cnt <= len(fwd_pts):
+                        cand = best_gk + sum(def_pts[:d_cnt]) + sum(mid_pts[:m_cnt]) + sum(fwd_pts[:f_cnt])
+                        if cand > opt_val:
+                            opt_val = cand
+            _OPT_SCORE_HIST_CACHE[c_key] = opt_val
+            opt_dirty = True
+
+        if opt_dirty:
+            upstash_set_json("cdp_opt_scores_v1", _OPT_SCORE_HIST_CACHE)
 
     if gw_started:
         active_eids = [e.get("entry_id") for e in entries if e.get("entry_id")]
         if active_eids:
             with ThreadPoolExecutor(max_workers=8) as p_ex:
                 list(p_ex.map(lambda eid: cached_entry_event(eid, current_gw), active_eids))
+
+    prev_off_stats = {e["id"]: {"pf": 0, "pts": 0} for e in entries}
+    official_stats = {e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0} for e in entries}
+    live_stats = {e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0} for e in entries}
+    optimum_stats = {e["id"]: {"wins": 0, "draws": 0, "losses": 0, "pf": 0, "pts": 0} for e in entries}
+
+    off_res = {e["id"]: [] for e in entries}
+    liv_res = {e["id"]: [] for e in entries}
+    opt_res = {e["id"]: [] for e in entries}
 
     for m in sorted_matches:
         ev = m["event"]
@@ -2267,7 +2340,24 @@ def get_standings(league_id: int = 63):
                     st_map[t1_id]["draws"] += 1; st_map[t1_id]["pts"] += 1
                     st_map[t2_id]["draws"] += 1; st_map[t2_id]["pts"] += 1
                     res_map[t1_id].append("D"); res_map[t2_id].append("D")
-            
+
+            eid1 = lentry_map.get(t1_id, {}).get("entry_id")
+            eid2 = lentry_map.get(t2_id, {}).get("entry_id")
+            opt1 = safe_int(_OPT_SCORE_HIST_CACHE.get(f"{eid1}_{ev}", s1))
+            opt2 = safe_int(_OPT_SCORE_HIST_CACHE.get(f"{eid2}_{ev}", s2))
+            optimum_stats[t1_id]["pf"] += opt1
+            optimum_stats[t2_id]["pf"] += opt2
+            if opt1 > opt2:
+                optimum_stats[t1_id]["wins"] += 1; optimum_stats[t1_id]["pts"] += 3; optimum_stats[t2_id]["losses"] += 1
+                opt_res[t1_id].append("W"); opt_res[t2_id].append("L")
+            elif opt2 > opt1:
+                optimum_stats[t2_id]["wins"] += 1; optimum_stats[t2_id]["pts"] += 3; optimum_stats[t1_id]["losses"] += 1
+                opt_res[t2_id].append("W"); opt_res[t1_id].append("L")
+            else:
+                optimum_stats[t1_id]["draws"] += 1; optimum_stats[t1_id]["pts"] += 1
+                optimum_stats[t2_id]["draws"] += 1; optimum_stats[t2_id]["pts"] += 1
+                opt_res[t1_id].append("D"); opt_res[t2_id].append("D")
+
             if ev < last_completed_gw:
                 prev_off_stats[t1_id]["pf"] += s1
                 prev_off_stats[t2_id]["pf"] += s2
@@ -2282,7 +2372,7 @@ def get_standings(league_id: int = 63):
         elif ev == current_gw:
             if not gw_started:
                 continue
-                
+
             if m.get("finished", False):
                 s1, s2 = safe_int(m.get("league_entry_1_points", 0)), safe_int(m.get("league_entry_2_points", 0))
             else:
@@ -2290,7 +2380,7 @@ def get_standings(league_id: int = 63):
                 p2 = cached_entry_event(lentry_map[t2_id].get("entry_id"), current_gw)
                 _, _, s1, _, _, _, _, _ = full_evaluate_lineup(p1, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures)
                 _, _, s2, _, _, _, _, _ = full_evaluate_lineup(p2, live_elements, element_lookup, club_minutes, pos_map, team_map, current_gw, all_fixtures)
-            
+
             live_stats[t1_id]["pf"] += s1
             live_stats[t2_id]["pf"] += s2
             if s1 > s2:
@@ -2327,13 +2417,13 @@ def get_standings(league_id: int = 63):
         alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
         alias_with_streak = alias + get_streak_html(off_res[tid])
         off_rows.append({"team_id": tid, "team": e.get("entry_name", "Team"), "manager": alias_with_streak, "w": st["wins"], "d": st["draws"], "l": st["losses"], "pf": st["pf"], "pts": st["pts"]})
-    
+
     off_rows = sorted(off_rows, key=lambda x: (x["pts"], x["pf"]), reverse=True)
     off_rank_map = {}
     for idx, r in enumerate(off_rows, 1):
         r["pos"] = idx
         off_rank_map[r["team_id"]] = idx
-        
+
         diff = prev_off_rank_map.get(r["team_id"], idx) - idx
         if diff > 0:
             r["move_html"] = f"<span style='color:#22c55e; font-weight:800;'>▲ {diff}</span>"
@@ -2349,7 +2439,7 @@ def get_standings(league_id: int = 63):
         alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
         alias_with_streak = alias + get_streak_html(liv_res[tid])
         live_rows.append({"team_id": tid, "team": e.get("entry_name", "Team"), "manager": alias_with_streak, "w": st["wins"], "d": st["draws"], "l": st["losses"], "pf": st["pf"], "pts": st["pts"]})
-    
+
     live_rows = sorted(live_rows, key=lambda x: (x["pts"], x["pf"]), reverse=True)
     for idx, r in enumerate(live_rows, 1):
         r["pos"] = idx
@@ -2361,132 +2451,38 @@ def get_standings(league_id: int = 63):
         else:
             r["move_html"] = "<span style='color:#64748b; font-weight:700;'>▬</span>"
 
-    # Monte Carlo Season Projections (keyed by exact live pts and PF signature)
-    live_sig = tuple(sorted((tid, st["pts"], st["pf"]) for tid, st in live_stats.items()))
-    mc_cache_key = ("mc_proj", league_id, current_gw, gw_started, live_sig)
-    mc_cached = _MEMORY_CACHE.get(mc_cache_key)
-    if mc_cached and (time.time() - mc_cached[1] < 120):
-        proj_rows = mc_cached[0]
-    else:
-        import random
-        _, element_status = cached_league_data(league_id)
-        owner_map = {item["element"]: item.get("owner") for item in (element_status or {}).get("element_status", [])}
-        roster_power = {e["id"]: [] for e in entries}
-        entry_id_to_tid = {e.get("entry_id"): e["id"] for e in entries if e.get("entry_id")}
+    opt_rows = []
+    for e in entries:
+        tid = e["id"]
+        st = optimum_stats[tid]
+        off_st = official_stats[tid]
+        pf_diff = st["pf"] - off_st["pf"]
+        pts_diff = st["pts"] - off_st["pts"]
+        alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
+        alias_with_streak = alias + get_streak_html(opt_res[tid])
+        opt_rows.append({
+            "team_id": tid,
+            "team": e.get("entry_name", "Team"),
+            "manager": alias_with_streak,
+            "w": st["wins"],
+            "d": st["draws"],
+            "l": st["losses"],
+            "pf": st["pf"],
+            "pf_diff": pf_diff,
+            "pts": st["pts"],
+            "pts_diff": pts_diff
+        })
 
-        for raw_elem in (static_data or {}).get("elements", []):
-            owner_eid = owner_map.get(raw_elem["id"])
-            if owner_eid in entry_id_to_tid:
-                tid = entry_id_to_tid[owner_eid]
-                avail = get_availability_multiplier(raw_elem)
-                ppg_v = float(raw_elem.get("points_per_game") or 2.0)
-                form_v = float(raw_elem.get("form") or 0.0)
-                exp_wk = ((ppg_v * 0.65) + (form_v * 0.35)) * max(0.4, avail)
-                roster_power[tid].append(exp_wk)
-
-        team_mu = {}
-        for e in entries:
-            tid = e["id"]
-            st = live_stats[tid]
-            gp = max(1, st["wins"] + st["draws"] + st["losses"])
-            hist_avg = float(st["pf"]) / float(gp) if (st["wins"] + st["draws"] + st["losses"]) > 0 else 38.0
-            top11 = sorted(roster_power.get(tid, []), reverse=True)[:11]
-            ros_avg = sum(top11) if len(top11) >= 8 else 38.0
-            w_hist = min(0.65, gp * 0.06)
-            team_mu[tid] = (hist_avg * w_hist) + (ros_avg * (1.0 - w_hist))
-
-        rem_matches = [
-            (m["league_entry_1"], m["league_entry_2"])
-            for m in sorted_matches
-            if (m["event"] > current_gw or (m["event"] == current_gw and not gw_started))
-            and m["league_entry_1"] in live_stats and m["league_entry_2"] in live_stats
-        ]
-
-        n_sims = 1500
-        tids = [e["id"] for e in entries]
-        n_teams = len(tids)
-        rank_counts = {tid: [0] * (n_teams + 1) for tid in tids}
-        sum_pts = {tid: 0.0 for tid in tids}
-        sum_pf = {tid: 0.0 for tid in tids}
-        base_pts = {tid: live_stats[tid]["pts"] for tid in tids}
-        base_pf = {tid: live_stats[tid]["pf"] for tid in tids}
-        gauss = random.gauss
-
-        for _ in range(n_sims):
-            sim_pts = base_pts.copy()
-            sim_pf = base_pf.copy()
-            for t1, t2 in rem_matches:
-                s1 = int(gauss(team_mu[t1], 11.0))
-                s2 = int(gauss(team_mu[t2], 11.0))
-                if s1 < 10: s1 = 10
-                if s2 < 10: s2 = 10
-                sim_pf[t1] += s1
-                sim_pf[t2] += s2
-                if s1 > s2:
-                    sim_pts[t1] += 3
-                elif s2 > s1:
-                    sim_pts[t2] += 3
-                else:
-                    sim_pts[t1] += 1
-                    sim_pts[t2] += 1
-            ranked = sorted(tids, key=lambda x: (sim_pts[x], sim_pf[x]), reverse=True)
-            for r_idx, tid in enumerate(ranked, 1):
-                rank_counts[tid][r_idx] += 1
-                sum_pts[tid] += sim_pts[tid]
-                sum_pf[tid] += sim_pf[tid]
-
-        proj_rows = []
-        for e in entries:
-            tid = e["id"]
-            rc = rank_counts[tid]
-            alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
-            avg_pts = round(sum_pts[tid] / n_sims, 1)
-            avg_pf = int(round(sum_pf[tid] / n_sims))
-            avg_pos = round(sum(pos_i * rc[pos_i] for pos_i in range(1, n_teams + 1)) / float(n_sims), 1)
-
-            title_pct = round((rc[1] / float(n_sims)) * 100.0, 1) if n_teams >= 1 else 0.0
-            rel_start = max(1, n_teams - 2)
-            rel_raw = round((sum(rc[rel_start:]) / float(n_sims)) * 100.0, 1)
-
-            if league_id == 63:
-                double_promo_pct = 0.0
-                single_promo_pct = 0.0
-                any_promo_pct = 0.0
-                relegation_pct = rel_raw
-            elif league_id == 320:
-                double_promo_pct = 0.0
-                single_promo_pct = round(((rc[1] + rc[2]) / float(n_sims)) * 100.0, 1)
-                any_promo_pct = single_promo_pct
-                relegation_pct = rel_raw
-            elif league_id == 378:
-                double_promo_pct = title_pct
-                single_promo_pct = round((rc[2] / float(n_sims)) * 100.0, 1) if n_teams >= 2 else 0.0
-                any_promo_pct = round(((rc[1] + rc[2]) / float(n_sims)) * 100.0, 1)
-                relegation_pct = rel_raw
-            else:
-                double_promo_pct = title_pct
-                single_promo_pct = round(((rc[2] + rc[3]) / float(n_sims)) * 100.0, 1) if n_teams >= 3 else 0.0
-                any_promo_pct = round(((rc[1] + rc[2] + rc[3]) / float(n_sims)) * 100.0, 1)
-                relegation_pct = 0.0
-
-            proj_rows.append({
-                "team_id": tid,
-                "manager": alias,
-                "cur_pts": live_stats[tid]["pts"],
-                "proj_pts": avg_pts,
-                "proj_pf": avg_pf,
-                "avg_pos": avg_pos,
-                "title_pct": title_pct,
-                "double_promo_pct": double_promo_pct,
-                "single_promo_pct": single_promo_pct,
-                "any_promo_pct": any_promo_pct,
-                "relegation_pct": relegation_pct
-            })
-
-        proj_rows = sorted(proj_rows, key=lambda x: (-x["proj_pts"], -x["proj_pf"]))
-        for idx, r in enumerate(proj_rows, 1):
-            r["pos"] = idx
-        _MEMORY_CACHE[mc_cache_key] = (proj_rows, time.time())
+    opt_rows = sorted(opt_rows, key=lambda x: (x["pts"], x["pf"]), reverse=True)
+    for idx, r in enumerate(opt_rows, 1):
+        r["pos"] = idx
+        diff = off_rank_map.get(r["team_id"], idx) - idx
+        if diff > 0:
+            r["move_html"] = f"<span style='color:#22c55e; font-weight:800;'>▲ {diff}</span>"
+        elif diff < 0:
+            r["move_html"] = f"<span style='color:#ef4444; font-weight:800;'>▼ {abs(diff)}</span>"
+        else:
+            r["move_html"] = "<span style='color:#64748b; font-weight:700;'>▬</span>"
 
     return {
         "league_id": league_id,
@@ -2494,7 +2490,7 @@ def get_standings(league_id: int = 63):
         "last_completed_gw": last_completed_gw,
         "live_table": live_rows,
         "official_table": off_rows,
-        "projected_table": proj_rows
+        "optimum_table": opt_rows
     }
 
 # ==========================================

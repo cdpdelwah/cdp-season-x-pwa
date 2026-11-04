@@ -808,9 +808,7 @@
         <div class="sub-tabs">
             <button class="sub-tab-btn active" id="st-sub-live" onclick="switchStandingsSubTab('live')">🟢 Live Standings</button>
             <button class="sub-tab-btn" id="st-sub-off" onclick="switchStandingsSubTab('off')">📊 Official Standings</button>
-            <button class="sub-tab-btn" id="st-sub-proj" onclick="switchStandingsSubTab('proj')">🔮 Projections</button>
-            <button class="sub-tab-btn" id="st-sub-gacs" onclick="switchStandingsSubTab('gacs')">🎯 GACS</button>
-            <button class="sub-tab-btn" id="st-sub-disc" onclick="switchStandingsSubTab('disc')">🟨🟥 Discipline</button>
+            <button class="sub-tab-btn" id="st-sub-opt" onclick="switchStandingsSubTab('opt')">🧠 Optimum XI Standings</button>
         </div>
         <div id="standings-content" style="width: 100%;"></div>
     </div>
@@ -2801,10 +2799,8 @@
         }
 
         // ==========================================
-        // STANDINGS SCREEN (WITH EMBEDDED GACS & DISC)
+        // STANDINGS SCREEN (LIVE, OFFICIAL & OPTIMUM XI)
         // ==========================================
-        window.standingsDiscPwRows = [];
-
         function switchStandingsLeague(leagueId) {
             activeLeagueId = leagueId;
             highlightLeagueButtons('.st-l-tab', leagueId);
@@ -2814,7 +2810,7 @@
 
         function switchStandingsSubTab(subTab) {
             window.standingsSubTab = subTab;
-            ['live', 'off', 'proj', 'gacs', 'disc'].forEach(k => {
+            ['live', 'off', 'opt'].forEach(k => {
                 const btn = document.getElementById(`st-sub-${k}`);
                 if (btn) btn.classList.toggle('active', k === subTab);
             });
@@ -2823,11 +2819,17 @@
 
         async function fetchStandings(leagueId) {
             const box = document.getElementById('standings-content');
-            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Calculating league tables & running 2,000 Monte Carlo simulations...</p>";
+            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Calculating Live, Official & Optimum XI league tables...</p>";
             try {
                 const res = await fetch(`/api/standings?league_id=${leagueId}`);
                 window.standingsCache = await res.json();
-                document.getElementById('st-sub-off').innerText = `📊 Official Standings (GW ${window.standingsCache.last_completed_gw})`;
+                const offBtn = document.getElementById('st-sub-off');
+                if (offBtn) offBtn.innerText = `📊 Official Standings (GW ${window.standingsCache.last_completed_gw})`;
+                const optBtn = document.getElementById('st-sub-opt');
+                if (optBtn) optBtn.innerText = `🧠 Optimum XI Standings (GW ${window.standingsCache.last_completed_gw})`;
+                if (!['live', 'off', 'opt'].includes(window.standingsSubTab)) {
+                    window.standingsSubTab = 'live';
+                }
                 renderStandingsActiveSubTab();
             } catch (e) {
                 box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load standings.</p>";
@@ -2859,146 +2861,24 @@
                 });
                 html += `</tbody></table></div>`;
                 box.innerHTML = html;
-            } else if (window.standingsSubTab === 'proj') {
-                const lid = Number(d.league_id || activeLeagueId);
-                let rulesDesc = "";
-                let headersHtml = "";
-                if (lid === 63) {
-                    rulesDesc = "CDP Pyramid Rules: 1st = Champion 🏆 • No Promotion • Bottom 3 (6th to 8th) = Relegated to SDM 💀";
-                    headersHtml = "<th>Pos</th><th>Manager</th><th>Proj Pts</th><th>Proj PF</th><th>Avg Pos</th><th>🏆 Title %</th><th>💀 Relegation % (Bot 3)</th>";
-                } else if (lid === 320) {
-                    rulesDesc = "SDM Pyramid Rules: 1st = Title 🏆 • Top 2 = Promoted to CDP ⬆️ • Bottom 3 (6th to 8th) = Relegated to BDR 💀";
-                    headersHtml = "<th>Pos</th><th>Manager</th><th>Proj Pts</th><th>Proj PF</th><th>Avg Pos</th><th>🏆 Title %</th><th>⬆️ Promo to CDP % (Top 2)</th><th>💀 Relegation % (Bot 3)</th>";
-                } else if (lid === 378) {
-                    rulesDesc = "BDR Pyramid Rules: 1st = Title & Double Promoted to CDP 🚀 • 2nd = Promoted to SDM ⬆️ • Bottom 3 (6th to 8th) = Relegated to LDE 💀";
-                    headersHtml = "<th>Pos</th><th>Manager</th><th>Proj Pts</th><th>Proj PF</th><th>🚀 1st / 2x Promo (CDP)</th><th>⬆️ 2nd / Promo (SDM)</th><th>📈 Total Promo %</th><th>💀 Relegation % (Bot 3)</th>";
-                } else {
-                    rulesDesc = "LDE Pyramid Rules: 1st = Title & Double Promoted to SDM 🚀 • 2nd & 3rd = Promoted to BDR ⬆️ • No Relegation 🛡️";
-                    headersHtml = "<th>Pos</th><th>Manager</th><th>Proj Pts</th><th>Proj PF</th><th>🚀 1st / 2x Promo (SDM)</th><th>⬆️ 2nd-3rd / Promo (BDR)</th><th>📈 Total Promo %</th><th>💀 Relegation</th>";
-                }
-
-                const fmtPct = (val, color) => {
-                    const num = Number(val || 0);
-                    if (num <= 0) return `<span style="color:#475569;">0%</span>`;
-                    return `<span style="color:${color}; font-weight:800;">${num.toFixed(1)}%</span>`;
+            } else if (window.standingsSubTab === 'opt') {
+                const fmtDelta = (dVal) => {
+                    const n = Number(dVal || 0);
+                    if (n > 0) return ` <span style="color:#22c55e; font-size:0.76rem; font-weight:800;">(+${n})</span>`;
+                    if (n < 0) return ` <span style="color:#ef4444; font-size:0.76rem; font-weight:800;">(${n})</span>`;
+                    return ` <span style="color:#64748b; font-size:0.76rem; font-weight:700;">(0)</span>`;
                 };
 
-                let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">🔮 2,000 Monte Carlo Season Simulations • ${rulesDesc}</p>
+                let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">Optimum XI Standings - Frozen Table (GW ${d.last_completed_gw}) • Every H2H tie recalculated with both managers playing their best legal XI • Move & bracketed deltas vs Official Standings.</p>
                 <div class="table-wrap"><table class="clean-table">
-                    <thead><tr>${headersHtml}</tr></thead>
+                    <thead><tr><th>Pos</th><th>Move</th><th>Manager</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th></tr></thead>
                     <tbody>`;
-                (d.projected_table || []).forEach(r => {
-                    if (lid === 63) {
-                        html += `<tr><td>${r.pos}</td><td style="text-align:left; color:#fff; font-weight:800;">${r.manager}</td><td style="color:#f59e0b; font-weight:900;">${r.proj_pts.toFixed(1)}</td><td>${r.proj_pf}</td><td>#${r.avg_pos.toFixed(1)}</td><td>${fmtPct(r.title_pct, '#fde047')}</td><td>${fmtPct(r.relegation_pct, '#ef4444')}</td></tr>`;
-                    } else if (lid === 320) {
-                        html += `<tr><td>${r.pos}</td><td style="text-align:left; color:#fff; font-weight:800;">${r.manager}</td><td style="color:#f59e0b; font-weight:900;">${r.proj_pts.toFixed(1)}</td><td>${r.proj_pf}</td><td>#${r.avg_pos.toFixed(1)}</td><td>${fmtPct(r.title_pct, '#fde047')}</td><td>${fmtPct(r.any_promo_pct, '#22c55e')}</td><td>${fmtPct(r.relegation_pct, '#ef4444')}</td></tr>`;
-                    } else if (lid === 378) {
-                        html += `<tr><td>${r.pos}</td><td style="text-align:left; color:#fff; font-weight:800;">${r.manager}</td><td style="color:#f59e0b; font-weight:900;">${r.proj_pts.toFixed(1)}</td><td>${r.proj_pf}</td><td>${fmtPct(r.double_promo_pct, '#fde047')}</td><td>${fmtPct(r.single_promo_pct, '#38bdf8')}</td><td>${fmtPct(r.any_promo_pct, '#22c55e')}</td><td>${fmtPct(r.relegation_pct, '#ef4444')}</td></tr>`;
-                    } else {
-                        html += `<tr><td>${r.pos}</td><td style="text-align:left; color:#fff; font-weight:800;">${r.manager}</td><td style="color:#f59e0b; font-weight:900;">${r.proj_pts.toFixed(1)}</td><td>${r.proj_pf}</td><td>${fmtPct(r.double_promo_pct, '#fde047')}</td><td>${fmtPct(r.single_promo_pct, '#38bdf8')}</td><td>${fmtPct(r.any_promo_pct, '#22c55e')}</td><td><span style="color:#475569;">—</span></td></tr>`;
-                    }
+                (d.optimum_table || []).forEach(r => {
+                    html += `<tr><td>${r.pos}</td><td>${r.move_html}</td><td style="text-align:left; color:#fff; font-weight:700;">${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}${fmtDelta(r.pf_diff)}</td><td><span style="font-weight:900; color:#fff;">${r.pts}</span>${fmtDelta(r.pts_diff)}</td></tr>`;
                 });
                 html += `</tbody></table></div>`;
                 box.innerHTML = html;
-            } else if (window.standingsSubTab === 'gacs') {
-                loadStandingsGacs("0");
-            } else if (window.standingsSubTab === 'disc') {
-                loadStandingsDisc("0");
             }
-        }
-
-        async function loadStandingsGacs(gw = "0") {
-            const box = document.getElementById('standings-content');
-            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Compiling starting XI GACS data...</p>";
-            try {
-                const res = await fetch(`/api/gacs?league_id=${activeLeagueId}&gw=${gw}`);
-                const data = await res.json();
-                const opts = (data.all_gws || []).map(g => `<option value="${g}" ${String(data.selected) === String(g) ? 'selected' : ''}>Gameweek ${g}</option>`).join('')
-                    + `<option value="all" ${data.selected === 'all' ? 'selected' : ''}>All Season (Total)</option>`;
-
-                box.innerHTML = `
-                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
-                        <div>
-                            <div style="font-size:1.05rem; font-weight:800; color:#fff;">GACS - Goals, Assists and Clean Sheets</div>
-                            <div style="font-size:0.78rem; color:#94a3b8;">Goals (all players), Assists (all players) and Clean Sheets (GKP and DEF only) in each manager's final starting lineup.</div>
-                        </div>
-                        <select class="white-select" onchange="loadStandingsGacs(this.value)">${opts}</select>
-                    </div>
-                    <div class="table-wrap"><table class="clean-table">
-                        <thead><tr><th>Manager</th><th>Goals</th><th>Assists</th><th>Clean Sheets</th></tr></thead>
-                        <tbody>${(data.rows || []).map(r => `<tr><td>${r.manager}</td><td>${r.goals}</td><td>${r.assists}</td><td>${r.cs}</td></tr>`).join('')}</tbody>
-                    </table></div>
-                `;
-            } catch (e) {
-                box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load GACS.</p>";
-            }
-        }
-
-        async function loadStandingsDisc(gw = "0") {
-            const box = document.getElementById('standings-content');
-            box.innerHTML = "<p style='text-align:center; color:#94a3b8; padding:20px;'>Loading disciplinary records...</p>";
-            try {
-                const res = await fetch(`/api/disciplinary?league_id=${activeLeagueId}&gw=${gw}`);
-                const data = await res.json();
-                const opts = (data.all_gws || []).map(g => `<option value="${g}" ${String(data.selected) === String(g) ? 'selected' : ''}>Gameweek ${g}</option>`).join('')
-                    + `<option value="all" ${data.selected === 'all' ? 'selected' : ''}>All Season (Total)</option>`;
-
-                const headerBar = `
-                    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
-                        <div>
-                            <div style="font-size:1.05rem; font-weight:800; color:#fff;">🟨🟥 Disciplinary Record - Starting XI Cards & Result Impact</div>
-                            <div style="font-size:0.78rem; color:#94a3b8;">Tracks Yellow Cards (-1 pt) and Red Cards (-3 pts) in each manager's active starting XI.</div>
-                        </div>
-                        <select class="white-select" onchange="loadStandingsDisc(this.value)">${opts}</select>
-                    </div>
-                `;
-
-                if (data.mode === "single") {
-                    box.innerHTML = headerBar + `<div class="table-wrap"><table class="clean-table">
-                        <thead><tr><th>Manager</th><th>Yellow Cards</th><th>Red Cards</th><th>Card Pts</th><th>Matchup</th><th>Result Changed?</th></tr></thead>
-                        <tbody>${(data.gw_rows || []).map(r => `<tr><td>${r.manager}</td><td>${r.yc}</td><td>${r.rc}</td><td style="color:#ef4444; font-weight:800;">${r.card_pts}</td><td>${r.matchup}</td><td>${r.impact}</td></tr>`).join('')}</tbody>
-                    </table></div>`;
-                } else {
-                    window.standingsDiscPwRows = data.pw_rows || [];
-                    const swingsHtml = (data.swings_rows && data.swings_rows.length > 0)
-                        ? `<div class="table-wrap"><table class="clean-table"><thead><tr><th>GW</th><th>Manager</th><th>Matchup</th><th>YC</th><th>RC</th><th>Card Pts</th><th>Impact</th></tr></thead><tbody>${data.swings_rows.map(s => `<tr><td>${s.gw}</td><td>${s.manager}</td><td>${s.matchup}</td><td>${s.yc}</td><td>${s.rc}</td><td style="color:#ef4444; font-weight:800;">${s.card_pts}</td><td style="color:#f59e0b; font-weight:800;">${s.impact}</td></tr>`).join('')}</tbody></table></div>`
-                        : `<div class="alert-box alert-info">No match results have been altered by starting XI card deductions this season.</div>`;
-                    const mgrOpts = `<option value="All">All Managers</option>` + (data.managers || []).map(m => `<option value="${m}">${m}</option>`).join('');
-
-                    box.innerHTML = headerBar + `
-                        <div style="font-size:1rem; font-weight:800; color:#fff; margin-bottom:8px;">Season Totals</div>
-                        <div class="table-wrap"><table class="clean-table">
-                            <thead><tr><th>Manager</th><th>Yellow Cards</th><th>Red Cards</th><th>Total Card Pts</th><th>Results Changed</th><th>League Pts Cost</th></tr></thead>
-                            <tbody>${(data.season_rows || []).map(r => `<tr><td>${r.manager}</td><td>${r.yc}</td><td>${r.rc}</td><td style="color:#ef4444; font-weight:800;">${r.total_card_pts}</td><td>${r.results_changed}</td><td>${r.league_pts_cost}</td></tr>`).join('')}</tbody>
-                        </table></div>
-                        <div style="font-size:1rem; font-weight:800; color:#fff; margin:14px 0 8px 0;">Matches Where Cards Changed the Result</div>
-                        ${swingsHtml}
-                        <div class="exp-card" style="margin-top:12px;">
-                            <button class="exp-toggle" onclick="document.getElementById('st-disc-pw-drawer').classList.toggle('open')">
-                                <span>📅 View Full Per - Week Breakdown</span><span>▼</span>
-                            </button>
-                            <div class="exp-body" id="st-disc-pw-drawer">
-                                <select id="st-disc-pw-mgr-sel" class="white-select" style="margin-bottom:10px;" onchange="renderStandingsDiscPwTable()">${mgrOpts}</select>
-                                <div id="st-disc-pw-table-box"></div>
-                            </div>
-                        </div>
-                    `;
-                    renderStandingsDiscPwTable();
-                }
-            } catch (e) {
-                box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load disciplinary records.</p>";
-            }
-        }
-
-        function renderStandingsDiscPwTable() {
-            const box = document.getElementById('st-disc-pw-table-box');
-            if (!box) return;
-            const mFilter = document.getElementById('st-disc-pw-mgr-sel').value;
-            const rows = mFilter === "All" ? window.standingsDiscPwRows : window.standingsDiscPwRows.filter(r => r.manager === mFilter);
-            box.innerHTML = `<div class="table-wrap"><table class="clean-table">
-                <thead><tr><th>GW</th><th>Manager</th><th>YC</th><th>RC</th><th>Card Pts</th><th>Matchup</th><th>Result Changed?</th></tr></thead>
-                <tbody>${rows.map(r => `<tr><td>${r.gw}</td><td>${r.manager}</td><td>${r.yc}</td><td>${r.rc}</td><td>${r.card_pts}</td><td>${r.matchup}</td><td>${r.impact}</td></tr>`).join('')}</tbody>
-            </table></div>`;
         }
 
         // ==========================================
