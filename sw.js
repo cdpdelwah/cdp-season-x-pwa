@@ -1,6 +1,14 @@
 function resolveUrlFromTag(tag, explicitUrl) {
     if (explicitUrl && explicitUrl !== "/") return explicitUrl;
     const t = String(tag || "").trim().toLowerCase();
+    if (t.startsWith("bh-gwlock-")) {
+        const parts = t.split("-");
+        for (const p of parts) {
+            if (/^\d+$/.test(p)) return `/#hector_gw_${p}`;
+        }
+        return "/#hector_active";
+    }
+    if (t.startsWith("bh-acc-") || t.startsWith("bh-resp-")) return "/#hector_active";
     if (t.startsWith("bh-")) return "/#hector";
     if (t.startsWith("tr-")) return "/#trade_offers";
     if (t.startsWith("trade-")) return "/#trade";

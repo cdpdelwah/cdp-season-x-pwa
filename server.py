@@ -5389,6 +5389,14 @@ def prune_dead_endpoints(dead_eps: set):
 
 def _resolve_push_url(tag: str) -> str:
     t = str(tag or "").strip().lower()
+    if t.startswith("bh-gwlock-"):
+        parts = t.split("-")
+        for p in parts:
+            if p.isdigit():
+                return f"/#hector_gw_{p}"
+        return "/#hector_active"
+    if t.startswith("bh-acc-") or t.startswith("bh-resp-"):
+        return "/#hector_active"
     if t.startswith("bh-"):
         return "/#hector"
     if t.startswith("tr-"):
@@ -5795,6 +5803,40 @@ def run_automated_push_checks():
                         f"Gameweek {deadline_gw} lineups are now locked! Head to the app to scout your opponent's starting XI.",
                         tag=f"lineup-passed-gw{deadline_gw}"
                     )
+
+                    # Ping all managers with the GW Live Wagers count & deep link to Accepted Bets
+                    try:
+                        bh_state = load_bet_hector_state()
+                        gw_active_bets = [
+                            b for b in bh_state.get("bets", [])
+                            if b.get("status") == "Active" and safe_int(b.get("gw", 0)) == deadline_gw
+                        ]
+                        total_live = len(gw_active_bets)
+                        if total_live > 0:
+                            bh_jobs = []
+                            for reg_mgr in list(subs_registry.keys()):
+                                clean_m = "andy" if reg_mgr.strip().lower() == "admin" else reg_mgr.strip().lower()
+                                my_live = [
+                                    b for b in gw_active_bets
+                                    if str(b.get("proposer", "")).strip().lower() == clean_m
+                                    or str(b.get("opponent", "")).strip().lower() == clean_m
+                                ]
+                                my_cnt = len(my_live)
+                                if my_cnt > 0:
+                                    b_title = f"🎰 GW {deadline_gw} Wagers Live: You Have {my_cnt} Accepted Bet{'s' if my_cnt != 1 else ''}!"
+                                    b_body = f"You have {my_cnt} accepted wager{'s' if my_cnt != 1 else ''} in play ({total_live} live across the league). Tap to view your GW {deadline_gw} action!"
+                                else:
+                                    b_title = f"🎰 Bet Hector GW {deadline_gw}: {total_live} Live Wager{'s' if total_live != 1 else ''} Locked In!"
+                                    b_body = f"You have 0 personal bets this week, with {total_live} accepted wager{'s' if total_live != 1 else ''} live across the league. Tap to view The Book!"
+                                bh_jobs.append((reg_mgr, b_title, b_body, f"bh-gwlock-{deadline_gw}-{reg_mgr}"))
+
+                            dead_eps = set()
+                            with ThreadPoolExecutor(max_workers=8) as bh_ex:
+                                list(bh_ex.map(lambda j: send_push_to_manager(subs_registry, j[0], j[1], j[2], tag=j[3], dead_eps_out=dead_eps), bh_jobs))
+                            if dead_eps:
+                                prune_dead_endpoints(dead_eps)
+                    except Exception as e:
+                        print("Bet Hector lock push error:", e)
             except Exception:
                 pass
 

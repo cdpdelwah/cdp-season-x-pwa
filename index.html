@@ -1429,11 +1429,26 @@
             });
         }
 
+        window.pendingHectorFilter = null;
+
         function openTargetFromHash(rawHash) {
             if (!savedAlias) return;
             const cleanHash = String(rawHash || "").replace(/^.*#/, "").trim().toLowerCase();
             const validScreens = ['home', 'scores', 'epl', 'standings', 'cup', 'squad', 'trade', 'players', 'gacs', 'disc', 'news', 'power', 'asterisk', 'hector'];
 
+            if (cleanHash.startsWith('hector_gw_')) {
+                const gwNum = cleanHash.replace('hector_gw_', '').trim();
+                window.pendingHectorFilter = { status: 'active', gw: gwNum, mgr: 'auto_me' };
+                history.replaceState({ screen: 'hector' }, '', '#hector');
+                navigate('hector', false);
+                return;
+            }
+            if (cleanHash === 'hector_active') {
+                window.pendingHectorFilter = { status: 'active', gw: 'All', mgr: 'auto_me' };
+                history.replaceState({ screen: 'hector' }, '', '#hector');
+                navigate('hector', false);
+                return;
+            }
             if (cleanHash === 'trade_offers') {
                 history.replaceState({ screen: 'trade' }, '', '#trade');
                 navigate('trade', false);
@@ -1757,6 +1772,38 @@
 
                 if (document.getElementById('bh-type-sel').value === 'acca' && !window.selectedAccaLegs.length) {
                     renderAccaFixtureGrid();
+                }
+
+                if (window.pendingHectorFilter) {
+                    const pf = window.pendingHectorFilter;
+                    window.pendingHectorFilter = null;
+                    switchBetHectorTab('book');
+
+                    const fSel = document.getElementById('bh-filter-sel');
+                    if (fSel && pf.status) fSel.value = pf.status;
+
+                    if (gwFilterSel && pf.gw) {
+                        if ([...gwFilterSel.options].some(o => o.value === String(pf.gw))) {
+                            gwFilterSel.value = String(pf.gw);
+                        } else {
+                            gwFilterSel.value = 'All';
+                        }
+                    }
+
+                    if (mgrFilterSel && pf.mgr === 'auto_me') {
+                        const myAlias = data.active_alias || (savedAlias.toLowerCase() === 'admin' ? 'Andy' : savedAlias);
+                        const myClean = myAlias.toLowerCase();
+                        const hasMyActive = (data.bets || []).some(b =>
+                            b.status === 'Active' &&
+                            (pf.gw === 'All' || String(b.gw) === String(pf.gw)) &&
+                            (b.proposer.toLowerCase() === myClean || b.opponent.toLowerCase() === myClean)
+                        );
+                        if (hasMyActive && [...mgrFilterSel.options].some(o => o.value === myAlias)) {
+                            mgrFilterSel.value = myAlias;
+                        } else {
+                            mgrFilterSel.value = 'All';
+                        }
+                    }
                 }
 
                 renderBetHectorBook();
