@@ -508,6 +508,68 @@ def split_squad_records(s_recs, b_recs):
     inactive = sorted(inactive, key=lambda x: POS_ORDER.get(str(x.get("Pos", "")), 99))
     return active, inactive
 
+def build_injury_forecast(raw_elem):
+    status = str(raw_elem.get("status", "a")).lower()
+    chance = raw_elem.get("chance_of_playing_next_round")
+    news = str(raw_elem.get("news") or "").strip()
+    health_lbl = get_health_label(raw_elem)
+
+    if status == "a" and not news:
+        return "✅ Fit & Available • Expected in squad for upcoming GW"
+
+    c_val = safe_int(chance) if (chance is not None and not pd.isna(chance)) else (0 if status in ["i", "s", "u"] else 50)
+    has_date_in_news = any(k in news.lower() for k in ["expected back", "until", "return"]) and "unknown" not in news.lower()
+
+    if has_date_in_news:
+        return f"🏥 {health_lbl} • {news}"
+    if status == "s":
+        return f"🟥 {health_lbl} • {news or 'Suspended'} (Est. Return: 1 to 3 match ban)"
+    if status == "i" or c_val == 0:
+        base_n = news if news else "Ruled out"
+        return f"🚑 {health_lbl} • {base_n} (Est. Return: Out at least 2+ weeks)"
+    if c_val == 25:
+        return f"🟠 {health_lbl} • {news or 'Major doubt'} (Est. Return: Out 1 to 2 weeks)"
+    if c_val == 50:
+        return f"🟡 {health_lbl} • {news or '50/50 doubt'} (Est. Return: Late fitness test / 1 week)"
+    if c_val == 75:
+        return f"🟡 {health_lbl} • {news or 'Minor knock'} (Est. Return: Likely fit this GW)"
+    return f"🏥 {health_lbl}" + (f" • {news}" if news else "")
+
+def _get_last_5_gw_lookup(fin_events):
+    last_5_gws = sorted(list(fin_events))[-5:] if fin_events else []
+    if not last_5_gws:
+        return [], {}
+    cache_key = ("_get_last_5_gw_lookup", tuple(last_5_gws), ())
+    now = time.time()
+    if cache_key in _MEMORY_CACHE:
+        val, ts = _MEMORY_CACHE[cache_key]
+        if now - ts < 300:
+            return last_5_gws, val
+
+    def _load_ev(g_num):
+        ld = cached_live_event(g_num) or {}
+        return g_num, (ld.get("elements", {}) if isinstance(ld, dict) else {})
+
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        ev_pairs = list(ex.map(_load_ev, last_5_gws))
+    lookup = dict(ev_pairs)
+    _MEMORY_CACHE[cache_key] = (lookup, now)
+    return last_5_gws, lookup
+
+def _format_last_5_pts(eid: int, last_5_gws: list, last_5_lookup: dict) -> str:
+    if not last_5_gws:
+        return "No completed GWs yet"
+    s_id = str(eid)
+    parts = []
+    tot = 0
+    for g_num in last_5_gws:
+        el_map = last_5_lookup.get(g_num, {})
+        e_obj = el_map.get(s_id) or el_map.get(eid) or {}
+        pts = safe_int((e_obj.get("stats", {}) if isinstance(e_obj, dict) else {}).get("total_points", 0))
+        tot += pts
+        parts.append(f"GW{g_num}: {pts}")
+    return " • ".join(parts) + f" ({tot} pts)"
+
 def make_pitch_payload(active, inactive, show_proj_pill=False):
     rows = [[], [], [], []]
     subs = []
@@ -530,6 +592,7 @@ def make_pitch_payload(active, inactive, show_proj_pill=False):
         proj_val = float(r.get("Proj", 0.0))
         state_str = str(r.get("State", "FT")).upper()
         pill_text = f"{proj_val:.1f} pts" if show_proj_pill else ("⏳ YTP" if state_str == "YTP" else f"{pts_val} pts")
+        is_season_card = bool(r.get("is_season_card", False))
 
         return {
             "name": str(r.get("Player", "Unknown")),
@@ -558,7 +621,16 @@ def make_pitch_payload(active, inactive, show_proj_pill=False):
             "sub_action": str(r.get("sub_action", "")).strip(),
             "is_bench": is_bench,
             "flag": flag,
-            "events": build_badges(r)
+            "events": "" if is_season_card else build_badges(r),
+            "is_season_card": is_season_card,
+            "full_name": str(r.get("full_name", r.get("Player", "Unknown"))),
+            "club_full": str(r.get("club_full", club)),
+            "injury_forecast": str(r.get("injury_forecast", "")),
+            "last_5_str": str(r.get("last_5_str", "")),
+            "next_3": str(r.get("next_3", "")),
+            "owner": str(r.get("owner_label", "")),
+            "form": str(r.get("form", "0.0")),
+            "ppg": str(r.get("ppg", "0.0"))
         }
 
     for r in active:
@@ -2509,11 +2581,13 @@ def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0
 
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    team_full_map = {item["id"]: item["name"] for item in static_data["teams"]}
 
     matches = league_details.get("matches", []) if league_details else []
     fin_events = sorted(list({m["event"] for m in matches if m.get("finished", False)}))
     prev1 = cached_live_event(fin_events[-1]) if fin_events else None
     prev2 = cached_live_event(fin_events[-2]) if len(fin_events) >= 2 else None
+    last_5_gws, last_5_lookup = _get_last_5_gw_lookup(fin_events)
 
     def get_next_3(tid):
         if not all_fixtures or not tid: return "TBD"
@@ -2562,15 +2636,35 @@ def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0
             proj_gw = round(base_exp * get_fdr_multiplier(tid, t_gw, all_fixtures), 1)
             starter_rating = round(((form_val * 1.8) + (ppg_val * 2.0) + (ict_val * 0.05)) * avail, 1)
 
+        full_n = f"{raw_elem.get('first_name', '')} {raw_elem.get('second_name', '')}".strip() or str(raw_elem.get("web_name", "Unknown"))
+        club_short = str(team_map.get(tid, "PL")).upper()
+        owner_lbl = entry_label_map.get(owner, "Free Agent").split(" (")[0] if owner else "Free Agent"
+
         players.append({
             "id": eid, "web_name": str(raw_elem.get("web_name", "Unknown")),
+            "full_name": full_n,
             "position": pos_str, "pos_rank": POS_ORDER.get(pos_str, 99),
-            "club": str(team_map.get(tid, "PL")).upper(), "team": tid,
-            "owner": owner, "form": form_val, "ppg": ppg_val, "ict": ict_val,
+            "club": club_short, "club_full": str(team_full_map.get(tid, club_short)), "team": tid,
+            "owner": owner, "owner_label": owner_lbl,
+            "form": form_val, "ppg": ppg_val, "ict": ict_val,
             "total_points": tot_pts, "minutes": mins, "avail_factor": avail,
-            "health_status": get_health_label(raw_elem), "status": raw_elem.get("status", "a"),
+            "g": safe_int(raw_elem.get("goals_scored", 0)),
+            "a": safe_int(raw_elem.get("assists", 0)),
+            "cs": safe_int(raw_elem.get("clean_sheets", 0)),
+            "gc": safe_int(raw_elem.get("goals_conceded", 0)),
+            "bonus": safe_int(raw_elem.get("bonus", 0)),
+            "saves": safe_int(raw_elem.get("saves", 0)),
+            "yc": safe_int(raw_elem.get("yellow_cards", 0)),
+            "rc": safe_int(raw_elem.get("red_cards", 0)),
+            "p_saved": safe_int(raw_elem.get("penalties_saved", 0)),
+            "p_missed": safe_int(raw_elem.get("penalties_missed", 0)),
+            "health_status": get_health_label(raw_elem),
+            "injury_forecast": build_injury_forecast(raw_elem),
+            "status": raw_elem.get("status", "a"),
             "chance_of_playing_next_round": raw_elem.get("chance_of_playing_next_round"),
-            "last_2_pts": l2_pts, "next_3": get_next_3(tid),
+            "last_2_pts": l2_pts,
+            "last_5_str": _format_last_5_pts(eid, last_5_gws, last_5_lookup),
+            "next_3": get_next_3(tid),
             "gw_opp": get_single_gw_opp(tid, t_gw),
             "proj_gw": proj_gw, "starter_rating": starter_rating
         })
@@ -2604,12 +2698,22 @@ def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0
 
     def to_pitch_rec(p):
         return {
-            "Player": p["web_name"], "Pos": p["position"], "Club": p["club"],
+            "Player": p["web_name"], "full_name": p["full_name"],
+            "Pos": p["position"], "Club": p["club"], "club_full": p["club_full"],
             "Opp": p["gw_opp"], "Pts": p["total_points"], "Proj": p["proj_gw"],
-            "Mins": 0, "G": 0, "A": 0, "CS": 0, "GC": 0, "Bonus": 0, "Saves": 0,
-            "YC": 0, "RC": 0, "Penalties_Saved": 0, "Penalties_Missed": 0,
+            "Mins": p["minutes"], "G": p["g"], "A": p["a"],
+            "CS": p["cs"], "GC": p["gc"], "Bonus": p["bonus"], "Saves": p["saves"],
+            "YC": p["yc"], "RC": p["rc"],
+            "Penalties_Saved": p["p_saved"], "Penalties_Missed": p["p_missed"],
             "DEFCON_Achieved": False, "State": "YTP", "sub_action": "",
-            "status": p["status"], "chance_of_playing_next_round": p["chance_of_playing_next_round"]
+            "status": p["status"], "chance_of_playing_next_round": p["chance_of_playing_next_round"],
+            "is_season_card": True,
+            "injury_forecast": p["injury_forecast"],
+            "last_5_str": p["last_5_str"],
+            "next_3": p["next_3"],
+            "owner_label": p["owner_label"],
+            "form": f"{p['form']:.1f}",
+            "ppg": f"{p['ppg']:.1f}"
         }
 
     pitch_data = make_pitch_payload(
@@ -3293,6 +3397,11 @@ def get_player_hub(league_id: int = 63):
 
     pos_map = {item["id"]: item["singular_name_short"] for item in static_data["element_types"]}
     team_map = {item["id"]: item["short_name"] for item in static_data["teams"]}
+    team_full_map = {item["id"]: item["name"] for item in static_data["teams"]}
+
+    matches = league_details.get("matches", []) if league_details else []
+    fin_events = sorted(list({m["event"] for m in matches if m.get("finished", False)}))
+    last_5_gws, last_5_lookup = _get_last_5_gw_lookup(fin_events)
 
     entries = league_details.get("league_entries", []) if league_details else []
     entry_alias_map = {}
@@ -3315,18 +3424,42 @@ def get_player_hub(league_id: int = 63):
         owner = owner_map.get(eid)
         tid = raw_elem.get("team")
         pos_str = pos_map.get(raw_elem.get("element_type", 1), "MID")
-        
+        club_short = str(team_map.get(tid, "PL")).upper()
+        pal = CLUB_PALETTE.get(club_short, {"bg": "#1e293b", "text": "#ffffff", "border": "#ffffff"})
+        full_n = f"{raw_elem.get('first_name', '')} {raw_elem.get('second_name', '')}".strip() or str(raw_elem.get("web_name", "Unknown"))
+        owner_str = entry_alias_map.get(owner, "Free Agent") if owner else "Free Agent"
+
         players.append({
             "id": eid,
             "name": str(raw_elem.get("web_name", "Unknown")),
+            "full_name": full_n,
             "pos": pos_str,
-            "club": str(team_map.get(tid, "PL")).upper(),
+            "club": club_short,
+            "club_full": str(team_full_map.get(tid, club_short)),
+            "bg": pal["bg"],
+            "text": pal["text"],
+            "border": pal["border"],
             "pts": safe_int(raw_elem.get("total_points", 0)),
+            "proj": "0.0",
             "form": round(float(raw_elem.get("form") or 0.0), 1),
             "ppg": round(float(raw_elem.get("points_per_game") or 0.0), 1),
+            "mins": safe_int(raw_elem.get("minutes", 0)),
+            "g": safe_int(raw_elem.get("goals_scored", 0)),
+            "a": safe_int(raw_elem.get("assists", 0)),
+            "cs": safe_int(raw_elem.get("clean_sheets", 0)),
+            "gc": safe_int(raw_elem.get("goals_conceded", 0)),
+            "bonus": safe_int(raw_elem.get("bonus", 0)),
+            "saves": safe_int(raw_elem.get("saves", 0)),
+            "yc": safe_int(raw_elem.get("yellow_cards", 0)),
+            "rc": safe_int(raw_elem.get("red_cards", 0)),
+            "p_saved": safe_int(raw_elem.get("penalties_saved", 0)),
+            "p_missed": safe_int(raw_elem.get("penalties_missed", 0)),
+            "last_5_str": _format_last_5_pts(eid, last_5_gws, last_5_lookup),
             "next_3": get_next_3(tid),
-            "owner": entry_alias_map.get(owner, "Free Agent") if owner else "Free Agent",
-            "status": get_health_label(raw_elem)
+            "owner": owner_str,
+            "status": get_health_label(raw_elem),
+            "injury_forecast": build_injury_forecast(raw_elem),
+            "is_season_card": True
         })
 
     return {"league_id": league_id, "players": players}

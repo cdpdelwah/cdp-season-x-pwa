@@ -3183,17 +3183,19 @@
 
                 renderPitch('squad-pitch-box', data.pitch_data, '#f59e0b', true);
 
-                let tblHtml = `<div style="font-size:0.78rem; font-weight:800; color:#f59e0b; margin-bottom:6px;">STARTING XI (GK FIRST)</div>
+                const sqRowKey = (pName) => `squad-pitch-box_${String(pName || '').replace(/[^a-zA-Z0-9]/g, '')}`;
+
+                let tblHtml = `<div style="font-size:0.78rem; font-weight:800; color:#f59e0b; margin-bottom:6px;">STARTING XI (GK FIRST • TAP ANY PLAYER FOR SEASON CARD)</div>
                 <div class="table-wrap"><table class="clean-table">
                     <thead><tr><th>Player</th><th>Pos</th><th>Club</th><th>Status</th><th>GW Proj</th><th>Season Pts</th><th>Last 2 GWs</th><th>Next 3 Fixtures</th><th>PPG</th><th>Form</th></tr></thead>
-                    <tbody>${(data.xi_table || []).map(p => `<tr><td>${p.player}</td><td>${p.pos}</td><td>${p.club}</td><td>${p.status}</td><td style="color:#f59e0b; font-weight:800;">${p.gw_proj}</td><td>${p.season_pts}</td><td>${p.last_2}</td><td>${p.next_3}</td><td>${p.ppg}</td><td>${p.form}</td></tr>`).join('')}</tbody>
+                    <tbody>${(data.xi_table || []).map(p => `<tr onclick="showPlayerStatsModal('${sqRowKey(p.player)}', '#f59e0b')" style="cursor:pointer;"><td style="color:#fff; font-weight:800; text-decoration:underline; text-decoration-color:rgba(245,158,11,0.5);">${p.player}</td><td>${p.pos}</td><td>${p.club}</td><td>${p.status}</td><td style="color:#f59e0b; font-weight:800;">${p.gw_proj}</td><td>${p.season_pts}</td><td>${p.last_2}</td><td>${p.next_3}</td><td>${p.ppg}</td><td>${p.form}</td></tr>`).join('')}</tbody>
                 </table></div>`;
 
                 if (data.bench_table && data.bench_table.length > 0) {
                     tblHtml += `<div style="font-size:0.78rem; font-weight:800; color:#94a3b8; margin:10px 0 6px 0;">BENCH HIERARCHY (GK → DEF → MID → FWD)</div>
                     <div class="table-wrap"><table class="clean-table">
                         <thead><tr><th>Role</th><th>Player</th><th>Pos</th><th>Club</th><th>Status</th><th>GW Proj</th><th>Season Pts</th><th>Last 2 GWs</th><th>Next 3 Fixtures</th><th>PPG</th><th>Form</th></tr></thead>
-                        <tbody>${data.bench_table.map(p => `<tr><td>${p.role}</td><td style="color:#fff; font-weight:700;">${p.player}</td><td>${p.pos}</td><td>${p.club}</td><td>${p.status}</td><td>${p.gw_proj}</td><td>${p.season_pts}</td><td>${p.last_2}</td><td>${p.next_3}</td><td>${p.ppg}</td><td>${p.form}</td></tr>`).join('')}</tbody>
+                        <tbody>${data.bench_table.map(p => `<tr onclick="showPlayerStatsModal('${sqRowKey(p.player)}', '#f59e0b')" style="cursor:pointer;"><td>${p.role}</td><td style="color:#fff; font-weight:700; text-decoration:underline; text-decoration-color:rgba(245,158,11,0.5);">${p.player}</td><td>${p.pos}</td><td>${p.club}</td><td>${p.status}</td><td>${p.gw_proj}</td><td>${p.season_pts}</td><td>${p.last_2}</td><td>${p.next_3}</td><td>${p.ppg}</td><td>${p.form}</td></tr>`).join('')}</tbody>
                     </table></div>`;
                 }
                 document.getElementById('squad-table-box').innerHTML = tblHtml;
@@ -3873,7 +3875,7 @@
             const sortF = document.getElementById('ph-sort').value;
 
             let filtered = window.playerHubData.filter(p => {
-                if (searchQ && !p.name.toLowerCase().includes(searchQ)) return false;
+                if (searchQ && !p.name.toLowerCase().includes(searchQ) && !(p.full_name || '').toLowerCase().includes(searchQ)) return false;
                 if (posF !== "All" && p.pos !== posF) return false;
                 if (viewF === "Free Agent" && p.owner !== "Free Agent") return false;
                 if (viewF === "Owned" && p.owner === "Free Agent") return false;
@@ -3895,11 +3897,16 @@
                 return;
             }
 
-            let html = `<div class="table-wrap"><table class="clean-table">
+            let html = `<div style="font-size:0.75rem; color:#94a3b8; font-weight:700; margin-bottom:6px;">💡 Tap any player row to open their Season Stats & Injury Dossier Card</div>
+            <div class="table-wrap"><table class="clean-table">
                 <thead><tr><th>Player</th><th>Club</th><th>Pos</th><th>Pts</th><th>Form</th><th>Next 3</th><th>Status</th><th>Owner</th></tr></thead>
                 <tbody>`;
             
             displayList.forEach(p => {
+                const pKey = `ph_${p.id}`;
+                window.pitchPlayersRegistry[pKey] = p;
+                const accent = p.owner === "Free Agent" ? "#22c55e" : "#f59e0b";
+
                 const ownerHtml = p.owner === "Free Agent" 
                     ? `<span style="color:#22c55e; font-weight:800;">Free Agent</span>` 
                     : `<span style="color:#f59e0b; font-weight:800;">${p.owner}</span>`;
@@ -3911,8 +3918,8 @@
                     statusHtml = `<span style="color:#f59e0b; font-weight:700;">${p.status}</span>`;
                 }
                     
-                html += `<tr>
-                    <td style="font-weight:800; color:#fff;">${p.name}</td>
+                html += `<tr onclick="showPlayerStatsModal('${pKey}', '${accent}')" style="cursor:pointer;">
+                    <td style="font-weight:800; color:#fff; text-decoration:underline; text-decoration-color:rgba(245,158,11,0.5);">${p.name}</td>
                     <td>${p.club}</td>
                     <td>${p.pos}</td>
                     <td style="font-weight:900; color:#fff;">${p.pts}</td>
@@ -4985,6 +4992,83 @@
                 document.body.appendChild(modalEl);
             }
 
+            // SEASON DOSSIER CARD (FOR SQUAD ANALYSER & PLAYERS SECTION ONLY)
+            if (p.is_season_card) {
+                const ownerTag = p.owner ? ` • ${p.owner === 'Free Agent' ? '🟢 Free Agent' : '👤 ' + p.owner}` : '';
+                const hasGwProj = p.proj && Number(p.proj) > 0;
+                const rightMetricLabel = hasGwProj ? 'GW PROJECTION' : 'FORM / PPG';
+                const rightMetricVal = hasGwProj ? `${p.proj} pts` : `${p.form || '0.0'} / ${p.ppg || '0.0'}`;
+
+                const injText = p.injury_forecast || p.status || '✅ Fit & Available';
+                let injBg = '#052210', injBorder = '#22c55e', injColor = '#86efac';
+                if (injText.includes('🚑') || injText.includes('🟥') || injText.includes('Injured') || injText.includes('Suspended') || injText.includes('Unavailable')) {
+                    injBg = '#2a0d0d'; injBorder = '#ef4444'; injColor = '#fca5a5';
+                } else if (injText.includes('🟠') || injText.includes('🟡') || injText.includes('Doubtful')) {
+                    injBg = '#231804'; injBorder = '#f59e0b'; injColor = '#fcd34d';
+                }
+
+                let seasonGrid = `
+                    <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.81rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Minutes:</span><span style="color:#fff; font-weight:800;">${p.mins}'</span></div>
+                    <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.81rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Goals ⚽:</span><span style="color:#fff; font-weight:800;">${p.g}</span></div>
+                    <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.81rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Assists 🎯:</span><span style="color:#fff; font-weight:800;">${p.a}</span></div>
+                    <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.81rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Clean Sheets 🛡️:</span><span style="color:#fff; font-weight:800;">${p.cs}</span></div>
+                    <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.81rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Bonus Pts ⭐:</span><span style="color:#fff; font-weight:800;">${p.bonus}</span></div>
+                    <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.81rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Form / PPG:</span><span style="color:#f59e0b; font-weight:800;">${p.form || '0.0'} / ${p.ppg || '0.0'}</span></div>
+                    <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.81rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Yellow Cards 🟨:</span><span style="color:#fff; font-weight:800;">${p.yc}</span></div>
+                    <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.81rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Red Cards 🟥:</span><span style="color:#fff; font-weight:800;">${p.rc}</span></div>
+                `;
+
+                if (p.pos === 'GKP') {
+                    seasonGrid += `
+                        <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.81rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Saves 🧤:</span><span style="color:#fff; font-weight:800;">${p.saves}</span></div>
+                        <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.81rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Pens Saved 🧤:</span><span style="color:#22c55e; font-weight:800;">${p.p_saved}</span></div>
+                    `;
+                }
+
+                const searchName = p.full_name || p.name;
+                const searchClub = p.club_full || p.club;
+                const googleNewsUrl = `https://www.google.com/search?q=${encodeURIComponent(searchName + ' ' + searchClub + ' Premier League injury team news')}`;
+
+                modalEl.innerHTML = `
+                    <div class="stat-popup-card" style="background:#090c13; border:2px solid ${accentColor}; border-radius:14px; width:94%; max-width:365px; padding:16px 18px; box-shadow:0 12px 34px rgba(0,0,0,0.95); position:relative;">
+                        <span onclick="document.getElementById('player-stat-popup').style.display='none'" style="position:absolute; top:10px; right:14px; color:#94a3b8; font-size:1.3rem; font-weight:bold; cursor:pointer;">✕</span>
+                        <div style="font-size:1.25rem; font-weight:900; color:#fff; margin-right:24px;">${p.full_name || p.name}</div>
+                        <div style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px; font-weight:700;">${p.pos} • ${p.club}${ownerTag}</div>
+
+                        <div style="display:flex; justify-content:space-between; align-items:baseline; background:#0f1523; border-radius:8px; padding:8px 12px; margin-bottom:10px; border-left:4px solid ${accentColor};">
+                            <div>
+                                <span style="font-size:0.7rem; color:#94a3b8; font-weight:800; text-transform:uppercase;">Season Total</span>
+                                <div style="font-size:1.75rem; font-weight:900; color:${accentColor};">${p.pts} PTS</div>
+                            </div>
+                            <div style="text-align:right;">
+                                <span style="font-size:0.7rem; color:#94a3b8; font-weight:800;">${rightMetricLabel}</span>
+                                <div style="font-size:1.12rem; font-weight:800; color:#cbd5e1;">${rightMetricVal}</div>
+                            </div>
+                        </div>
+
+                        <div style="background:${injBg}; border:1px solid ${injBorder}; color:${injColor}; border-radius:7px; padding:7px 10px; font-size:0.76rem; font-weight:700; margin-bottom:8px; line-height:1.35;">
+                            ${injText}
+                        </div>
+
+                        <div style="background:#0c101a; border:1px solid #1e293b; border-radius:7px; padding:7px 10px; margin-bottom:8px;">
+                            <div style="font-size:0.68rem; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:3px;">📊 Last 5 Gameweeks Points</div>
+                            <div style="font-family:'JetBrains Mono', monospace; font-size:0.74rem; color:#f8fafc; font-weight:700; line-height:1.4;">${p.last_5_str || 'N/A'}</div>
+                        </div>
+
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:7px; margin-bottom:8px;">${seasonGrid}</div>
+
+                        ${p.next_3 ? `<div style="font-size:0.75rem; color:#cbd5e1; text-align:center; font-weight:700; margin-top:4px;">🗓️ <b>Next 3:</b> ${p.next_3}</div>` : ''}
+
+                        <a href="${googleNewsUrl}" target="_blank" rel="noopener noreferrer" style="display:block; width:100%; text-align:center; background:linear-gradient(145deg, #1e293b 0%, #0f172a 100%); border:1px solid ${accentColor}; color:#fff; font-weight:800; font-size:0.8rem; padding:9px 12px; border-radius:8px; text-decoration:none; margin-top:10px; box-shadow:0 4px 10px rgba(0,0,0,0.45);">
+                            🔎 Search Latest Google News for ${p.name} ↗
+                        </a>
+                    </div>
+                `;
+                modalEl.style.display = 'flex';
+                return;
+            }
+
+            // MATCHDAY LIVE POPUP (UNCHANGED FOR LIVE SCORES, CUP & EPL LINEUPS)
             let gridHtml = `
                 <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Minutes:</span><span style="color:#fff; font-weight:800;">${p.mins}'</span></div>
                 <div style="background:#0c101a; border:1px solid #182030; border-radius:6px; padding:6px 10px; font-size:0.82rem; display:flex; justify-content:space-between;"><span style="color:#94a3b8; font-weight:600;">Goals ⚽:</span><span style="color:#fff; font-weight:800;">${p.g}</span></div>
