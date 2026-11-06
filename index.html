@@ -1429,15 +1429,43 @@
             });
         }
 
+        function openTargetFromHash(rawHash) {
+            if (!savedAlias) return;
+            const cleanHash = String(rawHash || "").replace(/^.*#/, "").trim().toLowerCase();
+            const validScreens = ['home', 'scores', 'epl', 'standings', 'cup', 'squad', 'trade', 'players', 'gacs', 'disc', 'news', 'power', 'asterisk', 'hector'];
+
+            if (cleanHash === 'trade_offers') {
+                history.replaceState({ screen: 'trade' }, '', '#trade');
+                navigate('trade', false);
+                setTimeout(() => switchTradeSubTab('offers'), 80);
+                return;
+            }
+            if (cleanHash === 'players_waivers') {
+                history.replaceState({ screen: 'players' }, '', '#players');
+                navigate('players', false);
+                setTimeout(() => switchPlayersSubTab('waivers'), 80);
+                return;
+            }
+            const targetScreen = validScreens.includes(cleanHash) ? cleanHash : 'home';
+            history.replaceState({ screen: targetScreen }, '', '#' + targetScreen);
+            navigate(targetScreen, false);
+        }
+
+        if ("serviceWorker" in navigator) {
+            navigator.serviceWorker.addEventListener("message", (event) => {
+                if (event.data && event.data.type === "CDP_NAVIGATE" && event.data.url) {
+                    openTargetFromHash(event.data.url);
+                }
+            });
+        }
+
         window.onload = () => {
             savedAlias = localStorage.getItem("cdp_alias") || "";
             if (savedAlias) {
                 document.getElementById("welcome-msg").innerText = `👤 ${savedAlias}`;
                 activeLeagueId = parseInt(localStorage.getItem("cdp_league")) || 63;
                 
-                // Initialize the history stack so the phone knows we are in the app
-                history.replaceState({ screen: 'home' }, '', '#home');
-                navigate('home', false);
+                openTargetFromHash(window.location.hash || '#home');
                 prefetchCoreScreens();
                 
                 if ("Notification" in window && Notification.permission !== "granted") {

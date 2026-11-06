@@ -5307,6 +5307,24 @@ def prune_dead_endpoints(dead_eps: set):
         if changed:
             upstash_set_json("cdp_push_subs_v2", latest_reg)
 
+def _resolve_push_url(tag: str) -> str:
+    t = str(tag or "").strip().lower()
+    if t.startswith("bh-"):
+        return "/#hector"
+    if t.startswith("tr-"):
+        return "/#trade_offers"
+    if t.startswith("trade-"):
+        return "/#trade"
+    if t.startswith("wres-"):
+        return "/#players_waivers"
+    if t.startswith("waiver-"):
+        return "/#players"
+    if t.startswith("lineup-1h"):
+        return "/#squad"
+    if t.startswith("ev-") or t.startswith("gw-locked-") or t.startswith("lineup-passed"):
+        return "/#scores"
+    return "/#home"
+
 def send_push_to_manager(subs_registry: dict, alias: str, title: str, body: str, tag: str = "cdp-alert", dead_eps_out: set = None):
     if not isinstance(subs_registry, dict):
         return 0
@@ -5320,7 +5338,8 @@ def send_push_to_manager(subs_registry: dict, alias: str, title: str, body: str,
         LAST_PUSH_LOGS.append(f"{datetime.now().strftime('%H:%M:%S')} | SKIP {alias}: Not registered in Upstash")
         return 0
 
-    payload = json.dumps({"title": title, "body": body, "tag": tag})
+    target_url = _resolve_push_url(tag)
+    payload = json.dumps({"title": title, "body": body, "tag": tag, "url": target_url})
     sent = 0
     seen_endpoints = set()
     local_dead = set()
