@@ -3161,8 +3161,8 @@
                 const wBox = document.getElementById('squad-waivers-table');
                 if (data.waivers && data.waivers.length > 0) {
                     wBox.innerHTML = `<div class="table-wrap"><table class="clean-table">
-                        <thead><tr><th>Waiver Target</th><th>Pos</th><th>Target Form</th><th>Target PPG</th><th>Next 3 Fixtures</th><th>Suggested Drop</th><th>Drop Status</th><th>Upgrade Delta</th></tr></thead>
-                        <tbody>${data.waivers.map(w => `<tr><td>${w.target}</td><td>${w.pos}</td><td>${w.form}</td><td>${w.ppg}</td><td>${w.next_3}</td><td>${w.drop}</td><td>${w.drop_status}</td><td style="color:#22c55e; font-weight:700;">${w.rationale}</td></tr>`).join('')}</tbody>
+                        <thead><tr><th>Waiver Target</th><th>Pos</th><th>Pred XI</th><th>Target Form</th><th>Target PPG</th><th>Next 3 Fixtures</th><th>Suggested Drop</th><th>Drop Status</th><th>Upgrade Delta</th></tr></thead>
+                        <tbody>${data.waivers.map(w => `<tr><td>${w.target}</td><td>${w.pos}</td><td>${w.pred_xi || '❌'}</td><td>${w.form}</td><td>${w.ppg}</td><td>${w.next_3}</td><td>${w.drop}</td><td>${w.drop_status}</td><td style="color:#22c55e; font-weight:700;">${w.rationale}</td></tr>`).join('')}</tbody>
                     </table></div>`;
                 } else {
                     wBox.innerHTML = `<div class="alert-box alert-info">No matching waiver options found with sufficient points and playing chance.</div>`;

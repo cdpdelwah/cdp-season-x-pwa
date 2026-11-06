@@ -2683,6 +2683,84 @@ def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0
         key=lambda x: x["starter_rating"], reverse=True
     )[:10]
 
+    scraped_clubs, _ = _scrape_external_predicted_xis(static_data, force=False) if "_scrape_external_predicted_xis" in globals() else ({}, "")
+    prev1_elems = prev1.get("elements", {}) if isinstance(prev1, dict) else {}
+    club_rosters_pred = {}
+    for raw_elem in static_data.get("elements", []):
+        tid = raw_elem.get("team")
+        if not tid:
+            continue
+        eid = raw_elem["id"]
+        pos_str = pos_map.get(raw_elem.get("element_type", 1), "MID")
+        avail = get_availability_multiplier(raw_elem)
+        form_val = float(raw_elem.get("form") or 0.0)
+        ppg_val = float(raw_elem.get("points_per_game") or 0.0)
+        ict_val = float(raw_elem.get("ict_index") or 0.0)
+        mins_season = safe_int(raw_elem.get("minutes", 0))
+        prev_st = (prev1_elems.get(str(eid)) or prev1_elems.get(eid) or {}).get("stats", {})
+        prev_mins = safe_int(prev_st.get("minutes", 0))
+        if avail <= 0.0:
+            r_score = -999.0
+        else:
+            prev_start_bonus = 18.0 if prev_mins >= 60 else (6.0 if prev_mins > 0 else 0.0)
+            mins_bonus = min(12.0, mins_season / 65.0)
+            r_score = (prev_start_bonus + mins_bonus + (ppg_val * 2.2) + (form_val * 1.8) + (ict_val * 0.04)) * avail
+        club_rosters_pred.setdefault(tid, []).append({
+            "id": eid,
+            "Pos": pos_str,
+            "avail": avail,
+            "rank_score": r_score
+        })
+
+    pred_xi_ids = set()
+    for tid, c_list in club_rosters_pred.items():
+        roster = sorted(c_list, key=lambda x: x["rank_score"], reverse=True)
+        by_id = {p["id"]: p for p in roster}
+        s_ids = scraped_clubs.get(tid, [])
+        seed_p = [by_id[pid] for pid in s_ids if pid in by_id and by_id[pid]["avail"] > 0]
+        u_ids = {p["id"] for p in seed_p}
+
+        c_gks = [p for p in seed_p if p["Pos"] == "GKP"][:1]
+        c_defs = [p for p in seed_p if p["Pos"] == "DEF"][:5]
+        c_mids = [p for p in seed_p if p["Pos"] == "MID"][:5]
+        c_fwds = [p for p in seed_p if p["Pos"] == "FWD"][:3]
+
+        rem_p = [p for p in roster if p["id"] not in u_ids and p["avail"] > 0]
+        if not c_gks:
+            gk_c = next((p for p in rem_p if p["Pos"] == "GKP"), None)
+            if gk_c:
+                c_gks.append(gk_c); u_ids.add(gk_c["id"])
+                rem_p = [p for p in rem_p if p["id"] != gk_c["id"]]
+        while len(c_defs) < 3:
+            d_c = next((p for p in rem_p if p["Pos"] == "DEF"), None)
+            if not d_c: break
+            c_defs.append(d_c); u_ids.add(d_c["id"])
+            rem_p = [p for p in rem_p if p["id"] != d_c["id"]]
+        while len(c_mids) < 2:
+            m_c = next((p for p in rem_p if p["Pos"] == "MID"), None)
+            if not m_c: break
+            c_mids.append(m_c); u_ids.add(m_c["id"])
+            rem_p = [p for p in rem_p if p["id"] != m_c["id"]]
+        while len(c_fwds) < 1:
+            f_c = next((p for p in rem_p if p["Pos"] == "FWD"), None)
+            if not f_c: break
+            c_fwds.append(f_c); u_ids.add(f_c["id"])
+            rem_p = [p for p in rem_p if p["id"] != f_c["id"]]
+
+        cur_xi = c_gks + c_defs + c_mids + c_fwds
+        for p in rem_p:
+            if len(cur_xi) >= 11:
+                break
+            if p["Pos"] == "DEF" and len(c_defs) < 5:
+                c_defs.append(p); cur_xi.append(p); u_ids.add(p["id"])
+            elif p["Pos"] == "MID" and len(c_mids) < 5:
+                c_mids.append(p); cur_xi.append(p); u_ids.add(p["id"])
+            elif p["Pos"] == "FWD" and len(c_fwds) < 3:
+                c_fwds.append(p); cur_xi.append(p); u_ids.add(p["id"])
+
+        for p in cur_xi:
+            pred_xi_ids.add(p["id"])
+
     waiver_rows = []
     for w_cand in cand_waivers:
         pos_drops = [d for d in droppable if d["position"] == w_cand["position"]]
@@ -2700,7 +2778,9 @@ def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0
                 rat = f"{p_str} PPG baseline"
             waiver_rows.append({
                 "target": f"{w_cand['web_name']} ({w_cand['club']})",
-                "pos": w_cand["position"], "form": f"{w_cand['form']:.1f}", "ppg": f"{w_cand['ppg']:.1f}",
+                "pos": w_cand["position"],
+                "pred_xi": "✅" if w_cand["id"] in pred_xi_ids else "❌",
+                "form": f"{w_cand['form']:.1f}", "ppg": f"{w_cand['ppg']:.1f}",
                 "next_3": w_cand["next_3"], "drop": f"{drop_p['web_name']} ({drop_p['club']})",
                 "drop_status": drop_p["health_status"], "rationale": rat
             })
