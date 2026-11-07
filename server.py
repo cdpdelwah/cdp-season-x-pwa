@@ -21,6 +21,20 @@ try:
 except Exception:
     pdfium = None
 
+# Preload Excel & ODF engines on the main thread so worker threads never race on import
+try:
+    import openpyxl
+except Exception:
+    pass
+
+try:
+    import odf.opendocument
+    import odf.table
+    import odf.element
+    import odf.namespaces
+except Exception:
+    pass
+
 app = FastAPI()
 app.add_middleware(GZipMiddleware, minimum_size=500)
 base_dir = Path(__file__).resolve().parent
@@ -3923,7 +3937,15 @@ def _compute_mgr_streaks(lg_seq):
     }
 
 def build_asterisk_payload(target_file: Path):
-    xls = pd.ExcelFile(target_file)
+    ext = target_file.suffix.lower()
+    if ext == ".ods":
+        import sys, importlib
+        if "odf.opendocument" in sys.modules and not hasattr(sys.modules["odf.opendocument"], "OpenDocument"):
+            sys.modules.pop("odf.opendocument", None)
+            importlib.import_module("odf.opendocument")
+        xls = pd.ExcelFile(target_file, engine="odf")
+    else:
+        xls = pd.ExcelFile(target_file, engine="openpyxl")
     sheet_names = set(xls.sheet_names)
 
     # 1. Trophies & Finishes from qPlayerProfiles / qPlayerSeasonFinishes
