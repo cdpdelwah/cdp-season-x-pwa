@@ -4560,6 +4560,49 @@
             `;
         }
 
+        window.astStreakSort = 'max_w';
+
+        function renderAsteriskStreaksTable() {
+            const d = window.asteriskData;
+            const box = document.getElementById('ast-streaks-table-box');
+            if (!d || !box) return;
+
+            const sortKey = window.astStreakSort || 'max_w';
+            const list = [...(d.streaks || [])];
+
+            list.sort((a, b) => {
+                if (sortKey === 'player') {
+                    return String(a.player || '').localeCompare(String(b.player || ''));
+                }
+                const diff = (Number(b[sortKey]) || 0) - (Number(a[sortKey]) || 0);
+                if (diff !== 0) return diff;
+                if (sortKey !== 'max_w') {
+                    const wDiff = (Number(b.max_w) || 0) - (Number(a.max_w) || 0);
+                    if (wDiff !== 0) return wDiff;
+                }
+                return String(a.player || '').localeCompare(String(b.player || ''));
+            });
+
+            let spanHeader = 'Win Span';
+            let spanField = 'max_w_span';
+            if (sortKey === 'max_unb') { spanHeader = 'Unbeaten Span'; spanField = 'max_unb_span'; }
+            else if (sortKey === 'max_l' || sortKey === 'cur_l') { spanHeader = 'Losing Span'; spanField = 'max_l_span'; }
+            else if (sortKey === 'max_wless') { spanHeader = 'Winless Span'; spanField = 'max_wless_span'; }
+
+            box.innerHTML = `<div class="table-wrap"><table class="clean-table">
+                <thead><tr><th>Manager</th><th>Max Win Streak</th><th>${spanHeader}</th><th>Max Unbeaten</th><th>Max Losing Run</th><th>Max Winless</th><th>Active W / L</th></tr></thead>
+                <tbody>${list.map(s => `<tr>
+                    <td style="font-weight:800; color:#fff;">${s.player}</td>
+                    <td style="color:#22c55e; font-weight:900;">${s.max_w}</td>
+                    <td style="font-size:0.74rem; color:#94a3b8;">${s[spanField] || s.max_w_span || '-'}</td>
+                    <td style="color:#38bdf8; font-weight:800;">${s.max_unb}</td>
+                    <td style="color:#ef4444; font-weight:800;">${s.max_l}</td>
+                    <td style="color:#f59e0b; font-weight:800;">${s.max_wless}</td>
+                    <td>${s.cur_w > 0 ? `<span style="color:#22c55e; font-weight:800;">${s.cur_w}W</span>` : (s.cur_l > 0 ? `<span style="color:#ef4444; font-weight:800;">${s.cur_l}L</span>` : '-')}</td>
+                </tr>`).join('')}</tbody>
+            </table></div>`;
+        }
+
         function renderAsteriskPalmares() {
             const d = window.asteriskData;
             const pane = document.getElementById('ast-pane-palmares');
@@ -4587,21 +4630,25 @@
                 </table></div>`;
             }
 
-            let strkHtml = `<div style="font-size:1.1rem; font-weight:800; color:#fff; margin:16px 0 8px 0;">🔥 All-Time League Streaks (Live from Matches)</div>
-            <div class="table-wrap"><table class="clean-table">
-                <thead><tr><th>Manager</th><th>Max Win Streak</th><th>Win Span</th><th>Max Unbeaten</th><th>Max Losing Run</th><th>Max Winless</th><th>Active W / L</th></tr></thead>
-                <tbody>${(d.streaks || []).map(s => `<tr>
-                    <td style="font-weight:800; color:#fff;">${s.player}</td>
-                    <td style="color:#22c55e; font-weight:900;">${s.max_w}</td>
-                    <td style="font-size:0.74rem; color:#94a3b8;">${s.max_w_span}</td>
-                    <td style="color:#38bdf8; font-weight:800;">${s.max_unb}</td>
-                    <td style="color:#ef4444; font-weight:800;">${s.max_l}</td>
-                    <td>${s.max_wless}</td>
-                    <td>${s.cur_w > 0 ? `<span style="color:#22c55e; font-weight:800;">${s.cur_w}W</span>` : (s.cur_l > 0 ? `<span style="color:#ef4444; font-weight:800;">${s.cur_l}L</span>` : '-')}</td>
-                </tr>`).join('')}</tbody>
-            </table></div>`;
+            const curSort = window.astStreakSort || 'max_w';
+            let strkHtml = `
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin:16px 0 8px 0;">
+                    <div style="font-size:1.1rem; font-weight:800; color:#fff;">🔥 All-Time League Streaks (Live from Matches)</div>
+                    <select class="white-select" onchange="window.astStreakSort=this.value; renderAsteriskStreaksTable();">
+                        <option value="max_w" ${curSort === 'max_w' ? 'selected' : ''}>Sort: Max Win Streak</option>
+                        <option value="max_unb" ${curSort === 'max_unb' ? 'selected' : ''}>Sort: Max Unbeaten</option>
+                        <option value="max_l" ${curSort === 'max_l' ? 'selected' : ''}>Sort: Max Losing Run</option>
+                        <option value="max_wless" ${curSort === 'max_wless' ? 'selected' : ''}>Sort: Max Winless</option>
+                        <option value="cur_w" ${curSort === 'cur_w' ? 'selected' : ''}>Sort: Active Win Streak</option>
+                        <option value="cur_l" ${curSort === 'cur_l' ? 'selected' : ''}>Sort: Active Losing Run</option>
+                        <option value="player" ${curSort === 'player' ? 'selected' : ''}>Sort: Manager (A - Z)</option>
+                    </select>
+                </div>
+                <div id="ast-streaks-table-box"></div>
+            `;
 
             pane.innerHTML = honHtml + awHtml + strkHtml;
+            renderAsteriskStreaksTable();
         }
 
         function renderAsteriskCoefficient(mode = window.activeCoefMode) {
