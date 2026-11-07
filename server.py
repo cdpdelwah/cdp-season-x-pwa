@@ -2820,12 +2820,6 @@ def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0
     if not target_positions:
         target_positions = ["DEF", "MID", "FWD"]
 
-    if focus == "DEF Only": active_pos_filter = ["DEF"]
-    elif focus == "MID Only": active_pos_filter = ["MID"]
-    elif focus == "FWD Only": active_pos_filter = ["FWD"]
-    elif focus == "All Outfield": active_pos_filter = ["DEF", "MID", "FWD"]
-    else: active_pos_filter = target_positions
-
     top_pts_ids = {p["id"] for p in sorted(my_squad, key=lambda x: x["total_points"], reverse=True)[:3]}
     top_ppg_ids = {p["id"] for p in sorted(my_squad, key=lambda x: x["ppg"], reverse=True)[:3]}
     top_form_ids = {p["id"] for p in sorted(my_squad, key=lambda x: x["form"], reverse=True)[:2]}
@@ -2836,10 +2830,70 @@ def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0
         key=lambda x: ((x["ppg"] * 1.5) + (x["form"] * 1.0)) * x["avail_factor"]
     )
 
-    cand_waivers = sorted(
-        [w for w in waiver_pool if w["position"] in active_pos_filter and w["avail_factor"] >= 0.6 and w["total_points"] >= 5],
-        key=lambda x: x["starter_rating"], reverse=True
-    )[:10]
+    if focus == "DEF Only":
+        cand_waivers = sorted(
+            [w for w in waiver_pool if w["position"] == "DEF" and w["avail_factor"] >= 0.6 and w["total_points"] >= 5],
+            key=lambda x: x["starter_rating"], reverse=True
+        )[:10]
+    elif focus == "MID Only":
+        cand_waivers = sorted(
+            [w for w in waiver_pool if w["position"] == "MID" and w["avail_factor"] >= 0.6 and w["total_points"] >= 5],
+            key=lambda x: x["starter_rating"], reverse=True
+        )[:10]
+    elif focus == "FWD Only":
+        cand_waivers = sorted(
+            [w for w in waiver_pool if w["position"] == "FWD" and w["avail_factor"] >= 0.6 and w["total_points"] >= 5],
+            key=lambda x: x["starter_rating"], reverse=True
+        )[:10]
+    elif focus == "All Outfield":
+        cand_waivers = sorted(
+            [w for w in waiver_pool if w["position"] in ["DEF", "MID", "FWD"] and w["avail_factor"] >= 0.6 and w["total_points"] >= 5],
+            key=lambda x: x["starter_rating"], reverse=True
+        )[:10]
+    else:
+        # Squad Needs (Auto): Prioritise flagged positions while guaranteeing DEF, MID & FWD coverage
+        eligible_pool = [w for w in waiver_pool if w["position"] in ["DEF", "MID", "FWD"] and w["avail_factor"] >= 0.6 and w["total_points"] >= 5]
+        need_set = set(target_positions)
+        picked = []
+        picked_ids = set()
+
+        # 1. Take top 4 from flagged need position(s) first
+        need_cands = sorted(
+            [w for w in eligible_pool if w["position"] in need_set],
+            key=lambda x: x["starter_rating"], reverse=True
+        )
+        for w in need_cands[:4]:
+            picked.append(w)
+            picked_ids.add(w["id"])
+
+        # 2. Ensure at least 2 options per outfield position (DEF, MID, FWD)
+        for pk in ["DEF", "MID", "FWD"]:
+            pos_cands = sorted(
+                [w for w in eligible_pool if w["position"] == pk and w["id"] not in picked_ids],
+                key=lambda x: x["starter_rating"], reverse=True
+            )
+            have_cnt = sum(1 for x in picked if x["position"] == pk)
+            for w in pos_cands[:max(0, 2 - have_cnt)]:
+                if len(picked) < 10:
+                    picked.append(w)
+                    picked_ids.add(w["id"])
+
+        # 3. Fill remaining slots up to 10 with highest rated overall (boosting flagged needs)
+        rem_cands = sorted(
+            [w for w in eligible_pool if w["id"] not in picked_ids],
+            key=lambda x: x["starter_rating"] + (2.0 if x["position"] in need_set else 0.0),
+            reverse=True
+        )
+        for w in rem_cands:
+            if len(picked) >= 10:
+                break
+            picked.append(w)
+            picked_ids.add(w["id"])
+
+        cand_waivers = sorted(
+            picked,
+            key=lambda x: (0 if x["position"] in need_set else 1, -x["starter_rating"])
+        )
 
     scraped_clubs, _ = _scrape_external_predicted_xis(static_data, force=False) if "_scrape_external_predicted_xis" in globals() else ({}, "")
     prev1_elems = prev1.get("elements", {}) if isinstance(prev1, dict) else {}
