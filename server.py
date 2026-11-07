@@ -1000,12 +1000,30 @@ def compute_cbwcbw_tracker(gw_num: int):
     return len(at_risk), at_risk
 
 @app.get("/api/home_summary")
-def get_home_summary(league_id: int = 63):
+def get_home_summary(league_id: int = 63, alias: str = ""):
+    clean_alias = str(alias).strip()
+    if not clean_alias or clean_alias.lower() == "admin":
+        clean_alias = "Andy"
+    user_lid = MANAGER_LEAGUES.get(clean_alias, safe_int(league_id) or 63)
+    user_div = LEAGUE_ID_TO_KEY.get(user_lid, "CDP").split(" ")[0]
+
     static_data = cached_fpl_static()
-    league_details, element_status = cached_league_data(league_id)
+    league_details, _ = cached_league_data(user_lid)
     all_fixtures = cached_all_fixtures()
 
-    current_gw, _ = detect_current_gw(league_details)
+    detected_gw, _ = detect_current_gw(league_details)
+    gw_fixes_detected = [f for f in (all_fixtures or []) if f.get("event") == detected_gw]
+    gw_all_finished = bool(gw_fixes_detected) and all(
+        f.get("finished", False) or f.get("finished_provisional", False) for f in gw_fixes_detected
+    )
+
+    current_gw = min(38, detected_gw + 1) if gw_all_finished else detected_gw
+    gw_fixes_now = [f for f in (all_fixtures or []) if f.get("event") == current_gw]
+    gw_is_live = (
+        bool(gw_fixes_now)
+        and any(f.get("started", False) for f in gw_fixes_now)
+        and not all(f.get("finished", False) or f.get("finished_provisional", False) for f in gw_fixes_now)
+    )
 
     events_list = static_data.get("events", []) if static_data else []
     if isinstance(events_list, dict):
@@ -1014,11 +1032,10 @@ def get_home_summary(league_id: int = 63):
     target_ev = next((ev for ev in events_list if ev.get("id") == current_gw), None)
     lineup_iso = target_ev.get("deadline_time") if target_ev else None
 
-    if not lineup_iso and all_fixtures:
-        gw_fixtures = [f for f in all_fixtures if f.get("event") == current_gw and f.get("kickoff_time")]
-        if gw_fixtures:
-            gw_fixtures = sorted(gw_fixtures, key=lambda x: x.get("kickoff_time"))
-            earliest_ko = gw_fixtures[0].get("kickoff_time")
+    if not lineup_iso and gw_fixes_now:
+        ko_fixes = [f for f in gw_fixes_now if f.get("kickoff_time")]
+        if ko_fixes:
+            earliest_ko = sorted(ko_fixes, key=lambda x: x.get("kickoff_time"))[0].get("kickoff_time")
             try:
                 lineup_dt = pd.to_datetime(earliest_ko) - pd.Timedelta(minutes=90)
                 lineup_iso = lineup_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1036,19 +1053,78 @@ def get_home_summary(league_id: int = 63):
         lineup_iso = ""
         waiver_iso = ""
 
-    gw_fixes_now = [f for f in (all_fixtures or []) if f.get("event") == current_gw]
-    gw_is_live = (
-        bool(gw_fixes_now)
-        and any(f.get("started", False) for f in gw_fixes_now)
-        and not all(f.get("finished", False) or f.get("finished_provisional", False) for f in gw_fixes_now)
-    )
+    # 1. Manager's League Fixture for current_gw
+    league_match = None
+    entries = (league_details or {}).get("league_entries", [])
+    lentry_map = {e.get("id"): e for e in entries}
+    my_lentry_id = None
+    for e in entries:
+        m_a = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
+        if m_a.lower() == clean_alias.lower():
+            my_lentry_id = e.get("id")
+            clean_alias = m_a
+            break
 
-    cbw_count, cbw_at_risk = compute_cbwcbw_tracker(current_gw)
+    if my_lentry_id:
+        for m in (league_details or {}).get("matches", []):
+            if safe_int(m.get("event")) == current_gw and (m.get("league_entry_1") == my_lentry_id or m.get("league_entry_2") == my_lentry_id):
+                opp_le_id = m.get("league_entry_2") if m.get("league_entry_1") == my_lentry_id else m.get("league_entry_1")
+                opp_entry = lentry_map.get(opp_le_id, {})
+                opp_alias = engine.get_manager_alias(opp_entry.get("player_first_name", ""), opp_entry.get("player_last_name", ""))
+                my_s, opp_s = None, None
+                if gw_is_live:
+                    my_eval = evaluate_cup_manager_gw(clean_alias, current_gw)
+                    opp_eval = evaluate_cup_manager_gw(opp_alias, current_gw)
+                    my_s = my_eval.get("score", 0)
+                    opp_s = opp_eval.get("score", 0)
+                league_match = {
+                    "div": user_div,
+                    "league_id": user_lid,
+                    "opponent": opp_alias,
+                    "my_score": my_s,
+                    "opp_score": opp_s
+                }
+                break
+
+    # 2. Manager's Cup Fixture for current_gw (only if current_gw is a Cup week)
+    cup_match = None
+    cup_df = load_cup_matches_df()
+    if cup_df is not None and not cup_df.empty:
+        gw_cup = cup_df[cup_df["Week"] == current_gw]
+        for _, r in gw_cup.iterrows():
+            t1 = str(r.get("Team 1", "")).strip()
+            t2 = str(r.get("Team 2", "")).strip()
+            if t1.lower() == clean_alias.lower() or t2.lower() == clean_alias.lower():
+                c_opp = t2 if t1.lower() == clean_alias.lower() else t1
+                c_stage = f"{str(r.get('Stage', '')).strip()} {str(r.get('Leg', '')).strip()}".strip()
+                c_opp_lid = MANAGER_LEAGUES.get(c_opp, 63)
+                c_opp_div = LEAGUE_ID_TO_KEY.get(c_opp_lid, "CDP").split(" ")[0]
+                c_my_s, c_opp_s = None, None
+                if gw_is_live:
+                    c_my_eval = evaluate_cup_manager_gw(clean_alias, current_gw)
+                    c_opp_eval = evaluate_cup_manager_gw(c_opp, current_gw)
+                    c_my_s = c_my_eval.get("score", 0)
+                    c_opp_s = c_opp_eval.get("score", 0)
+                cup_match = {
+                    "stage": c_stage or "Cup Tie",
+                    "opponent": c_opp,
+                    "opp_div": c_opp_div,
+                    "my_score": c_my_s,
+                    "opp_score": c_opp_s
+                }
+                break
+
+    cbw_count, cbw_at_risk = compute_cbwcbw_tracker(current_gw) if gw_is_live else (32, [])
     return {
+        "manager": clean_alias,
+        "div": user_div,
+        "league_id": user_lid,
         "current_gw": current_gw,
         "waiver_iso": waiver_iso,
         "lineup_iso": lineup_iso,
         "gw_is_live": gw_is_live,
+        "league_match": league_match,
+        "cup_match": cup_match,
         "cbw_count": cbw_count,
         "cbw_at_risk": cbw_at_risk
     }
