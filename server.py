@@ -107,16 +107,17 @@ CLUB_PALETTE = {
     "BOU": {"bg": "#DA291C", "text": "#ffffff", "border": "#000000"},
     "BRE": {"bg": "#D20000", "text": "#ffffff", "border": "#000000"},
     "CHE": {"bg": "#034694", "text": "#ffffff", "border": "#EE242C"},
+    "COV": {"bg": "#59CBE8", "text": "#001838", "border": "#ffffff"},
     "CRY": {"bg": "#1B458F", "text": "#ffffff", "border": "#C4122E"},
     "EVE": {"bg": "#003399", "text": "#ffffff", "border": "#ffffff"},
     "FUL": {"bg": "#ffffff", "text": "#000000", "border": "#CC0000"},
     "HUL": {"bg": "#F5971D", "text": "#000000", "border": "#000000"},
     "IPS": {"bg": "#003399", "text": "#ffffff", "border": "#D20000"},
-    "LEE": {"bg": "#1D428A", "text": "#FFCD00", "border": "#FFCD00"},
+    "LEE": {"bg": "#ffffff", "text": "#1D428A", "border": "#1D428A"},
     "LEI": {"bg": "#003090", "text": "#ffffff", "border": "#FDBE11"},
     "LIV": {"bg": "#C8102E", "text": "#ffffff", "border": "#00B2A9"},
     "MCI": {"bg": "#6CABDD", "text": "#001838", "border": "#ffffff"},
-    "MUN": {"bg": "#DA291C", "text": "#ffffff", "border": "#FBE122"},
+    "MUN": {"bg": "#DA291C", "text": "#ffffff", "border": "#ffffff"},
     "NEW": {"bg": "#241F20", "text": "#ffffff", "border": "#41B6E6"},
     "NFO": {"bg": "#DD0000", "text": "#ffffff", "border": "#ffffff"},
     "SOU": {"bg": "#D71920", "text": "#ffffff", "border": "#132257"},
@@ -124,6 +125,33 @@ CLUB_PALETTE = {
     "TOT": {"bg": "#132257", "text": "#ffffff", "border": "#ffffff"},
     "WHU": {"bg": "#7A263A", "text": "#1BB1E7", "border": "#1BB1E7"},
     "WOL": {"bg": "#FDB913", "text": "#231F20", "border": "#231F20"}
+}
+
+GK_PALETTE = {
+    "ARS": {"bg": "#facc15", "text": "#000000", "border": "#EF0107"},
+    "AVL": {"bg": "#4ade80", "text": "#000000", "border": "#670E36"},
+    "BHA": {"bg": "#f97316", "text": "#000000", "border": "#ffffff"},
+    "BOU": {"bg": "#facc15", "text": "#000000", "border": "#000000"},
+    "BRE": {"bg": "#4ade80", "text": "#000000", "border": "#000000"},
+    "CHE": {"bg": "#fb923c", "text": "#000000", "border": "#ffffff"},
+    "COV": {"bg": "#9333ea", "text": "#ffffff", "border": "#59CBE8"},
+    "CRY": {"bg": "#fde047", "text": "#000000", "border": "#1B458F"},
+    "EVE": {"bg": "#4ade80", "text": "#000000", "border": "#003399"},
+    "FUL": {"bg": "#facc15", "text": "#000000", "border": "#000000"},
+    "HUL": {"bg": "#9333ea", "text": "#ffffff", "border": "#F5971D"},
+    "IPS": {"bg": "#ec4899", "text": "#ffffff", "border": "#ffffff"},
+    "LEE": {"bg": "#facc15", "text": "#1D428A", "border": "#1D428A"},
+    "LEI": {"bg": "#fb923c", "text": "#000000", "border": "#ffffff"},
+    "LIV": {"bg": "#4ade80", "text": "#000000", "border": "#ffffff"},
+    "MCI": {"bg": "#f97316", "text": "#000000", "border": "#6CABDD"},
+    "MUN": {"bg": "#22c55e", "text": "#000000", "border": "#ffffff"},
+    "NEW": {"bg": "#a3e635", "text": "#000000", "border": "#ffffff"},
+    "NFO": {"bg": "#facc15", "text": "#000000", "border": "#DD0000"},
+    "SOU": {"bg": "#fde047", "text": "#000000", "border": "#132257"},
+    "SUN": {"bg": "#4ade80", "text": "#000000", "border": "#000000"},
+    "TOT": {"bg": "#facc15", "text": "#132257", "border": "#132257"},
+    "WHU": {"bg": "#4ade80", "text": "#000000", "border": "#7A263A"},
+    "WOL": {"bg": "#9333ea", "text": "#ffffff", "border": "#FDB913"}
 }
 
 POS_ORDER = {"GKP": 1, "DEF": 2, "MID": 3, "FWD": 4}
@@ -576,7 +604,11 @@ def make_pitch_payload(active, inactive, show_proj_pill=False):
 
     def format_player_token(r, is_bench=False):
         club = str(r.get("Club", "PL")).strip().upper()
-        pal = CLUB_PALETTE.get(club, {"bg": "#1e293b", "text": "#ffffff", "border": "#ffffff"})
+        pos_str = str(r.get("Pos", "")).strip().upper()
+        if pos_str == "GKP":
+            pal = GK_PALETTE.get(club, {"bg": "#facc15", "text": "#000000", "border": "#ffffff"})
+        else:
+            pal = CLUB_PALETTE.get(club, {"bg": "#1e293b", "text": "#ffffff", "border": "#ffffff"})
         raw_status = str(r.get("status", "a")).lower()
         chance_val = r.get("chance_of_playing_next_round")
         flag = ""
@@ -3425,7 +3457,7 @@ def get_player_hub(league_id: int = 63):
         tid = raw_elem.get("team")
         pos_str = pos_map.get(raw_elem.get("element_type", 1), "MID")
         club_short = str(team_map.get(tid, "PL")).upper()
-        pal = CLUB_PALETTE.get(club_short, {"bg": "#1e293b", "text": "#ffffff", "border": "#ffffff"})
+        pal = GK_PALETTE.get(club_short, {"bg": "#facc15", "text": "#000000", "border": "#ffffff"}) if pos_str == "GKP" else CLUB_PALETTE.get(club_short, {"bg": "#1e293b", "text": "#ffffff", "border": "#ffffff"})
         full_n = f"{raw_elem.get('first_name', '')} {raw_elem.get('second_name', '')}".strip() or str(raw_elem.get("web_name", "Unknown"))
         owner_str = entry_alias_map.get(owner, "Free Agent") if owner else "Free Agent"
 
