@@ -15,6 +15,7 @@ function resolveUrlFromTag(tag, explicitUrl) {
     if (t.startsWith("wres-")) return "/#players_waivers";
     if (t.startsWith("waiver-")) return "/#players";
     if (t.startsWith("lineup-1h")) return "/#squad";
+    if (t.startsWith("ev-cup-")) return "/#cup";
     if (t.startsWith("ev-") || t.startsWith("gw-locked-") || t.startsWith("lineup-passed")) return "/#scores";
     return "/#home";
 }

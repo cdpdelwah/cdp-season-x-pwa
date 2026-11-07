@@ -5542,6 +5542,8 @@ def _resolve_push_url(tag: str) -> str:
         return "/#players"
     if t.startswith("lineup-1h"):
         return "/#squad"
+    if t.startswith("ev-cup-"):
+        return "/#cup"
     if t.startswith("ev-") or t.startswith("gw-locked-") or t.startswith("lineup-passed"):
         return "/#scores"
     return "/#home"
@@ -6113,6 +6115,7 @@ def run_automated_push_checks():
                     list(p_ex.map(lambda eid: cached_entry_event(eid, current_gw), all_entry_ids))
 
             push_jobs = []
+            mgr_live_eval = {}
             for _, ld in div_list:
                 if not ld:
                     continue
@@ -6139,7 +6142,10 @@ def run_automated_push_checks():
                     act2_ids = {p["id"] for p in act2}
                     bench2_ids = {p["id"] for p in inact2}
 
-                    scoreline = f"Live: {a1} {s1_live} - {s2_live} {a2}"
+                    mgr_live_eval[a1.strip().lower()] = {"alias": a1, "score": s1_live, "act_ids": act1_ids, "bench_ids": bench1_ids}
+                    mgr_live_eval[a2.strip().lower()] = {"alias": a2, "score": s2_live, "act_ids": act2_ids, "bench_ids": bench2_ids}
+
+                    scoreline = f"League Live: {a1} {s1_live} - {s2_live} {a2}"
 
                     def queue_pair_alerts(mgr_me, mgr_opp, my_act_ids, my_bench_ids, opp_act_ids, opp_bench_ids):
                         for eid, ev_list in player_new_events.items():
@@ -6154,16 +6160,53 @@ def run_automated_push_checks():
                                     body = f"{ev_desc} (On your bench) | {scoreline}"
                                     push_jobs.append((mgr_me, title, body, unique_tag))
                                 elif eid in opp_act_ids:
-                                    title = f"🔴 AGAINST YOU ({mgr_opp}) • {ev_tag}"
+                                    title = f"🔴 AGAINST YOU • League ({mgr_opp}) • {ev_tag}"
                                     body = f"{ev_desc} (In {mgr_opp}'s active XI) | {scoreline}"
                                     push_jobs.append((mgr_me, title, body, unique_tag))
                                 elif eid in opp_bench_ids:
-                                    title = f"🪑 OPP BENCH ({mgr_opp}) • {ev_tag}"
+                                    title = f"🪑 OPP BENCH • League ({mgr_opp}) • {ev_tag}"
                                     body = f"{ev_desc} (On {mgr_opp}'s bench) | {scoreline}"
                                     push_jobs.append((mgr_me, title, body, unique_tag))
 
                     queue_pair_alerts(a1, a2, act1_ids, bench1_ids, act2_ids, bench2_ids)
                     queue_pair_alerts(a2, a1, act2_ids, bench2_ids, act1_ids, bench1_ids)
+
+            # 3. Check Cup & Bucket Opponent Alerts (Isolated so League alerts can never be disrupted)
+            try:
+                cup_df = load_cup_matches_df()
+                if cup_df is not None and not cup_df.empty and mgr_live_eval:
+                    gw_cup_ties = cup_df[cup_df["Week"] == current_gw]
+                    for _, c_row in gw_cup_ties.iterrows():
+                        cm1 = str(c_row.get("Team 1", "")).strip()
+                        cm2 = str(c_row.get("Team 2", "")).strip()
+                        if not cm1 or not cm2 or cm1.lower() == "nan" or cm2.lower() == "nan":
+                            continue
+                        info1 = mgr_live_eval.get(cm1.lower())
+                        info2 = mgr_live_eval.get(cm2.lower())
+                        if not info1 or not info2:
+                            continue
+
+                        ca1, cs1 = info1["alias"], info1["score"]
+                        ca2, cs2 = info2["alias"], info2["score"]
+                        cup_scoreline = f"Cup Live: {ca1} {cs1} - {cs2} {ca2}"
+
+                        def queue_cup_against_alerts(mgr_me, mgr_opp, opp_act_ids, opp_bench_ids):
+                            for eid, ev_list in player_new_events.items():
+                                for ev_tag, ev_desc, ev_code in ev_list:
+                                    unique_cup_tag = f"ev-cup-{current_gw}-{mgr_me}-{eid}-{ev_code}"
+                                    if eid in opp_act_ids:
+                                        title = f"🔴 AGAINST YOU • Cup ({mgr_opp}) • {ev_tag}"
+                                        body = f"{ev_desc} (In {mgr_opp}'s active XI) | {cup_scoreline}"
+                                        push_jobs.append((mgr_me, title, body, unique_cup_tag))
+                                    elif eid in opp_bench_ids:
+                                        title = f"🪑 OPP BENCH • Cup ({mgr_opp}) • {ev_tag}"
+                                        body = f"{ev_desc} (On {mgr_opp}'s bench) | {cup_scoreline}"
+                                        push_jobs.append((mgr_me, title, body, unique_cup_tag))
+
+                        queue_cup_against_alerts(ca1, ca2, info2["act_ids"], info2["bench_ids"])
+                        queue_cup_against_alerts(ca2, ca1, info1["act_ids"], info1["bench_ids"])
+            except Exception as cup_push_err:
+                print("Cup push scanner warning:", cup_push_err)
 
             if push_jobs:
                 jobs_by_mgr = {}
