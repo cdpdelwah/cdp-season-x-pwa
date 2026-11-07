@@ -2635,17 +2635,25 @@ def get_squad_analyser(league_id: int = 63, alias: str = "", target_gw: str = "0
     prev2 = cached_live_event(fin_events[-2]) if len(fin_events) >= 2 else None
     last_5_gws, last_5_lookup = _get_last_5_gw_lookup(fin_events)
 
+    def fmt_fdr_opp(f, tid):
+        is_home = (f.get("team_h") == tid)
+        opp_id = f.get("team_a") if is_home else f.get("team_h")
+        opp_lbl = f"{team_map.get(opp_id, 'OPP')} ({'H' if is_home else 'A'})"
+        diff = safe_int(f.get("team_h_difficulty", 3) if is_home else f.get("team_a_difficulty", 3))
+        color = "#22c55e" if diff <= 2 else ("#f59e0b" if diff == 3 else "#ef4444")
+        return f"<span style='color:{color}; font-weight:800;'>{opp_lbl}</span>"
+
     def get_next_3(tid):
         if not all_fixtures or not tid: return "TBD"
         up = sorted([f for f in all_fixtures if not f.get("finished", False) and (f.get("team_h") == tid or f.get("team_a") == tid)], key=lambda x: (x.get("event") or 99, x.get("kickoff_time") or ""))[:3]
         if not up: return "None"
-        return ", ".join([f"{team_map.get(f.get('team_a'), 'OPP')} (H)" if f.get("team_h") == tid else f"{team_map.get(f.get('team_h'), 'OPP')} (A)" for f in up])
+        return ", ".join([fmt_fdr_opp(f, tid) for f in up])
 
     def get_single_gw_opp(tid, g_num):
         if not all_fixtures or not tid: return "TBD"
         t_fixes = [f for f in all_fixtures if f.get("event") == g_num and (f.get("team_h") == tid or f.get("team_a") == tid)]
         if not t_fixes: return "Blank"
-        return ", ".join([f"{team_map.get(f.get('team_a'), 'OPP')} (H)" if f.get("team_h") == tid else f"{team_map.get(f.get('team_h'), 'OPP')} (A)" for f in t_fixes])
+        return ", ".join([fmt_fdr_opp(f, tid) for f in t_fixes])
 
     owner_map = {item["element"]: item.get("owner") for item in (element_status or {}).get("element_status", [])}
     all_entry_ids = set(entry_label_map.keys())
@@ -3456,11 +3464,19 @@ def get_player_hub(league_id: int = 63):
         m_alias = engine.get_manager_alias(e.get("player_first_name", ""), e.get("player_last_name", ""))
         entry_alias_map[eid] = m_alias
 
+    def fmt_fdr_opp(f, tid):
+        is_home = (f.get("team_h") == tid)
+        opp_id = f.get("team_a") if is_home else f.get("team_h")
+        opp_lbl = f"{team_map.get(opp_id, 'OPP')} ({'H' if is_home else 'A'})"
+        diff = safe_int(f.get("team_h_difficulty", 3) if is_home else f.get("team_a_difficulty", 3))
+        color = "#22c55e" if diff <= 2 else ("#f59e0b" if diff == 3 else "#ef4444")
+        return f"<span style='color:{color}; font-weight:800;'>{opp_lbl}</span>"
+
     def get_next_3(tid):
         if not all_fixtures or not tid: return ""
         up = sorted([f for f in all_fixtures if not f.get("finished", False) and (f.get("team_h") == tid or f.get("team_a") == tid)], key=lambda x: (x.get("event") or 99, x.get("kickoff_time") or ""))[:3]
         if not up: return ""
-        return " • ".join([f"{team_map.get(f.get('team_a'), 'OPP')} (H)" if f.get("team_h") == tid else f"{team_map.get(f.get('team_h'), 'OPP')} (A)" for f in up])
+        return " • ".join([fmt_fdr_opp(f, tid) for f in up])
 
     owner_map = {item["element"]: item.get("owner") for item in (element_status or {}).get("element_status", [])}
     

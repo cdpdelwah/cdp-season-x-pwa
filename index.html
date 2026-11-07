@@ -3769,9 +3769,15 @@
                     sel.value = String(data.selected);
                 }
 
-                box.innerHTML = `<div class="table-wrap"><table class="clean-table">
-                    <thead><tr><th>Manager</th><th>Goals</th><th>Assists</th><th>Clean Sheets</th></tr></thead>
-                    <tbody>${(data.rows || []).map(r => `<tr><td>${r.manager}</td><td>${r.goals}</td><td>${r.assists}</td><td>${r.cs}</td></tr>`).join('')}</tbody>
+                box.innerHTML = `<div class="table-wrap"><table class="clean-table" style="table-layout:fixed; width:100%;">
+                    <colgroup>
+                        <col style="width:43%;">
+                        <col style="width:19%;">
+                        <col style="width:19%;">
+                        <col style="width:19%;">
+                    </colgroup>
+                    <thead><tr><th>Manager</th><th>Goals</th><th>Assists</th><th>CS</th></tr></thead>
+                    <tbody>${(data.rows || []).map(r => `<tr><td style="font-weight:800; color:#fff;">${r.manager}</td><td>${r.goals}</td><td>${r.assists}</td><td>${r.cs}</td></tr>`).join('')}</tbody>
                 </table></div>`;
             } catch (e) {
                 box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load GACS.</p>";
@@ -3804,22 +3810,30 @@
 
                 if (data.mode === "single") {
                     box.innerHTML = `<div class="table-wrap"><table class="clean-table">
-                        <thead><tr><th>Manager</th><th>Yellow Cards</th><th>Red Cards</th><th>Card Pts</th><th>Matchup</th><th>Result Changed?</th></tr></thead>
-                        <tbody>${(data.gw_rows || []).map(r => `<tr><td>${r.manager}</td><td>${r.yc}</td><td>${r.rc}</td><td style="color:#ef4444; font-weight:800;">${r.card_pts}</td><td>${r.matchup}</td><td>${r.impact}</td></tr>`).join('')}</tbody>
+                        <thead><tr><th style="padding:8px 6px;">Manager</th><th style="padding:8px 5px;">Yellows</th><th style="padding:8px 5px;">Reds</th><th style="padding:8px 5px;">Pts</th><th style="padding:8px 6px;">Matchup</th><th style="padding:8px 6px;">Swing?</th></tr></thead>
+                        <tbody>${(data.gw_rows || []).map(r => `<tr><td style="padding:8px 6px; font-weight:800; color:#fff;">${r.manager}</td><td style="padding:8px 5px;">${r.yc}</td><td style="padding:8px 5px;">${r.rc}</td><td style="padding:8px 5px; color:#ef4444; font-weight:800;">${r.card_pts}</td><td style="padding:8px 6px;">${r.matchup}</td><td style="padding:8px 6px;">${r.impact}</td></tr>`).join('')}</tbody>
                     </table></div>`;
                 } else {
                     window.discPwRows = data.pw_rows || [];
                     const swingsHtml = (data.swings_rows && data.swings_rows.length > 0)
-                        ? `<div class="table-wrap"><table class="clean-table"><thead><tr><th>GW</th><th>Manager</th><th>Matchup</th><th>YC</th><th>RC</th><th>Card Pts</th><th>Impact</th></tr></thead><tbody>${data.swings_rows.map(s => `<tr><td>${s.gw}</td><td>${s.manager}</td><td>${s.matchup}</td><td>${s.yc}</td><td>${s.rc}</td><td style="color:#ef4444; font-weight:800;">${s.card_pts}</td><td style="color:#f59e0b; font-weight:800;">${s.impact}</td></tr>`).join('')}</tbody></table></div>`
+                        ? `<div class="table-wrap"><table class="clean-table"><thead><tr><th style="padding:8px 6px;">Manager</th><th style="padding:8px 5px;">GW</th><th style="padding:8px 5px;">Yellows</th><th style="padding:8px 5px;">Reds</th><th style="padding:8px 5px;">Pts</th><th style="padding:8px 6px;">Matchup</th><th style="padding:8px 6px;">Impact</th></tr></thead><tbody>${data.swings_rows.map(s => `<tr><td style="padding:8px 6px; font-weight:800; color:#fff;">${s.manager}</td><td style="padding:8px 5px;">${s.gw}</td><td style="padding:8px 5px;">${s.yc}</td><td style="padding:8px 5px;">${s.rc}</td><td style="padding:8px 5px; color:#ef4444; font-weight:800;">${s.card_pts}</td><td style="padding:8px 6px;">${s.matchup}</td><td style="padding:8px 6px; color:#f59e0b; font-weight:800;">${s.impact}</td></tr>`).join('')}</tbody></table></div>`
                         : `<div class="alert-box alert-info">No match results have been altered by starting XI card deductions this season.</div>`;
 
                     const mgrOpts = `<option value="All">All Managers</option>` + (data.managers || []).map(m => `<option value="${m}">${m}</option>`).join('');
 
                     box.innerHTML = `
                         <div style="font-size:1rem; font-weight:800; color:#fff; margin-bottom:8px;">Season Totals</div>
-                        <div class="table-wrap"><table class="clean-table">
-                            <thead><tr><th>Manager</th><th>Yellow Cards</th><th>Red Cards</th><th>Total Card Pts</th><th>Results Changed</th><th>League Pts Cost</th></tr></thead>
-                            <tbody>${(data.season_rows || []).map(r => `<tr><td>${r.manager}</td><td>${r.yc}</td><td>${r.rc}</td><td style="color:#ef4444; font-weight:800;">${r.total_card_pts}</td><td>${r.results_changed}</td><td>${r.league_pts_cost}</td></tr>`).join('')}</tbody>
+                        <div class="table-wrap"><table class="clean-table" style="table-layout:fixed; width:100%;">
+                            <colgroup>
+                                <col style="width:28%;">
+                                <col style="width:14%;">
+                                <col style="width:13%;">
+                                <col style="width:15%;">
+                                <col style="width:15%;">
+                                <col style="width:15%;">
+                            </colgroup>
+                            <thead><tr><th style="padding:8px 6px;">Manager</th><th style="padding:8px 4px;">Yellows</th><th style="padding:8px 4px;">Reds</th><th style="padding:8px 4px;">Card Pts</th><th style="padding:8px 4px;">Swings</th><th style="padding:8px 4px;">Pts Cost</th></tr></thead>
+                            <tbody>${(data.season_rows || []).map(r => `<tr><td style="padding:8px 6px; font-weight:800; color:#fff; overflow:hidden; text-overflow:ellipsis;">${r.manager}</td><td style="padding:8px 4px;">${r.yc}</td><td style="padding:8px 4px;">${r.rc}</td><td style="padding:8px 4px; color:#ef4444; font-weight:800;">${r.total_card_pts}</td><td style="padding:8px 4px;">${r.results_changed}</td><td style="padding:8px 4px;">${r.league_pts_cost}</td></tr>`).join('')}</tbody>
                         </table></div>
                         <div style="font-size:1rem; font-weight:800; color:#fff; margin:14px 0 8px 0;">Matches Where Cards Changed the Result</div>
                         ${swingsHtml}
@@ -3846,8 +3860,8 @@
             const mFilter = document.getElementById('disc-pw-mgr-sel').value;
             const rows = mFilter === "All" ? window.discPwRows : window.discPwRows.filter(r => r.manager === mFilter);
             box.innerHTML = `<div class="table-wrap"><table class="clean-table">
-                <thead><tr><th>GW</th><th>Manager</th><th>YC</th><th>RC</th><th>Card Pts</th><th>Matchup</th><th>Result Changed?</th></tr></thead>
-                <tbody>${rows.map(r => `<tr><td>${r.gw}</td><td>${r.manager}</td><td>${r.yc}</td><td>${r.rc}</td><td>${r.card_pts}</td><td>${r.matchup}</td><td>${r.impact}</td></tr>`).join('')}</tbody>
+                <thead><tr><th style="padding:8px 6px;">Manager</th><th style="padding:8px 5px;">GW</th><th style="padding:8px 5px;">Yellows</th><th style="padding:8px 5px;">Reds</th><th style="padding:8px 5px;">Pts</th><th style="padding:8px 6px;">Matchup</th><th style="padding:8px 6px;">Swing?</th></tr></thead>
+                <tbody>${rows.map(r => `<tr><td style="padding:8px 6px; font-weight:800; color:#fff;">${r.manager}</td><td style="padding:8px 5px;">${r.gw}</td><td style="padding:8px 5px;">${r.yc}</td><td style="padding:8px 5px;">${r.rc}</td><td style="padding:8px 5px; color:#ef4444; font-weight:800;">${r.card_pts}</td><td style="padding:8px 6px;">${r.matchup}</td><td style="padding:8px 6px;">${r.impact}</td></tr>`).join('')}</tbody>
             </table></div>`;
         }
 
