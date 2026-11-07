@@ -6225,6 +6225,7 @@ def run_automated_push_checks():
         finished_clubs = set()
         started_clubs = set()
         club_minutes = {}
+        club_max_mins = {}
         for f in gw_fixtures:
             if f.get("started", False):
                 started_clubs.add(f.get("team_h"))
@@ -6237,7 +6238,10 @@ def run_automated_push_checks():
             try:
                 c_id = element_lookup.get(int(elem_str_id), {}).get("team")
                 if c_id:
-                    club_minutes[c_id] = club_minutes.get(c_id, 0) + safe_int(e_info.get("stats", {}).get("minutes", 0))
+                    m_val = safe_int((e_info.get("stats", {}) if isinstance(e_info, dict) else {}).get("minutes", 0))
+                    club_minutes[c_id] = club_minutes.get(c_id, 0) + m_val
+                    if m_val > club_max_mins.get(c_id, 0):
+                        club_max_mins[c_id] = m_val
             except Exception:
                 pass
 
@@ -6274,16 +6278,33 @@ def run_automated_push_checks():
             raw_saves = safe_int(stats.get("saves", 0))
             p_saved = safe_int(stats.get("penalties_saved", 0))
             p_missed = safe_int(stats.get("penalties_missed", 0))
-
-            # Clean Sheets: ONLY for GKP & DEF, and ONLY when the club's fixture is officially finished/finished_provisional
-            is_club_ft = (club_id in finished_clubs)
-            cs_ft = 1 if (is_club_ft and pos_str in ["GKP", "DEF"] and safe_int(stats.get("clean_sheets", 0)) > 0) else 0
+            p_mins = safe_int(stats.get("minutes", 0))
+            rc = safe_int(stats.get("red_cards", 0))
+            cs_val = safe_int(stats.get("clean_sheets", 0))
+            c_max = club_max_mins.get(club_id, 0)
 
             old = prev_players.get(str(eid), {}) if isinstance(prev_players.get(str(eid)), dict) else {}
+            old_mins = safe_int(old.get("mins", 0))
+            old_c_max = safe_int(old.get("c_max", 0))
+            was_starter = bool(old.get("was_starter", False)) or (p_mins > 0 and (c_max - p_mins) <= 1)
+
+            # Clean Sheets: GKP & DEF lock in +4 pts either at Full Time OR when subbed off after 60+ mins with clean_sheets > 0 and 0 red cards
+            is_club_ft = (club_id in finished_clubs)
+            is_subbed_off_cs = (
+                not is_club_ft
+                and pos_str in ["GKP", "DEF"]
+                and cs_val > 0
+                and rc == 0
+                and p_mins >= 60
+                and (c_max - p_mins) >= 2
+                and (was_starter or (old_c_max > 0 and c_max > old_c_max and p_mins == old_mins))
+            )
+            cs_ft = 1 if (pos_str in ["GKP", "DEF"] and cs_val > 0 and (is_club_ft or is_subbed_off_cs or safe_int(old.get("cs_ft", 0)) > 0)) else 0
 
             snap = {
                 "g": g, "a": a, "og": og, "save_pts": saves_tiers,
-                "ps": p_saved, "pm": p_missed, "cs_ft": cs_ft
+                "ps": p_saved, "pm": p_missed, "cs_ft": cs_ft,
+                "mins": p_mins, "c_max": c_max, "was_starter": was_starter
             }
             curr_players[str(eid)] = snap
 
@@ -6302,7 +6323,10 @@ def run_automated_push_checks():
                 if p_missed > old.get("pm", 0):
                     evs.append(("❌ PENALTY MISSED!", f"{p_name} ({club_short}) missed a penalty (-2 pts)!", f"pm{p_missed}"))
                 if cs_ft > old.get("cs_ft", 0):
-                    evs.append(("🛡️ FT CLEAN SHEET!", f"{p_name} ({club_short}) locked in a Full Time Clean Sheet (+4 pts)!", f"cs{cs_ft}"))
+                    if is_subbed_off_cs and not is_club_ft:
+                        evs.append(("🛡️ SUBBED OFF • CLEAN SHEET!", f"{p_name} ({club_short}) was subbed off on {p_mins}' with a Clean Sheet locked in (+4 pts)!", f"cs{cs_ft}"))
+                    else:
+                        evs.append(("🛡️ FT CLEAN SHEET!", f"{p_name} ({club_short}) locked in a Full Time Clean Sheet (+4 pts)!", f"cs{cs_ft}"))
 
                 if evs:
                     player_new_events[eid] = evs
