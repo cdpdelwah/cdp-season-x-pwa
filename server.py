@@ -3803,6 +3803,9 @@ def format_df_clean(df):
     if df is None or df.empty:
         return [], []
     formatted = df.copy()
+    drop_cols = [c for c in formatted.columns if str(c).strip().lower() in ("week rank", "week_rank", "weekly rank")]
+    if drop_cols:
+        formatted = formatted.drop(columns=drop_cols)
     for col in formatted.columns:
         def clean_cell(val):
             if pd.isna(val) or str(val).strip().lower() in ["nan", "none", ""]:

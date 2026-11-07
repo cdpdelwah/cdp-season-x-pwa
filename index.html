@@ -287,12 +287,24 @@
         .dugout-row:last-child { margin-bottom: 0; }
 
         /* Table View Styles */
-        .table-wrap { width: 100%; overflow-x: auto; margin-bottom: 14px; border-radius: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); }
-        .clean-table { width: 100%; border-collapse: collapse; background: rgba(9, 12, 19, 0.95); border-radius: 10px; overflow: hidden; font-size: 0.8rem; border: 1px solid rgba(255, 255, 255, 0.08); }
+        .table-wrap { width: 100%; overflow-x: auto; margin-bottom: 14px; border-radius: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45); -webkit-overflow-scrolling: touch; }
+        .clean-table { width: 100%; border-collapse: collapse; background: rgba(9, 12, 19, 0.95); border-radius: 10px; font-size: 0.8rem; border: 1px solid rgba(255, 255, 255, 0.08); }
         .clean-table th { background: linear-gradient(180deg, #131b2e 0%, #0d1322 100%); color: #f59e0b; border-bottom: 2px solid rgba(245, 158, 11, 0.3); font-weight: 800; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.4px; padding: 10px 8px; text-align: center; white-space: nowrap; }
-        .clean-table th:first-child, .clean-table td:first-child { text-align: left; font-weight: 700; color: #ffffff; padding-left: 12px; }
+        .clean-table th:first-child, .clean-table td:first-child:not([colspan]) {
+            position: sticky;
+            left: 0;
+            z-index: 2;
+            text-align: left;
+            font-weight: 700;
+            color: #ffffff;
+            padding-left: 12px;
+            box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.1), 4px 0 10px rgba(0, 0, 0, 0.55);
+        }
+        .clean-table th:first-child { background: #111829; z-index: 3; }
+        .clean-table td:first-child:not([colspan]) { background: #090c13; }
         .clean-table td { border-bottom: 1px solid rgba(255, 255, 255, 0.05); color: #cbd5e1; padding: 9px 8px; text-align: center; white-space: nowrap; }
         .clean-table tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
+        .clean-table tbody tr:hover td:first-child:not([colspan]) { background: #0e131f; }
 
         /* Alert Banners & Metric Cards */
         .alert-box { width: 100%; padding: 11px 14px; border-radius: 10px; margin-bottom: 10px; font-size: 0.86rem; font-weight: 600; line-height: 1.4; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35); }
@@ -913,7 +925,7 @@
         <div class="sub-tabs">
             <button class="sub-tab-btn active" id="tr-sub-browse" onclick="switchTradeSubTab('browse')">🛒 Transfer List</button>
             <button class="sub-tab-btn" id="tr-sub-manage" onclick="switchTradeSubTab('manage')">📋 My Listings</button>
-            <button class="sub-tab-btn" id="tr-sub-calc" onclick="switchTradeSubTab('calc')">⚖️ Calculator & Propose</button>
+            <button class="sub-tab-btn" id="tr-sub-calc" onclick="switchTradeSubTab('calc')">⚖️ Calculator</button>
             <button class="sub-tab-btn" id="tr-sub-offers" onclick="switchTradeSubTab('offers')">📬 Trade Offers</button>
         </div>
 
@@ -1957,13 +1969,12 @@
             const lbBox = document.getElementById('bh-leaderboard-box');
             if (lbBox) {
                 lbBox.innerHTML = `<div class="table-wrap"><table class="clean-table">
-                    <thead><tr><th>Rank</th><th>Manager</th><th>Div</th><th>Balance (HBX)</th><th>Net P/L</th><th>Avail</th><th>In Play</th><th>W - L - P</th><th>Unpaid Forfeits</th></tr></thead>
+                    <thead><tr><th>Manager</th><th>Div</th><th>Balance (HBX)</th><th>Net P/L</th><th>Avail</th><th>In Play</th><th>W - L - P</th><th>Unpaid Forfeits</th></tr></thead>
                     <tbody>${(d.leaderboard || []).map(r => {
                         const netColor = r.net > 0 ? '#22c55e' : (r.net < 0 ? '#ef4444' : '#94a3b8');
                         const netStr = r.net > 0 ? `+${r.net}` : `${r.net}`;
                         return `<tr>
-                            <td>${r.rank}</td>
-                            <td style="font-weight:800; color:#fff;">${r.manager}</td>
+                            <td style="font-weight:800; color:#fff;"><span style="color:#64748b; font-size:0.74rem; margin-right:5px;">#${r.rank}</span>${r.manager}</td>
                             <td>${r.div}</td>
                             <td style="font-family:'JetBrains Mono',monospace; font-weight:900; color:#f59e0b;">${r.balance.toLocaleString()} HBX</td>
                             <td style="font-family:'JetBrains Mono',monospace; font-weight:800; color:${netColor};">${netStr}</td>
@@ -1987,7 +1998,7 @@
                 const isAdmin = (savedAlias.toLowerCase() === 'admin' || savedAlias.toLowerCase() === 'andy');
 
                 fBox.innerHTML = `<div class="table-wrap"><table class="clean-table">
-                    <thead><tr><th>GW</th><th>Debtor (Loser)</th><th>Owed To (Winner)</th><th>Forfeit / Pint Terms</th><th>Wager</th><th>Status</th></tr></thead>
+                    <thead><tr><th>Debtor (Loser)</th><th>GW</th><th>Owed To (Winner)</th><th>Forfeit / Pint Terms</th><th>Wager</th><th>Status</th></tr></thead>
                     <tbody>${fList.map(f => {
                         const canClear = (!f.paid && (isAdmin || f.winner.toLowerCase() === myClean || f.loser.toLowerCase() === myClean));
                         const statusHtml = f.paid
@@ -1996,8 +2007,8 @@
                                 ? `<button onclick="markForfeitPaid('${f.id}')" class="refresh-btn" style="padding:4px 8px; font-size:0.74rem; border-color:#f59e0b; color:#f59e0b;">🍺 Mark Paid</button>`
                                 : `<span style="color:#ef4444; font-weight:800;">⏳ Owed</span>`);
                         return `<tr>
-                            <td>GW ${f.gw || '-'}</td>
                             <td style="color:#ef4444; font-weight:800;">${f.loser}</td>
+                            <td>GW ${f.gw || '-'}</td>
                             <td style="color:#22c55e; font-weight:800;">${f.winner}</td>
                             <td style="color:#f59e0b; font-weight:800;">🍺 ${f.custom_stake}</td>
                             <td style="font-size:0.75rem; color:#cbd5e1;">${f.summary}</td>
@@ -3685,10 +3696,10 @@
                 let appHtml = `<div class="alert-box alert-info">No approved waivers or free agent transfers recorded for this filter.</div>`;
                 if (data.approved && data.approved.length > 0) {
                     appHtml = `<div class="table-wrap"><table class="clean-table">
-                        <thead><tr><th>GW</th><th>Manager</th><th>Type</th><th>🟢 Player In</th><th>🔴 Player Out</th><th>Status</th></tr></thead>
+                        <thead><tr><th>Manager</th><th>GW</th><th>Type</th><th>🟢 Player In</th><th>🔴 Player Out</th><th>Status</th></tr></thead>
                         <tbody>${data.approved.map(r => `<tr>
-                            <td>GW ${r.gw}</td>
                             <td style="font-weight:800; color:#fff;">${r.manager}</td>
+                            <td>GW ${r.gw}</td>
                             <td>${r.type}</td>
                             <td style="color:#22c55e; font-weight:700;">+ ${r.player_in}</td>
                             <td style="color:#ef4444; font-weight:700;">- ${r.player_out}</td>
@@ -3700,10 +3711,10 @@
                 let rejHtml = `<div class="alert-box alert-info">No rejected or sniped waiver claims recorded for this filter.</div>`;
                 if (data.rejected && data.rejected.length > 0) {
                     rejHtml = `<div class="table-wrap"><table class="clean-table">
-                        <thead><tr><th>GW</th><th>Manager</th><th>Wanted (In)</th><th>Offered (Out)</th><th>Outcome / Sniper</th></tr></thead>
+                        <thead><tr><th>Manager</th><th>GW</th><th>Wanted (In)</th><th>Offered (Out)</th><th>Outcome / Sniper</th></tr></thead>
                         <tbody>${data.rejected.map(r => `<tr>
-                            <td>GW ${r.gw}</td>
                             <td style="font-weight:800; color:#fff;">${r.manager}</td>
+                            <td>GW ${r.gw}</td>
                             <td>${r.player_in}</td>
                             <td style="color:#94a3b8;">${r.player_out}</td>
                             <td style="color:#f59e0b; font-weight:800;">${r.reason}</td>
@@ -4097,10 +4108,19 @@
                 const b = document.getElementById(`pr-tab-${i}`);
                 if (b) b.classList.toggle('active', i === idx);
             });
+
+            const keepIndices = [];
+            (s.columns || []).forEach((colName, cIdx) => {
+                const norm = String(colName || '').trim().toLowerCase();
+                if (norm !== 'week rank' && norm !== 'week_rank' && norm !== 'weekly rank') {
+                    keepIndices.push(cIdx);
+                }
+            });
+
             const box = document.getElementById('power-content');
             box.innerHTML = `<div class="table-wrap"><table class="clean-table">
-                <thead><tr>${s.columns.map(c => `<th>${c}</th>`).join('')}</tr></thead>
-                <tbody>${s.rows.map(r => `<tr>${r.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('')}</tbody>
+                <thead><tr>${keepIndices.map(i => `<th>${s.columns[i]}</th>`).join('')}</tr></thead>
+                <tbody>${s.rows.map(r => `<tr>${keepIndices.map(i => `<td>${r[i]}</td>`).join('')}</tr>`).join('')}</tbody>
             </table></div>`;
         }
 
@@ -4454,10 +4474,9 @@
             let tblHtml = '';
             if (isRoll) {
                 tblHtml = `<div class="table-wrap"><table class="clean-table">
-                    <thead><tr><th>Rank</th><th>Manager</th><th>Latest</th><th>S01</th><th>S02</th><th>S03</th><th>S04</th><th>S05</th><th>S06</th><th>S07</th><th>S08</th><th>S09</th></tr></thead>
+                    <thead><tr><th>Manager</th><th>Latest</th><th>S01</th><th>S02</th><th>S03</th><th>S04</th><th>S05</th><th>S06</th><th>S07</th><th>S08</th><th>S09</th></tr></thead>
                     <tbody>${(d.coef_rolling || []).map(r => `<tr>
-                        <td style="font-weight:800;">${r.rank}</td>
-                        <td style="font-weight:800; color:#fff;">${r.player}</td>
+                        <td style="font-weight:800; color:#fff;"><span style="color:#64748b; font-size:0.74rem; margin-right:5px;">#${r.rank}</span>${r.player}</td>
                         <td style="font-weight:900; color:#f59e0b;">${r.latest}</td>
                         ${r.seasons.map(v => `<td>${v}</td>`).join('')}
                     </tr>`).join('')}</tbody>
