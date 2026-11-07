@@ -805,10 +805,10 @@
             <button class="tab-btn st-l-tab" data-lid="378" onclick="switchStandingsLeague(378)">BDR</button>
             <button class="tab-btn st-l-tab" data-lid="240" onclick="switchStandingsLeague(240)">LDE</button>
         </div>
-        <div class="sub-tabs">
-            <button class="sub-tab-btn active" id="st-sub-live" onclick="switchStandingsSubTab('live')">🟢 Live Standings</button>
-            <button class="sub-tab-btn" id="st-sub-off" onclick="switchStandingsSubTab('off')">📊 Official Standings</button>
-            <button class="sub-tab-btn" id="st-sub-opt" onclick="switchStandingsSubTab('opt')">🧠 Optimum XI Standings</button>
+        <div class="sub-tabs" style="display: flex; width: 100%; justify-content: space-between; gap: 8px;">
+            <button class="sub-tab-btn active" id="st-sub-live" style="flex: 1; text-align: center;" onclick="switchStandingsSubTab('live')">🟢 Live Standings</button>
+            <button class="sub-tab-btn" id="st-sub-off" style="flex: 1; text-align: center;" onclick="switchStandingsSubTab('off')">📊 Official Standings</button>
+            <button class="sub-tab-btn" id="st-sub-opt" style="flex: 1; text-align: center;" onclick="switchStandingsSubTab('opt')">🧠 Optimum XI Standings</button>
         </div>
         <div id="standings-content" style="width: 100%;"></div>
     </div>
@@ -833,9 +833,10 @@
                 </select>
             </div>
         </div>
-        <div class="sub-tabs">
-            <button class="sub-tab-btn active" id="cup-sub-live" onclick="switchCupSubTab('live')">🔴 Live Cup Matchday</button>
-            <button class="sub-tab-btn" id="cup-sub-standings" onclick="switchCupSubTab('standings')">📊 32 Team Group Standings</button>
+        <div class="sub-tabs" style="display: flex; width: 100%; justify-content: space-between; gap: 8px;">
+            <button class="sub-tab-btn active" id="cup-sub-live" style="flex: 1; text-align: center;" onclick="switchCupSubTab('live')">🔴 Live Cup Matchday</button>
+            <button class="sub-tab-btn" id="cup-sub-standings" style="flex: 1; text-align: center;" onclick="switchCupSubTab('standings')">📊 Live Standings</button>
+            <button class="sub-tab-btn" id="cup-sub-brackets" style="flex: 1; text-align: center;" onclick="switchCupSubTab('brackets')">🏆 Brackets</button>
         </div>
         <div id="cup-live-pane" style="width: 100%;">
             <div class="list-container" id="cup-match-list"></div>
@@ -843,6 +844,12 @@
         <div id="cup-standings-pane" style="width: 100%; display: none;">
             <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 10px;">Combined 32 Team Group Standings (GW 6 to GW 20) • Tiebreakers: 1. Points → 2. Player Points (PF) → 3. Head to Head → 4. Best XI Player Score</p>
             <div id="cup-standings-box" style="width: 100%;"></div>
+        </div>
+        <div id="cup-brackets-pane" style="width: 100%; display: none;">
+            <div class="alert-box alert-info" style="text-align: center; padding: 24px 16px;">
+                🏆 <b>Cup & Bucket Knockout Brackets</b><br>
+                <span style="color: #94a3b8; font-size: 0.82rem;">Knockout bracket trees for the DA Cup (Top 24) and The Bucket (25th to 32nd) will unlock here once the Group Stage concludes in Gameweek 20.</span>
+            </div>
         </div>
     </div>
 
@@ -2180,6 +2187,10 @@
             if (gwTitleEl) {
                 gwTitleEl.innerText = gwTitleEl.innerText.replace(/^[🔴🟢]/, data.gw_is_live ? "🟢" : "🔴");
             }
+            const cupLiveSubBtn = document.getElementById("cup-sub-live");
+            if (cupLiveSubBtn) {
+                cupLiveSubBtn.innerText = data.gw_is_live ? "🟢 Live Cup Matchday" : "🔴 Live Cup Matchday";
+            }
 
             document.getElementById("home-waiver-gw").innerText = `GW ${data.current_gw}`;
             document.getElementById("home-lineup-gw").innerText = `GW ${data.current_gw}`;
@@ -2904,40 +2915,54 @@
             const d = window.standingsCache;
             if (!d) return;
 
+            const sharedColGroup = `<colgroup>
+                <col style="width:8%;">
+                <col style="width:10%;">
+                <col style="width:30%;">
+                <col style="width:8%;">
+                <col style="width:8%;">
+                <col style="width:8%;">
+                <col style="width:14%;">
+                <col style="width:14%;">
+            </colgroup>`;
+
             if (window.standingsSubTab === 'live') {
-                let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">Live Standings - Active Round (GW ${d.current_gw}) • Updated continuously with active points.</p>
-                <div class="table-wrap"><table class="clean-table">
+                let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">Live Standings — Active Round (GW ${d.current_gw}) • Updated continuously with active points</p>
+                <div class="table-wrap"><table class="clean-table" style="table-layout:fixed; width:100%;">
+                    ${sharedColGroup}
                     <thead><tr><th>Pos</th><th>Move</th><th>Manager</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th></tr></thead>
                     <tbody>`;
                 (d.live_table || []).forEach(r => {
-                    html += `<tr><td>${r.pos}</td><td>${r.move_html}</td><td style="text-align:left; color:#fff; font-weight:700;">${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#f59e0b;">${r.pts}</td></tr>`;
+                    html += `<tr><td>${r.pos}</td><td>${r.move_html}</td><td style="text-align:left; color:#fff; font-weight:700; overflow:hidden; text-overflow:ellipsis;">${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#f59e0b;">${r.pts}</td></tr>`;
                 });
                 html += `</tbody></table></div>`;
                 box.innerHTML = html;
             } else if (window.standingsSubTab === 'off') {
-                let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">Official Standings - Frozen Table (GW ${d.last_completed_gw})</p>
-                <div class="table-wrap"><table class="clean-table">
+                let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">Official Standings — Frozen Table (GW ${d.last_completed_gw}) • Completed Gameweeks only</p>
+                <div class="table-wrap"><table class="clean-table" style="table-layout:fixed; width:100%;">
+                    ${sharedColGroup}
                     <thead><tr><th>Pos</th><th>Move</th><th>Manager</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th></tr></thead>
                     <tbody>`;
                 (d.official_table || []).forEach(r => {
-                    html += `<tr><td>${r.pos}</td><td>${r.move_html}</td><td style="text-align:left; color:#fff; font-weight:700;">${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#fff;">${r.pts}</td></tr>`;
+                    html += `<tr><td>${r.pos}</td><td>${r.move_html}</td><td style="text-align:left; color:#fff; font-weight:700; overflow:hidden; text-overflow:ellipsis;">${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}</td><td style="font-weight:900; color:#fff;">${r.pts}</td></tr>`;
                 });
                 html += `</tbody></table></div>`;
                 box.innerHTML = html;
             } else if (window.standingsSubTab === 'opt') {
                 const fmtDelta = (dVal) => {
                     const n = Number(dVal || 0);
-                    if (n > 0) return ` <span style="color:#22c55e; font-size:0.76rem; font-weight:800;">(+${n})</span>`;
-                    if (n < 0) return ` <span style="color:#ef4444; font-size:0.76rem; font-weight:800;">(${n})</span>`;
-                    return ` <span style="color:#64748b; font-size:0.76rem; font-weight:700;">(0)</span>`;
+                    if (n > 0) return ` <span style="color:#22c55e; font-size:0.74rem; font-weight:800;">(+${n})</span>`;
+                    if (n < 0) return ` <span style="color:#ef4444; font-size:0.74rem; font-weight:800;">(${n})</span>`;
+                    return ` <span style="color:#64748b; font-size:0.74rem; font-weight:700;">(0)</span>`;
                 };
 
-                let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">Optimum XI Standings - Frozen Table (GW ${d.last_completed_gw}) • Every H2H tie recalculated with both managers playing their best legal XI • Move & bracketed deltas vs Official Standings.</p>
-                <div class="table-wrap"><table class="clean-table">
+                let html = `<p style="font-size:0.82rem; color:#94a3b8; margin-bottom:10px;">Optimum XI Standings — Frozen Table (GW ${d.last_completed_gw}) • Best legal XI vs Official Standings</p>
+                <div class="table-wrap"><table class="clean-table" style="table-layout:fixed; width:100%;">
+                    ${sharedColGroup}
                     <thead><tr><th>Pos</th><th>Move</th><th>Manager</th><th>W</th><th>D</th><th>L</th><th>PF</th><th>Pts</th></tr></thead>
                     <tbody>`;
                 (d.optimum_table || []).forEach(r => {
-                    html += `<tr><td>${r.pos}</td><td>${r.move_html}</td><td style="text-align:left; color:#fff; font-weight:700;">${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}${fmtDelta(r.pf_diff)}</td><td><span style="font-weight:900; color:#fff;">${r.pts}</span>${fmtDelta(r.pts_diff)}</td></tr>`;
+                    html += `<tr><td>${r.pos}</td><td>${r.move_html}</td><td style="text-align:left; color:#fff; font-weight:700; overflow:hidden; text-overflow:ellipsis;">${r.manager}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td>${r.pf}${fmtDelta(r.pf_diff)}</td><td><span style="font-weight:900; color:#fff;">${r.pts}</span>${fmtDelta(r.pts_diff)}</td></tr>`;
                 });
                 html += `</tbody></table></div>`;
                 box.innerHTML = html;
@@ -2960,7 +2985,7 @@
         function refreshCupScreen() {
             if (window.cupSubTab === 'standings') {
                 fetchCupStandings();
-            } else {
+            } else if (window.cupSubTab === 'live') {
                 const gwVal = document.getElementById('cup-gw-select').value || "0";
                 const mgrVal = document.getElementById('cup-mgr-select').value || "All";
                 fetchCupMatches(gwVal, mgrVal);
@@ -2969,17 +2994,19 @@
 
         function switchCupSubTab(tab) {
             window.cupSubTab = tab;
-            document.getElementById('cup-sub-live').classList.toggle('active', tab === 'live');
-            document.getElementById('cup-sub-standings').classList.toggle('active', tab === 'standings');
-            document.getElementById('cup-live-pane').style.display = (tab === 'live') ? 'block' : 'none';
-            document.getElementById('cup-standings-pane').style.display = (tab === 'standings') ? 'block' : 'none';
+            ['live', 'standings', 'brackets'].forEach(k => {
+                const btn = document.getElementById(`cup-sub-${k}`);
+                const pane = document.getElementById(`cup-${k}-pane`);
+                if (btn) btn.classList.toggle('active', k === tab);
+                if (pane) pane.style.display = (k === tab) ? 'block' : 'none';
+            });
             document.getElementById('cup-filters-bar').style.display = (tab === 'live') ? 'flex' : 'none';
 
             if (tab === 'live') {
                 const gwVal = document.getElementById('cup-gw-select').value || "0";
                 const mgrVal = document.getElementById('cup-mgr-select').value || "All";
                 fetchCupMatches(gwVal, mgrVal);
-            } else {
+            } else if (tab === 'standings') {
                 fetchCupStandings();
             }
         }
@@ -3027,6 +3054,15 @@
                 }
 
                 const isMgrMode = (json.selected_manager && json.selected_manager !== "All");
+                const isCurrentCupGw = (Number(json.gw) === Number(json.default_gw));
+                const anyCupMatchLive = (json.matches || []).some(m => !m.is_fin);
+                const cupStatusDot = (window.gwIsLive && (isMgrMode || (isCurrentCupGw && anyCupMatchLive))) ? "🟢" : "🔴";
+
+                const cupLiveSubBtn = document.getElementById('cup-sub-live');
+                if (cupLiveSubBtn) {
+                    cupLiveSubBtn.innerText = `${cupStatusDot} Live Cup Matchday`;
+                }
+
                 if (isMgrMode) {
                     document.getElementById('cup-title').innerText = `🏆 Cup & Bucket (${json.selected_manager})`;
                     gwSel.style.display = 'none';
