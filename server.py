@@ -483,6 +483,7 @@ def full_evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes
         gk_bench = next((b for b in bench if b["Pos"] == "GKP" and b["State"] != "DNP"), None)
         if gk_bench:
             gk_starter["sub_action"] = "Subbed Off"
+            gk_starter["bench_slot"] = gk_bench["pick_pos"]
             gk_bench["sub_action"] = "Subbed On"
             used_bench_ids.add(gk_bench["id"])
 
@@ -493,6 +494,7 @@ def full_evaluate_lineup(picks_list, live_elements, element_lookup, club_minutes
             cur_form = [s["Pos"] for s in starters if s["sub_action"] != "Subbed Off" and s["id"] != dnp_s["id"]] + [b_cand["Pos"]]
             if cur_form.count("DEF") >= 3 and cur_form.count("MID") >= 2 and cur_form.count("FWD") >= 1:
                 dnp_s["sub_action"] = "Subbed Off"
+                dnp_s["bench_slot"] = b_cand["pick_pos"]
                 b_cand["sub_action"] = "Subbed On"
                 used_bench_ids.add(b_cand["id"])
                 break
@@ -547,7 +549,7 @@ def split_squad_records(s_recs, b_recs):
         (inactive if str(r.get("sub_action", "")).strip() == "Subbed Off" else active).append(r)
     for r in b_recs:
         (active if str(r.get("sub_action", "")).strip() == "Subbed On" else inactive).append(r)
-    inactive = sorted(inactive, key=lambda x: POS_ORDER.get(str(x.get("Pos", "")), 99))
+    inactive = sorted(inactive, key=lambda x: (0 if str(x.get("Pos", "")) == "GKP" else 1, safe_int(x.get("bench_slot", x.get("pick_pos", 99)))))
     return active, inactive
 
 def build_injury_forecast(raw_elem):
@@ -706,7 +708,7 @@ def make_table_payload(s_recs, b_recs):
             "pts": safe_int(r.get("Pts", 0))
         }
 
-    b_sorted = sorted(b_recs, key=lambda x: POS_ORDER.get(str(x.get("Pos", "")), 99))
+    b_sorted = sorted(b_recs, key=lambda x: (0 if str(x.get("Pos", "")) == "GKP" else 1, safe_int(x.get("pick_pos", 99))))
     return {
         "starters": [parse_row(r) for r in s_recs],
         "subs": [parse_row(r) for r in b_sorted]
