@@ -5160,8 +5160,16 @@ def get_bet_hector(alias: str = ""):
         for m in get_all_32_manager_aliases()
     ]
 
+    gw_fixes_now = [f for f in all_fixtures if safe_int(f.get("event")) == current_gw]
+    gw_is_live = (
+        bool(gw_fixes_now)
+        and is_gw_betting_locked(current_gw, static_data, all_fixtures, current_gw)
+        and not all(f.get("finished", False) or f.get("finished_provisional", False) for f in gw_fixes_now)
+    )
+
     return {
         "current_gw": future_gws[0],
+        "gw_is_live": gw_is_live,
         "future_gws": future_gws,
         "gw_matchups": gw_matchups,
         "active_alias": clean_alias,

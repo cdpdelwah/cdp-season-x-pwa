@@ -1617,7 +1617,7 @@
             else if (screenId === 'news') fetchNewsletter('league');
             else if (screenId === 'power') fetchPowerRankings();
             else if (screenId === 'asterisk') fetchAsterisk();
-            else if (screenId === 'hector') fetchBetHector();
+            else if (screenId === 'hector') { window.bhResetDefaultView = true; fetchBetHector(); }
         }
 
         // ==========================================
@@ -1791,6 +1791,16 @@
 
                 if (document.getElementById('bh-type-sel').value === 'acca' && !window.selectedAccaLegs.length) {
                     renderAccaFixtureGrid();
+                }
+
+                const isLiveGw = Boolean(data.gw_is_live || window.gwIsLive);
+                if (window.bhResetDefaultView || window.bhLastGwLive !== isLiveGw) {
+                    window.bhResetDefaultView = false;
+                    window.bhLastGwLive = isLiveGw;
+                    const fSel = document.getElementById('bh-filter-sel');
+                    if (fSel) {
+                        fSel.value = isLiveGw ? 'active' : 'open';
+                    }
                 }
 
                 if (window.pendingHectorFilter) {
