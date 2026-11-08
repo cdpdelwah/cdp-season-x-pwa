@@ -112,10 +112,52 @@
         }
         .sub-tab-arrow.visible { display: flex; }
 
-        .table-wrap { scrollbar-width: thin; scrollbar-color: rgba(245, 158, 11, 0.45) rgba(9, 12, 19, 0.9); }
-        .table-wrap::-webkit-scrollbar { height: 5px; }
-        .table-wrap::-webkit-scrollbar-track { background: rgba(9, 12, 19, 0.9); border-radius: 6px; }
-        .table-wrap::-webkit-scrollbar-thumb { background: rgba(245, 158, 11, 0.45); border-radius: 6px; }
+        /* Permanent Table Overflow Indicators (Never Auto-Hidden by iOS/Android) */
+        .table-scroll-shell { position: relative; width: 100%; margin-bottom: 14px; }
+        .table-scroll-shell > .table-wrap { margin-bottom: 0; scrollbar-width: none; }
+        .table-scroll-shell > .table-wrap::-webkit-scrollbar { display: none; }
+        .table-edge-arrow {
+            position: absolute;
+            top: 1px;
+            right: 1px;
+            height: 35px;
+            width: 38px;
+            border: none;
+            border-radius: 0 9px 0 0;
+            background: linear-gradient(270deg, rgba(9, 12, 19, 0.98) 55%, rgba(9, 12, 19, 0) 100%);
+            color: #f59e0b;
+            font-size: 1.25rem;
+            font-weight: 900;
+            display: none;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 6px;
+            cursor: pointer;
+            z-index: 12;
+            text-shadow: 0 2px 6px rgba(0, 0, 0, 0.95);
+        }
+        .table-edge-arrow.visible { display: flex; }
+        .table-scroll-bar {
+            display: none;
+            width: 100%;
+            height: 5px;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            overflow: hidden;
+            position: relative;
+        }
+        .table-scroll-bar.visible { display: block; }
+        .table-scroll-thumb {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            background: linear-gradient(90deg, #f59e0b 0%, #fde047 100%);
+            border-radius: 6px;
+            box-shadow: 0 0 8px rgba(245, 158, 11, 0.6);
+        }
 
         .home-menu { width: 100%; display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
         .menu-btn {
@@ -923,7 +965,7 @@
         </div>
         <div class="sub-tabs">
             <button class="sub-tab-btn active" id="sq-sub-xi" onclick="switchSquadSubTab('xi')">⚽ Recommended Lineup</button>
-            <button class="sub-tab-btn" id="sq-sub-waivers" onclick="switchSquadSubTab('waivers')">🔍 Tailored Waivers & Suggested Drops</button>
+            <button class="sub-tab-btn" id="sq-sub-waivers" onclick="switchSquadSubTab('waivers')">🔍 Tailored Waivers</button>
         </div>
         <div id="squad-lock-msg" style="width: 100%; display: none;"></div>
         <div id="squad-xi-pane" style="width: 100%;">
@@ -1643,6 +1685,38 @@
             rightBtn.classList.toggle('visible', el.scrollLeft < maxScroll - 6);
         }
 
+        function updateTableScrollIndicators(wrapEl) {
+            if (!wrapEl || !wrapEl.parentElement || !wrapEl.parentElement.classList.contains('table-scroll-shell')) return;
+            const shell = wrapEl.parentElement;
+            const arrowBtn = shell.querySelector('.table-edge-arrow');
+            const barEl = shell.querySelector('.table-scroll-bar');
+            const thumbEl = shell.querySelector('.table-scroll-thumb');
+            if (!arrowBtn || !barEl || !thumbEl) return;
+
+            const maxScroll = wrapEl.scrollWidth - wrapEl.clientWidth;
+            if (maxScroll <= 4) {
+                arrowBtn.classList.remove('visible');
+                barEl.classList.remove('visible');
+                wrapEl.style.borderRadius = '10px';
+                return;
+            }
+
+            arrowBtn.classList.add('visible');
+            barEl.classList.add('visible');
+            wrapEl.style.borderRadius = '10px 10px 0 0';
+
+            const atEnd = wrapEl.scrollLeft >= maxScroll - 6;
+            arrowBtn.innerHTML = atEnd ? '‹' : '›';
+            arrowBtn.dataset.dir = atEnd ? 'left' : 'right';
+
+            const ratio = Math.max(0.18, wrapEl.clientWidth / wrapEl.scrollWidth);
+            const thumbWidthPct = ratio * 100;
+            const maxLeftPct = 100 - thumbWidthPct;
+            const scrollFraction = Math.min(1, Math.max(0, wrapEl.scrollLeft / maxScroll));
+            thumbEl.style.width = `${thumbWidthPct}%`;
+            thumbEl.style.left = `${scrollFraction * maxLeftPct}%`;
+        }
+
         function refreshAllSubTabsArrows() {
             document.querySelectorAll('.sub-tabs').forEach(el => {
                 if (!el.parentElement || !el.parentElement.classList.contains('sub-tabs-wrap')) {
@@ -1682,6 +1756,47 @@
                     });
                 }
                 updateSubTabsArrows(el);
+            });
+
+            document.querySelectorAll('.table-wrap').forEach(wrapEl => {
+                if (!wrapEl.parentElement || !wrapEl.parentElement.classList.contains('table-scroll-shell')) {
+                    const shell = document.createElement('div');
+                    shell.className = 'table-scroll-shell';
+                    if (wrapEl.style.marginBottom === '0px' || wrapEl.style.marginBottom === '0') {
+                        shell.style.marginBottom = '0';
+                    }
+                    wrapEl.parentNode.insertBefore(shell, wrapEl);
+                    shell.appendChild(wrapEl);
+
+                    const arrowBtn = document.createElement('button');
+                    arrowBtn.type = 'button';
+                    arrowBtn.className = 'table-edge-arrow';
+                    arrowBtn.innerHTML = '›';
+                    arrowBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        if (arrowBtn.dataset.dir === 'left') {
+                            wrapEl.scrollTo({ left: 0, behavior: 'smooth' });
+                        } else {
+                            wrapEl.scrollBy({ left: 160, behavior: 'smooth' });
+                        }
+                    };
+
+                    const barEl = document.createElement('div');
+                    barEl.className = 'table-scroll-bar';
+                    barEl.innerHTML = '<div class="table-scroll-thumb"></div>';
+                    barEl.onclick = (e) => {
+                        const rect = barEl.getBoundingClientRect();
+                        const clickRatio = (e.clientX - rect.left) / Math.max(1, rect.width);
+                        const maxScroll = wrapEl.scrollWidth - wrapEl.clientWidth;
+                        wrapEl.scrollTo({ left: clickRatio * maxScroll, behavior: 'smooth' });
+                    };
+
+                    shell.appendChild(arrowBtn);
+                    shell.appendChild(barEl);
+
+                    wrapEl.addEventListener('scroll', () => updateTableScrollIndicators(wrapEl), { passive: true });
+                }
+                updateTableScrollIndicators(wrapEl);
             });
         }
 
@@ -3002,7 +3117,7 @@
                             <div class="exp-body" id="epl-drawer-${fid}">
                                 <div class="sub-tabs">
                                     <button class="sub-tab-btn active" id="epl-tab-btn-${fid}-events" onclick="switchEplInnerTab(${fid}, 'events')">⚡ Match Stats</button>
-                                    <button class="sub-tab-btn" id="epl-tab-btn-${fid}-sheets" onclick="switchEplInnerTab(${fid}, 'sheets')">👥 Lineups & Subs</button>
+                                    <button class="sub-tab-btn" id="epl-tab-btn-${fid}-sheets" onclick="switchEplInnerTab(${fid}, 'sheets')">👥 Lineups</button>
                                     <button class="sub-tab-btn" id="epl-tab-btn-${fid}-bps" onclick="switchEplInnerTab(${fid}, 'bps')">⭐ BPS & Bonus</button>
                                     <button class="sub-tab-btn" id="epl-tab-btn-${fid}-defcon" onclick="switchEplInnerTab(${fid}, 'defcon')">🔰 DefCon</button>
                                 </div>
