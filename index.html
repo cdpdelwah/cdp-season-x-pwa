@@ -1300,7 +1300,7 @@
         <div class="sub-tabs">
             <button class="sub-tab-btn active" id="bh-tab-book" onclick="switchBetHectorTab('book')">📋 The Book</button>
             <button class="sub-tab-btn" id="bh-tab-create" onclick="switchBetHectorTab('create')">🎲 Lay a Bet</button>
-            <button class="sub-tab-btn" id="bh-tab-standings" onclick="switchBetHectorTab('standings')">🏆 HBX Standings & Forfeits</button>
+            <button class="sub-tab-btn" id="bh-tab-standings" onclick="switchBetHectorTab('standings')">🏆 Standings & Forfeits</button>
         </div>
 
         <!-- PANE 1: THE BOOK (INCOMING, PROPOSED, ACCEPTED & SETTLED WAGERS) -->
@@ -1549,6 +1549,12 @@
             }
             if (cleanHash === 'hector_active') {
                 window.pendingHectorFilter = { status: 'active', gw: 'All', mgr: 'auto_me' };
+                history.replaceState({ screen: 'hector' }, '', '#hector');
+                navigate('hector', false);
+                return;
+            }
+            if (cleanHash === 'hector_settled') {
+                window.pendingHectorFilter = { status: 'settled', gw: 'All', mgr: 'All' };
                 history.replaceState({ screen: 'hector' }, '', '#hector');
                 navigate('hector', false);
                 return;

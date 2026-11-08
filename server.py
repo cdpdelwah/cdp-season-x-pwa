@@ -5742,9 +5742,11 @@ def _resolve_push_url(tag: str) -> str:
                 return f"/#hector_gw_{p}"
         return "/#hector_active"
     if t.startswith("bh-acc-") or t.startswith("bh-resp-"):
-        return "/#hector_active"
-    if t.startswith("bh-"):
-        return "/#hector"
+                   return "/#hector_active"
+         if t.startswith("bh-settle-") or t.startswith("bh-mset-"):
+                   return "/#hector_settled"
+         if t.startswith("bh-"):
+                   return "/#hector"
     if t.startswith("tr-"):
         return "/#trade_offers"
     if t.startswith("trade-"):

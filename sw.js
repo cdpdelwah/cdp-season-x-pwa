@@ -9,6 +9,7 @@ function resolveUrlFromTag(tag, explicitUrl) {
         return "/#hector_active";
     }
     if (t.startsWith("bh-acc-") || t.startsWith("bh-resp-")) return "/#hector_active";
+    if (t.startsWith("bh-settle-") || t.startsWith("bh-mset-")) return "/#hector_settled";
     if (t.startsWith("bh-")) return "/#hector";
     if (t.startsWith("tr-")) return "/#trade_offers";
     if (t.startsWith("trade-")) return "/#trade";
