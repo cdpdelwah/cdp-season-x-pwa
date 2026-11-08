@@ -1013,25 +1013,23 @@ def get_home_summary(league_id: int = 63, alias: str = ""):
     league_details, _ = cached_league_data(user_lid)
     all_fixtures = cached_all_fixtures()
 
-    detected_gw, _ = detect_current_gw(league_details)
-    gw_fixes_detected = [f for f in (all_fixtures or []) if f.get("event") == detected_gw]
-    gw_all_finished = bool(gw_fixes_detected) and all(
-        f.get("finished", False) or f.get("finished_provisional", False) for f in gw_fixes_detected
-    )
+    # current_gw stays on the active round until FPL officially marks all league matches finished
+    current_gw, _ = detect_current_gw(league_details)
+    gw_fixes_now = [f for f in (all_fixtures or []) if safe_int(f.get("event")) == current_gw]
+    gw_matches = [m for m in (league_details or {}).get("matches", []) if safe_int(m.get("event")) == current_gw]
+    fpl_gw_locked = bool(gw_matches) and all(m.get("finished", False) for m in gw_matches)
 
-    current_gw = min(38, detected_gw + 1) if gw_all_finished else detected_gw
-    gw_fixes_now = [f for f in (all_fixtures or []) if f.get("event") == current_gw]
     gw_is_live = (
         bool(gw_fixes_now)
-        and any(f.get("started", False) for f in gw_fixes_now)
-        and not all(f.get("finished", False) or f.get("finished_provisional", False) for f in gw_fixes_now)
+        and any(f.get("started", False) or f.get("finished", False) for f in gw_fixes_now)
+        and not fpl_gw_locked
     )
 
     events_list = static_data.get("events", []) if static_data else []
     if isinstance(events_list, dict):
         events_list = events_list.get("data", [])
 
-    target_ev = next((ev for ev in events_list if ev.get("id") == current_gw), None)
+    target_ev = next((ev for ev in events_list if safe_int(ev.get("id")) == current_gw), None)
     lineup_iso = target_ev.get("deadline_time") if target_ev else None
 
     if not lineup_iso and gw_fixes_now:
@@ -1044,19 +1042,18 @@ def get_home_summary(league_id: int = 63, alias: str = ""):
             except Exception:
                 pass
 
+    waiver_dt_utc = None
     if lineup_iso:
         try:
-            lineup_dt = pd.to_datetime(lineup_iso)
-            waiver_dt = lineup_dt - pd.Timedelta(hours=24)
-            waiver_iso = waiver_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            lineup_dt = pd.to_datetime(lineup_iso, utc=True)
+            waiver_dt_utc = lineup_dt - pd.Timedelta(hours=24)
+            waiver_iso = waiver_dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
         except Exception:
             waiver_iso = lineup_iso
     else:
         lineup_iso = ""
         waiver_iso = ""
 
-    # 1. Manager's League Fixture for current_gw
-    league_match = None
     entries = (league_details or {}).get("league_entries", [])
     lentry_map = {e.get("id"): e for e in entries}
     my_lentry_id = None
@@ -1067,54 +1064,73 @@ def get_home_summary(league_id: int = 63, alias: str = ""):
             clean_alias = m_a
             break
 
-    if my_lentry_id:
-        for m in (league_details or {}).get("matches", []):
-            if safe_int(m.get("event")) == current_gw and (m.get("league_entry_1") == my_lentry_id or m.get("league_entry_2") == my_lentry_id):
-                opp_le_id = m.get("league_entry_2") if m.get("league_entry_1") == my_lentry_id else m.get("league_entry_1")
-                opp_entry = lentry_map.get(opp_le_id, {})
-                opp_alias = engine.get_manager_alias(opp_entry.get("player_first_name", ""), opp_entry.get("player_last_name", ""))
-                my_s, opp_s = None, None
-                if gw_is_live:
-                    my_eval = evaluate_cup_manager_gw(clean_alias, current_gw)
-                    opp_eval = evaluate_cup_manager_gw(opp_alias, current_gw)
-                    my_s = my_eval.get("score", 0)
-                    opp_s = opp_eval.get("score", 0)
-                league_match = {
-                    "div": user_div,
-                    "league_id": user_lid,
-                    "opponent": opp_alias,
-                    "my_score": my_s,
-                    "opp_score": opp_s
-                }
-                break
-
-    # 2. Manager's Cup Fixture for current_gw (only if current_gw is a Cup week)
-    cup_match = None
     cup_df = load_cup_matches_df()
-    if cup_df is not None and not cup_df.empty:
-        gw_cup = cup_df[cup_df["Week"] == current_gw]
-        for _, r in gw_cup.iterrows():
-            t1 = str(r.get("Team 1", "")).strip()
-            t2 = str(r.get("Team 2", "")).strip()
-            if t1.lower() == clean_alias.lower() or t2.lower() == clean_alias.lower():
-                c_opp = t2 if t1.lower() == clean_alias.lower() else t1
-                c_stage = f"{str(r.get('Stage', '')).strip()} {str(r.get('Leg', '')).strip()}".strip()
-                c_opp_lid = MANAGER_LEAGUES.get(c_opp, 63)
-                c_opp_div = LEAGUE_ID_TO_KEY.get(c_opp_lid, "CDP").split(" ")[0]
-                c_my_s, c_opp_s = None, None
-                if gw_is_live:
-                    c_my_eval = evaluate_cup_manager_gw(clean_alias, current_gw)
-                    c_opp_eval = evaluate_cup_manager_gw(c_opp, current_gw)
-                    c_my_s = c_my_eval.get("score", 0)
-                    c_opp_s = c_opp_eval.get("score", 0)
-                cup_match = {
-                    "stage": c_stage or "Cup Tie",
-                    "opponent": c_opp,
-                    "opp_div": c_opp_div,
-                    "my_score": c_my_s,
-                    "opp_score": c_opp_s
-                }
-                break
+
+    def build_gw_fixtures_for_manager(g_num, include_scores=False):
+        lg_obj = None
+        if my_lentry_id:
+            for m in (league_details or {}).get("matches", []):
+                if safe_int(m.get("event")) == g_num and (m.get("league_entry_1") == my_lentry_id or m.get("league_entry_2") == my_lentry_id):
+                    is_m1 = (m.get("league_entry_1") == my_lentry_id)
+                    opp_le_id = m.get("league_entry_2") if is_m1 else m.get("league_entry_1")
+                    opp_entry = lentry_map.get(opp_le_id, {})
+                    opp_alias = engine.get_manager_alias(opp_entry.get("player_first_name", ""), opp_entry.get("player_last_name", ""))
+                    my_s, opp_s = None, None
+                    if include_scores:
+                        if m.get("finished", False):
+                            my_s = safe_int(m.get("league_entry_1_points") if is_m1 else m.get("league_entry_2_points"))
+                            opp_s = safe_int(m.get("league_entry_2_points") if is_m1 else m.get("league_entry_1_points"))
+                        else:
+                            my_eval = evaluate_cup_manager_gw(clean_alias, g_num)
+                            opp_eval = evaluate_cup_manager_gw(opp_alias, g_num)
+                            my_s = my_eval.get("score", 0)
+                            opp_s = opp_eval.get("score", 0)
+                    lg_obj = {
+                        "gw": g_num,
+                        "div": user_div,
+                        "league_id": user_lid,
+                        "opponent": opp_alias,
+                        "my_score": my_s,
+                        "opp_score": opp_s
+                    }
+                    break
+
+        cp_obj = None
+        if cup_df is not None and not cup_df.empty:
+            gw_cup = cup_df[cup_df["Week"] == g_num]
+            for _, r in gw_cup.iterrows():
+                t1 = str(r.get("Team 1", "")).strip()
+                t2 = str(r.get("Team 2", "")).strip()
+                if t1.lower() == clean_alias.lower() or t2.lower() == clean_alias.lower():
+                    c_opp = t2 if t1.lower() == clean_alias.lower() else t1
+                    c_stage = f"{str(r.get('Stage', '')).strip()} {str(r.get('Leg', '')).strip()}".strip()
+                    c_opp_lid = MANAGER_LEAGUES.get(c_opp, 63)
+                    c_opp_div = LEAGUE_ID_TO_KEY.get(c_opp_lid, "CDP").split(" ")[0]
+                    c_my_s, c_opp_s = None, None
+                    if include_scores:
+                        c_my_eval = evaluate_cup_manager_gw(clean_alias, g_num)
+                        c_opp_eval = evaluate_cup_manager_gw(c_opp, current_gw if g_num == current_gw else g_num)
+                        c_my_s = c_my_eval.get("score", 0)
+                        c_opp_s = c_opp_eval.get("score", 0)
+                    cp_obj = {
+                        "gw": g_num,
+                        "stage": c_stage or "Cup Tie",
+                        "opponent": c_opp,
+                        "opp_div": c_opp_div,
+                        "my_score": c_my_s,
+                        "opp_score": c_opp_s
+                    }
+                    break
+        return lg_obj, cp_obj
+
+    league_match, cup_match = build_gw_fixtures_for_manager(current_gw, include_scores=gw_is_live)
+
+    # Keep the completed Gameweek's final scores visible until the upcoming Gameweek's waiver deadline passes
+    prev_gw = current_gw - 1
+    prev_league_match, prev_cup_match = None, None
+    waiver_has_passed = bool(waiver_dt_utc and pd.Timestamp.now(tz="UTC") >= waiver_dt_utc)
+    if not gw_is_live and prev_gw >= 1 and not waiver_has_passed:
+        prev_league_match, prev_cup_match = build_gw_fixtures_for_manager(prev_gw, include_scores=True)
 
     cbw_count, cbw_at_risk = compute_cbwcbw_tracker(current_gw) if gw_is_live else (32, [])
     return {
@@ -1127,6 +1143,9 @@ def get_home_summary(league_id: int = 63, alias: str = ""):
         "gw_is_live": gw_is_live,
         "league_match": league_match,
         "cup_match": cup_match,
+        "prev_gw": prev_gw if (prev_league_match or prev_cup_match) else None,
+        "prev_league_match": prev_league_match,
+        "prev_cup_match": prev_cup_match,
         "cbw_count": cbw_count,
         "cbw_at_risk": cbw_at_risk
     }
@@ -5331,10 +5350,12 @@ def get_bet_hector(alias: str = ""):
     ]
 
     gw_fixes_now = [f for f in all_fixtures if safe_int(f.get("event")) == current_gw]
+    gw_lg_matches = [m for m in (league_details or {}).get("matches", []) if safe_int(m.get("event")) == current_gw]
+    fpl_gw_locked = bool(gw_lg_matches) and all(m.get("finished", False) for m in gw_lg_matches)
     gw_is_live = (
         bool(gw_fixes_now)
         and is_gw_betting_locked(current_gw, static_data, all_fixtures, current_gw)
-        and not all(f.get("finished", False) or f.get("finished_provisional", False) for f in gw_fixes_now)
+        and not fpl_gw_locked
     )
 
     return {
@@ -6250,7 +6271,7 @@ def run_automated_push_checks():
         prev_players = gw_state.get("players", {})
         has_real_prev = any(k != "_seeded" for k in prev_players.keys())
         already_mid_match = any(safe_int(f.get("minutes", 0)) > 10 or f.get("finished", False) for f in gw_fixtures)
-        is_first_baseline = (not has_real_prev and already_mid_match and "_seeded" not in prev_players)
+        is_first_baseline = False
         curr_players = dict(prev_players) if isinstance(prev_players, dict) else {}
         curr_players.pop("_seeded", None)
         player_new_events = {}
