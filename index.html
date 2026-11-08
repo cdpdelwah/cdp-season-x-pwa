@@ -76,10 +76,46 @@
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 4px 12px rgba(0, 0, 0, 0.5);
         }
 
-        .sub-tabs { display: flex; width: 100%; gap: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 16px; overflow-x: auto; scrollbar-width: none; }
+        .sub-tabs-wrap { position: relative; width: 100%; display: flex; align-items: center; margin-bottom: 16px; }
+        .sub-tabs { display: flex; width: 100%; gap: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 16px; overflow-x: auto; scrollbar-width: none; scroll-behavior: smooth; }
+        .sub-tabs-wrap .sub-tabs { margin-bottom: 0; padding-right: 6px; }
         .sub-tabs::-webkit-scrollbar { display: none; }
-        .sub-tab-btn { background: none; border: none; border-bottom: 2.5px solid transparent; padding: 9px 4px; font-size: 0.88rem; font-weight: 700; color: #94a3b8; cursor: pointer; white-space: nowrap; transition: all 0.18s ease; }
+        .sub-tab-btn { background: none; border: none; border-bottom: 2.5px solid transparent; padding: 9px 4px; font-size: 0.85rem; font-weight: 700; color: #94a3b8; cursor: pointer; white-space: nowrap; transition: all 0.18s ease; flex-shrink: 0; }
         .sub-tab-btn.active { color: #ffffff; border-bottom-color: #f59e0b; text-shadow: 0 0 12px rgba(245, 158, 11, 0.4); }
+        .sub-tab-arrow {
+            position: absolute;
+            top: 0;
+            bottom: 1px;
+            width: 34px;
+            border: none;
+            color: #f59e0b;
+            font-size: 1.35rem;
+            font-weight: 900;
+            display: none;
+            align-items: center;
+            cursor: pointer;
+            z-index: 15;
+            padding: 0;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+        }
+        .sub-tab-arrow.left {
+            left: 0;
+            justify-content: flex-start;
+            padding-left: 3px;
+            background: linear-gradient(90deg, rgba(5, 7, 11, 0.98) 45%, rgba(5, 7, 11, 0) 100%);
+        }
+        .sub-tab-arrow.right {
+            right: 0;
+            justify-content: flex-end;
+            padding-right: 3px;
+            background: linear-gradient(270deg, rgba(5, 7, 11, 0.98) 45%, rgba(5, 7, 11, 0) 100%);
+        }
+        .sub-tab-arrow.visible { display: flex; }
+
+        .table-wrap { scrollbar-width: thin; scrollbar-color: rgba(245, 158, 11, 0.45) rgba(9, 12, 19, 0.9); }
+        .table-wrap::-webkit-scrollbar { height: 5px; }
+        .table-wrap::-webkit-scrollbar-track { background: rgba(9, 12, 19, 0.9); border-radius: 6px; }
+        .table-wrap::-webkit-scrollbar-thumb { background: rgba(245, 158, 11, 0.45); border-radius: 6px; }
 
         .home-menu { width: 100%; display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
         .menu-btn {
@@ -821,9 +857,9 @@
             <button class="tab-btn st-l-tab" data-lid="240" onclick="switchStandingsLeague(240)">LDE</button>
         </div>
         <div class="sub-tabs" style="display: flex; width: 100%; justify-content: space-between; gap: 8px;">
-            <button class="sub-tab-btn active" id="st-sub-live" style="flex: 1; text-align: center;" onclick="switchStandingsSubTab('live')">🟢 Live Standings</button>
-            <button class="sub-tab-btn" id="st-sub-off" style="flex: 1; text-align: center;" onclick="switchStandingsSubTab('off')">📊 Official Standings</button>
-            <button class="sub-tab-btn" id="st-sub-opt" style="flex: 1; text-align: center;" onclick="switchStandingsSubTab('opt')">🧠 Optimum XI Standings</button>
+            <button class="sub-tab-btn active" id="st-sub-live" style="flex: 1; text-align: center;" onclick="switchStandingsSubTab('live')">🟢 Live</button>
+            <button class="sub-tab-btn" id="st-sub-off" style="flex: 1; text-align: center;" onclick="switchStandingsSubTab('off')">📊 Official</button>
+            <button class="sub-tab-btn" id="st-sub-opt" style="flex: 1; text-align: center;" onclick="switchStandingsSubTab('opt')">🧠 Optimum XI</button>
         </div>
         <div id="standings-content" style="width: 100%;"></div>
     </div>
@@ -1150,13 +1186,13 @@
             <a id="asterisk-download-btn" href="/api/asterisk/download" style="display: none; background: #f59e0b; color: #000; padding: 8px 14px; border-radius: 8px; font-size: 0.82rem; font-weight: 800; text-decoration: none;">📥 Download Workbook</a>
         </div>
 
-        <div class="league-tabs" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px;">
-            <button class="tab-btn active" id="ast-tab-profiles" onclick="switchAsteriskTab('profiles')">👤 Dossiers & H2H</button>
-            <button class="tab-btn" id="ast-tab-palmares" onclick="switchAsteriskTab('palmares')">🏛️ Palmares & Streaks</button>
-            <button class="tab-btn" id="ast-tab-hof" onclick="switchAsteriskTab('hof')">👑 Hall of Fame</button>
-            <button class="tab-btn" id="ast-tab-coef" onclick="switchAsteriskTab('coef')">📈 CDP Coefficient</button>
-            <button class="tab-btn" id="ast-tab-draft" onclick="switchAsteriskTab('draft')">🎯 Draft Vault</button>
-            <button class="tab-btn" id="ast-tab-lore" onclick="switchAsteriskTab('lore')">📖 Chronicles & Lore</button>
+        <div class="sub-tabs">
+            <button class="sub-tab-btn active" id="ast-tab-profiles" onclick="switchAsteriskTab('profiles')">👤 Dossiers & H2H</button>
+            <button class="sub-tab-btn" id="ast-tab-palmares" onclick="switchAsteriskTab('palmares')">🏛️ Palmares & Streaks</button>
+            <button class="sub-tab-btn" id="ast-tab-hof" onclick="switchAsteriskTab('hof')">👑 Hall of Fame</button>
+            <button class="sub-tab-btn" id="ast-tab-coef" onclick="switchAsteriskTab('coef')">📈 CDP Coefficient</button>
+            <button class="sub-tab-btn" id="ast-tab-draft" onclick="switchAsteriskTab('draft')">🎯 Draft Vault</button>
+            <button class="sub-tab-btn" id="ast-tab-lore" onclick="switchAsteriskTab('lore')">📖 Chronicles & Lore</button>
         </div>
 
         <div id="asterisk-status-box" style="width: 100%; display: none;"></div>
@@ -1590,9 +1626,74 @@
                 });
             });
         });
+        function updateSubTabsArrows(el) {
+            if (!el || !el.parentElement || !el.parentElement.classList.contains('sub-tabs-wrap')) return;
+            const wrap = el.parentElement;
+            const leftBtn = wrap.querySelector('.sub-tab-arrow.left');
+            const rightBtn = wrap.querySelector('.sub-tab-arrow.right');
+            if (!leftBtn || !rightBtn) return;
+
+            const maxScroll = el.scrollWidth - el.clientWidth;
+            if (maxScroll <= 4) {
+                leftBtn.classList.remove('visible');
+                rightBtn.classList.remove('visible');
+                return;
+            }
+            leftBtn.classList.toggle('visible', el.scrollLeft > 6);
+            rightBtn.classList.toggle('visible', el.scrollLeft < maxScroll - 6);
+        }
+
+        function refreshAllSubTabsArrows() {
+            document.querySelectorAll('.sub-tabs').forEach(el => {
+                if (!el.parentElement || !el.parentElement.classList.contains('sub-tabs-wrap')) {
+                    const wrap = document.createElement('div');
+                    wrap.className = 'sub-tabs-wrap';
+                    el.parentNode.insertBefore(wrap, el);
+                    wrap.appendChild(el);
+
+                    const leftBtn = document.createElement('button');
+                    leftBtn.type = 'button';
+                    leftBtn.className = 'sub-tab-arrow left';
+                    leftBtn.innerHTML = '‹';
+                    leftBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        el.scrollBy({ left: -150, behavior: 'smooth' });
+                    };
+
+                    const rightBtn = document.createElement('button');
+                    rightBtn.type = 'button';
+                    rightBtn.className = 'sub-tab-arrow right';
+                    rightBtn.innerHTML = '›';
+                    rightBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        el.scrollBy({ left: 150, behavior: 'smooth' });
+                    };
+
+                    wrap.appendChild(leftBtn);
+                    wrap.appendChild(rightBtn);
+
+                    el.addEventListener('scroll', () => updateSubTabsArrows(el), { passive: true });
+                    el.addEventListener('click', (e) => {
+                        const btn = e.target.closest('.sub-tab-btn');
+                        if (btn) {
+                            btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                            setTimeout(() => updateSubTabsArrows(el), 220);
+                        }
+                    });
+                }
+                updateSubTabsArrows(el);
+            });
+        }
+
         window.addEventListener('DOMContentLoaded', () => {
             skelObserver.observe(document.body, { childList: true, subtree: true });
+            refreshAllSubTabsArrows();
+            const tabObserver = new MutationObserver(() => {
+                requestAnimationFrame(refreshAllSubTabsArrows);
+            });
+            tabObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
         });
+        window.addEventListener('resize', () => requestAnimationFrame(refreshAllSubTabsArrows));
 
         function navigate(screenId, addToHistory = true) {
             document.querySelectorAll('.app-screen').forEach(s => s.classList.remove('active'));
@@ -3026,9 +3127,9 @@
                 const res = await fetch(`/api/standings?league_id=${leagueId}`);
                 window.standingsCache = await res.json();
                 const offBtn = document.getElementById('st-sub-off');
-                if (offBtn) offBtn.innerText = `📊 Official Standings (GW ${window.standingsCache.last_completed_gw})`;
+                if (offBtn) offBtn.innerText = `📊 Official (GW ${window.standingsCache.last_completed_gw})`;
                 const optBtn = document.getElementById('st-sub-opt');
-                if (optBtn) optBtn.innerText = `🧠 Optimum XI Standings (GW ${window.standingsCache.last_completed_gw})`;
+                if (optBtn) optBtn.innerText = `🧠 Optimum XI (GW ${window.standingsCache.last_completed_gw})`;
                 if (!['live', 'off', 'opt'].includes(window.standingsSubTab)) {
                     window.standingsSubTab = 'live';
                 }
