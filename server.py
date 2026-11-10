@@ -39,6 +39,86 @@ app = FastAPI()
 app.add_middleware(GZipMiddleware, minimum_size=500)
 base_dir = Path(__file__).resolve().parent
 
+BANDWIDTH_STATS = {
+    "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+    "routes": {}
+}
+
+@app.middleware("http")
+async def track_bandwidth_middleware(request: Request, call_next):
+    response = await call_next(request)
+    try:
+        body_size = int(response.headers.get("content-length") or 0)
+        path = request.url.path
+        if path.startswith("/api/newsletter_page"):
+            group = "/api/newsletter_page (Gazette Images)"
+        elif path.startswith("/api/newsletter_pdf"):
+            group = "/api/newsletter_pdf (Raw PDFs)"
+        elif path.startswith("/api/live_scores"):
+            group = "/api/live_scores"
+        elif path.startswith("/api/epl_scores"):
+            group = "/api/epl_scores"
+        elif path.startswith("/api/epl_predicted_lineups"):
+            group = "/api/epl_predicted_lineups"
+        elif path.startswith("/api/standings"):
+            group = "/api/standings"
+        elif path.startswith("/api/cup_"):
+            group = "/api/cup_matches & standings"
+        elif path.startswith("/api/squad_analyser"):
+            group = "/api/squad_analyser"
+        elif path.startswith("/api/player_hub"):
+            group = "/api/player_hub"
+        elif path.startswith("/api/asterisk"):
+            group = "/api/asterisk"
+        elif path.startswith("/api/bet_hector"):
+            group = "/api/bet_hector"
+        elif path in ("/", "/index.html"):
+            group = "/ (App HTML Shell)"
+        elif path in ("/icon.png", "/badge.png", "/api/logo", "/api/logo_secondary"):
+            group = "App Logos & Icons"
+        else:
+            group = path
+
+        routes = BANDWIDTH_STATS["routes"]
+        stat = routes.setdefault(group, {"bytes": 0, "hits": 0})
+        stat["bytes"] += body_size
+        stat["hits"] += 1
+    except Exception:
+        pass
+    return response
+
+@app.get("/api/bandwidth_report")
+def get_bandwidth_report():
+    routes = BANDWIDTH_STATS.get("routes", {})
+    total_bytes = sum(s["bytes"] for s in routes.values())
+    denom = total_bytes if total_bytes > 0 else 1
+
+    def fmt_bytes(b):
+        if b >= 1024 ** 3:
+            return f"{b / (1024 ** 3):.2f} GB"
+        if b >= 1024 ** 2:
+            return f"{b / (1024 ** 2):.2f} MB"
+        return f"{b / 1024:.1f} KB"
+
+    breakdown = []
+    for route_name, data in sorted(routes.items(), key=lambda x: x[1]["bytes"], reverse=True):
+        b = data["bytes"]
+        hits = data["hits"]
+        avg_kb = (b / hits / 1024) if hits > 0 else 0.0
+        breakdown.append({
+            "endpoint": route_name,
+            "bandwidth": fmt_bytes(b),
+            "requests": hits,
+            "avg_per_request": f"{avg_kb:.1f} KB",
+            "share": f"{(b / denom) * 100:.1f}%"
+        })
+
+    return {
+        "tracking_since": BANDWIDTH_STATS.get("started_at"),
+        "total_transferred": fmt_bytes(total_bytes),
+        "breakdown": breakdown
+    }
+
 assets_folder = base_dir / "Assets"
 if not assets_folder.exists():
     assets_folder = base_dir / "assets"
@@ -3939,23 +4019,31 @@ def get_newsletter_page_image(doc: str, page_num: int):
         mtime = int(pdf_path.stat().st_mtime)
         cache_key = (str(pdf_path), mtime, page_num)
         if cache_key in _NEWSLETTER_PNG_CACHE:
+            cached_bytes, cached_media = _NEWSLETTER_PNG_CACHE[cache_key]
             return Response(
-                content=_NEWSLETTER_PNG_CACHE[cache_key],
-                media_type="image/png",
+                content=cached_bytes,
+                media_type=cached_media,
                 headers={"Cache-Control": "public, max-age=86400"}
             )
         pdf_doc = pdfium.PdfDocument(pdf_path)
         page = pdf_doc[page_num]
         pil_img = page.render(scale=3).to_pil()
         buf = io.BytesIO()
-        pil_img.save(buf, format="PNG")
-        png_bytes = buf.getvalue()
+        try:
+            pil_img.save(buf, format="WEBP", lossless=True)
+            img_bytes = buf.getvalue()
+            media_type = "image/webp"
+        except Exception:
+            buf = io.BytesIO()
+            pil_img.save(buf, format="PNG")
+            img_bytes = buf.getvalue()
+            media_type = "image/png"
         if len(_NEWSLETTER_PNG_CACHE) > 40:
             _NEWSLETTER_PNG_CACHE.clear()
-        _NEWSLETTER_PNG_CACHE[cache_key] = png_bytes
+        _NEWSLETTER_PNG_CACHE[cache_key] = (img_bytes, media_type)
         return Response(
-            content=png_bytes,
-            media_type="image/png",
+            content=img_bytes,
+            media_type=media_type,
             headers={"Cache-Control": "public, max-age=86400"}
         )
     except Exception:
