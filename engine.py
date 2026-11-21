@@ -48,7 +48,7 @@ CLUB_PALETTE = {
 MANAGER_ALIASES = {
     "Nick Middleton": "Nick", "greg probert": "Greg", "Greg Probert": "Greg",
     "Thomas Foy": "Foy", "Kennedy .": "James", "Kennedy": "James",
-    "Andy Dellar": "Andy", "Jimmy Dean": "Jimmy", "Hughben Amorim": "Hugh",
+    "Andy Dellar": "Andy", "Jimmy Dean": "Jimmy", "Moiricio Pochettino": "Hugh",
     "Hughben": "Hugh", "Hugh": "Hugh", "Phil Wass": "Phil", "Bungle .": "Bungle",
     "Bungle.": "Bungle", "Bungle": "Bungle", "Gareth Williams": "Garth",
     "Joshua Stammers": "Josh", "Stew Hall": "Stew", "Sam Berry": "Sam",
