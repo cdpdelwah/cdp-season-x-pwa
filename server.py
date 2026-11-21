@@ -6414,16 +6414,16 @@ def run_automated_push_checks():
             )
             cs_ft = 1 if (pos_str in ["GKP", "DEF"] and cs_val > 0 and (is_club_ft or is_subbed_off_cs or safe_int(old.get("cs_ft", 0)) > 0)) else 0
 
-            # Clean Sheet Gone (DEF Only): fires strictly on first goal conceded (0 -> 1+) for CS-eligible defenders
+            # Clean Sheet Gone (GKP & DEF Only): fires strictly on first goal conceded (0 to 1+) for CS eligible GKP/DEF
             can_lose_cs = (
-                pos_str == "DEF"
+                pos_str in ["GKP", "DEF"]
                 and p_mins > 0
                 and (was_starter or (c_max - p_mins) <= 35)
                 and (rc == 0 or p_mins >= 60)
                 and cs_ft == 0
             )
-            if old and "cs_gone" not in old:
-                old_cs_gone = 1 if (pos_str == "DEF" and gc > 0) else 0
+            if old and ("cs_gone" not in old or safe_int(old.get("gc", 0)) > 0):
+                old_cs_gone = 1 if (pos_str in ["GKP", "DEF"] and safe_int(old.get("gc", gc)) > 0) else 0
             else:
                 old_cs_gone = safe_int(old.get("cs_gone", 0))
             cs_gone_seq = safe_int(old.get("cs_gone_seq", 0))
