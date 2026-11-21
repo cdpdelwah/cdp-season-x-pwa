@@ -6363,6 +6363,7 @@ def run_automated_push_checks():
         curr_players = dict(prev_players) if isinstance(prev_players, dict) else {}
         curr_players.pop("_seeded", None)
         player_new_events = {}
+        player_cs_gone_events = {}
 
         for elem_str_id, e_info in live_elements.items():
             try:
@@ -6392,6 +6393,7 @@ def run_automated_push_checks():
             p_mins = safe_int(stats.get("minutes", 0))
             rc = safe_int(stats.get("red_cards", 0))
             cs_val = safe_int(stats.get("clean_sheets", 0))
+            gc = safe_int(stats.get("goals_conceded", 0))
             c_max = club_max_mins.get(club_id, 0)
 
             old = prev_players.get(str(eid), {}) if isinstance(prev_players.get(str(eid)), dict) else {}
@@ -6412,9 +6414,28 @@ def run_automated_push_checks():
             )
             cs_ft = 1 if (pos_str in ["GKP", "DEF"] and cs_val > 0 and (is_club_ft or is_subbed_off_cs or safe_int(old.get("cs_ft", 0)) > 0)) else 0
 
+            # Clean Sheet Gone (DEF Only): fires strictly on first goal conceded (0 -> 1+) for CS-eligible defenders
+            can_lose_cs = (
+                pos_str == "DEF"
+                and p_mins > 0
+                and (was_starter or (c_max - p_mins) <= 35)
+                and (rc == 0 or p_mins >= 60)
+                and cs_ft == 0
+            )
+            if old and "cs_gone" not in old:
+                old_cs_gone = 1 if (pos_str == "DEF" and gc > 0) else 0
+            else:
+                old_cs_gone = safe_int(old.get("cs_gone", 0))
+            cs_gone_seq = safe_int(old.get("cs_gone_seq", 0))
+            cs_gone = 1 if (can_lose_cs and gc > 0) else 0
+            fire_cs_gone = (not is_first_baseline and cs_gone > old_cs_gone)
+            if fire_cs_gone:
+                cs_gone_seq += 1
+
             snap = {
                 "g": g, "a": a, "og": og, "save_pts": saves_tiers,
                 "ps": p_saved, "pm": p_missed, "cs_ft": cs_ft,
+                "gc": gc, "cs_gone": cs_gone, "cs_gone_seq": cs_gone_seq,
                 "mins": p_mins, "c_max": c_max, "was_starter": was_starter
             }
             curr_players[str(eid)] = snap
@@ -6442,11 +6463,19 @@ def run_automated_push_checks():
                 if evs:
                     player_new_events[eid] = evs
 
+                if fire_cs_gone:
+                    csg_desc = (
+                        f"{p_name} ({club_short}) conceded a goal (4 pts wiped)!"
+                        if p_mins >= 60
+                        else f"{p_name} ({club_short}) conceded a goal!"
+                    )
+                    player_cs_gone_events[eid] = [(csg_desc, f"csg{cs_gone_seq}")]
+
         gw_state["players"] = curr_players
         # Save state to Upstash BEFORE dispatching pushes so overlapping pings/deploys never double-send
         upstash_set_json(state_key, gw_state)
 
-        if player_new_events:
+        if player_new_events or player_cs_gone_events:
             # 1. Fetch all 4 division details in parallel
             with ThreadPoolExecutor(max_workers=4) as l_ex:
                 div_list = list(l_ex.map(lambda lid: (lid, cached_league_data(lid)[0]), [63, 320, 378, 240]))
@@ -6516,8 +6545,31 @@ def run_automated_push_checks():
                                     body = f"{ev_desc} (On {mgr_opp}'s bench) | {scoreline}"
                                     push_jobs.append((mgr_me, title, body, unique_tag))
 
+                    def queue_cs_gone_pair_alerts(mgr_me, mgr_opp, my_act_ids, my_bench_ids, opp_act_ids, opp_bench_ids):
+                        for eid, csg_list in player_cs_gone_events.items():
+                            for csg_desc, ev_code in csg_list:
+                                unique_tag = f"ev-{current_gw}-{mgr_me}-{eid}-{ev_code}"
+                                if eid in my_act_ids:
+                                    title = "🔴 AGAINST YOU • 💔 CLEAN SHEET GONE!"
+                                    body = f"{csg_desc} (In your active XI) | {scoreline}"
+                                    push_jobs.append((mgr_me, title, body, unique_tag))
+                                elif eid in my_bench_ids:
+                                    title = "🪑 YOUR BENCH • 💔 CLEAN SHEET GONE!"
+                                    body = f"{csg_desc} (On your bench) | {scoreline}"
+                                    push_jobs.append((mgr_me, title, body, unique_tag))
+                                elif eid in opp_act_ids:
+                                    title = f"🟢 FOR YOU • League ({mgr_opp}) • 💥 CLEAN SHEET GONE!"
+                                    body = f"{csg_desc} (In {mgr_opp}'s active XI) | {scoreline}"
+                                    push_jobs.append((mgr_me, title, body, unique_tag))
+                                elif eid in opp_bench_ids:
+                                    title = f"🪑 OPP BENCH • League ({mgr_opp}) • 💥 CLEAN SHEET GONE!"
+                                    body = f"{csg_desc} (On {mgr_opp}'s bench) | {scoreline}"
+                                    push_jobs.append((mgr_me, title, body, unique_tag))
+
                     queue_pair_alerts(a1, a2, act1_ids, bench1_ids, act2_ids, bench2_ids)
                     queue_pair_alerts(a2, a1, act2_ids, bench2_ids, act1_ids, bench1_ids)
+                    queue_cs_gone_pair_alerts(a1, a2, act1_ids, bench1_ids, act2_ids, bench2_ids)
+                    queue_cs_gone_pair_alerts(a2, a1, act2_ids, bench2_ids, act1_ids, bench1_ids)
 
             # 3. Check Cup & Bucket Opponent Alerts (Isolated so League alerts can never be disrupted)
             try:
@@ -6551,8 +6603,23 @@ def run_automated_push_checks():
                                         body = f"{ev_desc} (On {mgr_opp}'s bench) | {cup_scoreline}"
                                         push_jobs.append((mgr_me, title, body, unique_cup_tag))
 
+                        def queue_cup_cs_gone_alerts(mgr_me, mgr_opp, opp_act_ids, opp_bench_ids):
+                            for eid, csg_list in player_cs_gone_events.items():
+                                for csg_desc, ev_code in csg_list:
+                                    unique_cup_tag = f"ev-cup-{current_gw}-{mgr_me}-{eid}-{ev_code}"
+                                    if eid in opp_act_ids:
+                                        title = f"🟢 FOR YOU • Cup ({mgr_opp}) • 💥 CLEAN SHEET GONE!"
+                                        body = f"{csg_desc} (In {mgr_opp}'s active XI) | {cup_scoreline}"
+                                        push_jobs.append((mgr_me, title, body, unique_cup_tag))
+                                    elif eid in opp_bench_ids:
+                                        title = f"🪑 OPP BENCH • Cup ({mgr_opp}) • 💥 CLEAN SHEET GONE!"
+                                        body = f"{csg_desc} (On {mgr_opp}'s bench) | {cup_scoreline}"
+                                        push_jobs.append((mgr_me, title, body, unique_cup_tag))
+
                         queue_cup_against_alerts(ca1, ca2, info2["act_ids"], info2["bench_ids"])
                         queue_cup_against_alerts(ca2, ca1, info1["act_ids"], info1["bench_ids"])
+                        queue_cup_cs_gone_alerts(ca1, ca2, info2["act_ids"], info2["bench_ids"])
+                        queue_cup_cs_gone_alerts(ca2, ca1, info1["act_ids"], info1["bench_ids"])
             except Exception as cup_push_err:
                 print("Cup push scanner warning:", cup_push_err)
 
