@@ -4586,7 +4586,7 @@
                     return;
                 }
                 if (pdfLink && data.pdf_url) pdfLink.href = data.pdf_url;
-                box.innerHTML = data.pages.map(src => `<img src="${src}" class="news-page-img" style="width:100%; height:auto; display:block; border-radius:8px; border:1px solid #182030;">`).join('');
+                box.innerHTML = data.pages.map((src, idx) => `<img src="${src}" ${idx > 1 ? 'loading="lazy" decoding="async"' : ''} class="news-page-img" style="width:100%; height:auto; display:block; border-radius:8px; border:1px solid #182030;">`).join('');
             } catch (e) {
                 box.innerHTML = "<p style='color:#ef4444; text-align:center;'>Failed to load newsletter.</p>";
             }

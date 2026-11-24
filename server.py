@@ -157,6 +157,13 @@ def ttl_cache(ttl_seconds=60):
                 if stale_val is not None:
                     return stale_val
                 return res
+            if len(_MEMORY_CACHE) > 150:
+                cutoff = now - 300
+                for k_old, (_, ts_old) in list(_MEMORY_CACHE.items()):
+                    if ts_old < cutoff:
+                        _MEMORY_CACHE.pop(k_old, None)
+                if len(_MEMORY_CACHE) > 200:
+                    _MEMORY_CACHE.clear()
             _MEMORY_CACHE[key] = (res, now)
             return res
         return wrapper
@@ -3992,6 +3999,12 @@ def find_newsletter_pdf(doc_type: str):
     ]
     return next((p for p in candidates if p.exists() and p.is_file()), None)
 
+import gc
+import threading
+
+_PDF_RENDER_LOCK = threading.Lock()
+_NEWSLETTER_PNG_CACHE = {}
+
 @app.get("/api/newsletters")
 def get_newsletter_info(doc: str = "league"):
     pdf_path = find_newsletter_pdf(doc)
@@ -3999,16 +4012,22 @@ def get_newsletter_info(doc: str = "league"):
         return {"exists": False, "message": f"File '{'latest_cup.pdf' if doc == 'cup' else 'latest_league.pdf'}' not found in Newsletters or Assets folder."}
     if pdfium is None:
         return {"exists": False, "message": "pypdfium2 is not installed on the server."}
+    pdf_doc = None
     try:
-        pdf_doc = pdfium.PdfDocument(pdf_path)
-        num_pages = len(pdf_doc)
+        with _PDF_RENDER_LOCK:
+            pdf_doc = pdfium.PdfDocument(pdf_path)
+            num_pages = len(pdf_doc)
         mtime = int(pdf_path.stat().st_mtime)
         pages = [f"/api/newsletter_page/{doc}/{i}?t={mtime}" for i in range(num_pages)]
         return {"exists": True, "pages": pages, "pdf_url": f"/api/newsletter_pdf/{doc}?t={mtime}"}
     except Exception as e:
         return {"exists": False, "message": f"Error reading PDF: {str(e)}"}
-
-_NEWSLETTER_PNG_CACHE = {}
+    finally:
+        if pdf_doc is not None:
+            try:
+                pdf_doc.close()
+            except Exception:
+                pass
 
 @app.get("/api/newsletter_page/{doc}/{page_num}")
 def get_newsletter_page_image(doc: str, page_num: int):
@@ -4025,22 +4044,61 @@ def get_newsletter_page_image(doc: str, page_num: int):
                 media_type=cached_media,
                 headers={"Cache-Control": "public, max-age=86400"}
             )
-        pdf_doc = pdfium.PdfDocument(pdf_path)
-        page = pdf_doc[page_num]
-        pil_img = page.render(scale=3).to_pil()
-        buf = io.BytesIO()
-        try:
-            pil_img.save(buf, format="WEBP", lossless=True)
-            img_bytes = buf.getvalue()
-            media_type = "image/webp"
-        except Exception:
-            buf = io.BytesIO()
-            pil_img.save(buf, format="PNG")
-            img_bytes = buf.getvalue()
-            media_type = "image/png"
-        if len(_NEWSLETTER_PNG_CACHE) > 40:
-            _NEWSLETTER_PNG_CACHE.clear()
-        _NEWSLETTER_PNG_CACHE[cache_key] = (img_bytes, media_type)
+
+        with _PDF_RENDER_LOCK:
+            if cache_key in _NEWSLETTER_PNG_CACHE:
+                cached_bytes, cached_media = _NEWSLETTER_PNG_CACHE[cache_key]
+                return Response(
+                    content=cached_bytes,
+                    media_type=cached_media,
+                    headers={"Cache-Control": "public, max-age=86400"}
+                )
+            pdf_doc = None
+            page = None
+            bitmap = None
+            pil_img = None
+            try:
+                pdf_doc = pdfium.PdfDocument(pdf_path)
+                page = pdf_doc[page_num]
+                bitmap = page.render(scale=1.75)
+                pil_img = bitmap.to_pil()
+                buf = io.BytesIO()
+                try:
+                    pil_img.save(buf, format="WEBP", quality=82, method=4)
+                    img_bytes = buf.getvalue()
+                    media_type = "image/webp"
+                except Exception:
+                    buf = io.BytesIO()
+                    pil_img.convert("RGB").save(buf, format="JPEG", quality=85, optimize=True)
+                    img_bytes = buf.getvalue()
+                    media_type = "image/jpeg"
+            finally:
+                if pil_img is not None:
+                    try:
+                        pil_img.close()
+                    except Exception:
+                        pass
+                if bitmap is not None:
+                    try:
+                        bitmap.close()
+                    except Exception:
+                        pass
+                if page is not None:
+                    try:
+                        page.close()
+                    except Exception:
+                        pass
+                if pdf_doc is not None:
+                    try:
+                        pdf_doc.close()
+                    except Exception:
+                        pass
+                gc.collect()
+
+            if len(_NEWSLETTER_PNG_CACHE) >= 16:
+                _NEWSLETTER_PNG_CACHE.pop(next(iter(_NEWSLETTER_PNG_CACHE)), None)
+            _NEWSLETTER_PNG_CACHE[cache_key] = (img_bytes, media_type)
+
         return Response(
             content=img_bytes,
             media_type=media_type,
